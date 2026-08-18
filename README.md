@@ -175,22 +175,28 @@ embedded text never leaves your machine. API binds `127.0.0.1` only.
 
 ---
 
-## Quick Start (Single Agent)
+## Quick Start (Out of the Box)
+
+**One command** — installs dependencies, bootstraps config & tokens, and starts
+the server:
 
 ```bash
 git clone git@github.com:sandro1123/mimir-memory.git
 cd mimir-memory
-pip install -e ".[embeddings]"
-
-export MIMIR_HOME=~/.hermes/mimir
-export MIMIR_DATA_DIR=$MIMIR_HOME/data
-export MIMIR_SECRETS_DIR=$MIMIR_HOME/secrets
-
-python -m mimir_v8.server --bind 127.0.0.1 --port 8456
+./bootstrap.sh
 ```
 
-> **For a multi-agent federated setup**, run `./scripts/init.sh` to bootstrap
-> agent configs and tokens, then follow [docs/FEDERATION.md](docs/FEDERATION.md).
+That's it. `bootstrap.sh` does three things:
+1. `pip install -e ".[embeddings]"` — installs deps (first run downloads bge-m3)
+2. `scripts/init.sh` — creates dirs, agent tokens, minimal config
+3. starts the server on `127.0.0.1:8456`
+
+Then hit `curl http://127.0.0.1:8456/health` to confirm.
+
+> **Manual setup** (if you prefer control):
+> `pip install -e ".[embeddings]"` → `./scripts/init.sh` → `python -m mimir_v8.server ...`
+>
+> **For a multi-agent federated setup**, follow [docs/FEDERATION.md](docs/FEDERATION.md).
 
 ---
 

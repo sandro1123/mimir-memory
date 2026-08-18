@@ -49,7 +49,7 @@ if [[ -f "$TOKEN_JSON" ]]; then
 else
   echo "==> 生成 agent token ..."
   # 用 python 生成随机 token 与 sha256（避免依赖 openssl 输出差异）
-  python3 - "$AGENTS" "$TOKEN_JSON" "$CLIENTS_DIR" <<'PY'
+  python3 - "${AGENTS[*]}" "$TOKEN_JSON" "$CLIENTS_DIR" <<'PY'
 import json, os, secrets, hashlib, sys
 
 agents = sys.argv[1].split()

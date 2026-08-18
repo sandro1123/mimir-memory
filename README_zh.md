@@ -165,22 +165,27 @@ API 仅绑定 `127.0.0.1`。
 
 ---
 
-## 快速开始（单智能体）
+## 快速开始（开箱即用）
+
+**一条命令** —— 安装依赖、生成配置与 token、并启动服务：
 
 ```bash
 git clone git@github.com:sandro1123/mimir-memory.git
 cd mimir-memory
-pip install -e ".[embeddings]"
-
-export MIMIR_HOME=~/.hermes/mimir
-export MIMIR_DATA_DIR=$MIMIR_HOME/data
-export MIMIR_SECRETS_DIR=$MIMIR_HOME/secrets
-
-python -m mimir_v8.server --bind 127.0.0.1 --port 8456
+./bootstrap.sh
 ```
 
-> **多智能体联邦接入**，请运行 `./scripts/init.sh` 引导生成智能体配置与 token，
-> 然后按 [docs/FEDERATION.md](docs/FEDERATION.md) 操作。
+就这么简单。`bootstrap.sh` 做了三件事：
+1. `pip install -e ".[embeddings]"` —— 安装依赖（首次运行会下载 bge-m3 模型）
+2. `scripts/init.sh` —— 生成目录、agent token、最小配置
+3. 在 `127.0.0.1:8456` 启动服务
+
+然后访问 `curl http://127.0.0.1:8456/health` 确认。
+
+> **手动安装**（如果你偏好自行控制）：
+> `pip install -e ".[embeddings]"` → `./scripts/init.sh` → `python -m mimir_v8.server ...`
+>
+> **多智能体联邦接入**，按 [docs/FEDERATION.md](docs/FEDERATION.md) 操作。
 
 ---
 
