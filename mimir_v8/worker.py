@@ -454,10 +454,15 @@ def decay_scan(store: CanonicalStore, actor_principal: str = "service:decay_work
                     "UPDATE facts SET decayed_at=?, status='archived' WHERE fact_id=? AND status='active'",
                     (now.isoformat(), fact_id),
                 )
-                from .store import new_id, sha256_text
+                from .store import new_id, sha256_text, canonical_json
+                # payload_hash must be computed over the exact bytes stored in
+                # payload_json. Build the payload once via canonical_json (as the
+                # rest of the event pipeline does) and hash that same string, so
+                # integrity re-verification of fact.decayed events succeeds.
+                payload_json = canonical_json({"decay_tier": decay_tier, "elapsed_days": elapsed_days})
                 connection.execute(
                     "INSERT INTO memory_events(event_id,aggregate_type,aggregate_id,aggregate_version,event_type,actor_principal,occurred_at,payload_json,payload_hash) VALUES(?,?,?,?,?,?,?,?,?)",
-                    (new_id(), "fact", fact_id, row["current_version"] if "current_version" in row else 1, "fact.decayed", actor_principal, now.isoformat(), '{"decay_tier":"' + decay_tier + '","elapsed_days":' + str(elapsed_days) + '}', sha256_text('{"decay_tier":"' + decay_tier + '"}')),
+                    (new_id(), "fact", fact_id, row["current_version"] if "current_version" in row else 1, "fact.decayed", actor_principal, now.isoformat(), payload_json, sha256_text(payload_json)),
                 )
             marked += 1
         except Exception as e:
