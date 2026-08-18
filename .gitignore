@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+*.pyo
+*.db
+*.db-wal
+*.db-shm
+logs/
+*.log
+venv/
+.venv/
+*.bak-*
+*.bak
+__pycache__/
+*.pyc
+
+# 本机发布信息（含绝对路径），不入库
+.release-info.json
+*.release-info.json
+
+# 内部维护文档（含审计/修复/规划，不进开源）
+docs/MIMIR-*.md

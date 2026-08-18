@@ -1,0 +1,6 @@
+name: mimir_memory_provider
+version: 12.0.1
+description: Mímir v12 Insight federated memory — governed, event-sourced long-term recall
+provider_interface: memory
+provider_name: mimir
+package: mimir_memory_provider

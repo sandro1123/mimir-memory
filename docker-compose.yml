@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  mimir:
+    build: .
+    container_name: mimir-v10
+    restart: unless-stopped
+    ports:
+      - "8456:8456"
+    environment:
+      - MIMIR_V8_DATA_DIR=/data/canonical.db
+      - MIMIR_V8_TOKEN_FILE=/data/api_tokens.json
+      - MIMIR_V8_COLLECTION=mimir_v10_prod_local
+      - MIMIR_V8_MODEL=BAAI/bge-m3
+      - MIMIR_V9_KNOWLEDGE_LAYERS=memory,learning,wiki
+      - MIMIR_GOVERNANCE_MODEL=cbcn/deepseek-v4-flash
+      - HF_HUB_OFFLINE=1
+      - TOKENIZERS_PARALLELISM=false
+    volumes:
+      - mirdata:/data
+      - mirmodels:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8456/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mimir-dashboard:
+    image: python:3.11-slim
+    container_name: mimir-dashboard
+    restart: unless-stopped
+    depends_on:
+      - mimir
+    ports:
+      - "8800:8800"
+    environment:
+      - MIMIR_API=http://mimir:8456
+      - CANONICAL_DB=/data/canonical.db
+      - ADMIN_TOKEN_FILE=/data/admin.token
+      - FRONTEND_DIR=/app/frontend
+      - PORT=8800
+    volumes:
+      - ./dashboard/backend:/app/backend
+      - ./dashboard/frontend:/app/frontend
+      - mirdata:/data
+    command: sh -c "pip install --no-cache-dir fastapi uvicorn httpx jinja2 && python -m uvicorn backend.main:app --host 0.0.0.0 --port 8800"
+
+volumes:
+  mirdata:
+  mirmodels:

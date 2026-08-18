@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mimir-v8"
+version = "12.0.1"
+description = "Mímir v12 Insight — federated memory with Ebbinghaus decay, Chronos validity, symmetric retrieval self-evolution, conflict resolution and skill crystallization."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Mímir maintainer" }]
+keywords = ["memory", "agent", "rag", "vector", "sqlite", "chromadb"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "httpx>=0.27.0",
+    "jinja2>=3.1.0",
+    "aiofiles>=24.1.0",
+    "chromadb>=0.5.3",
+    "pydantic>=2.9.0",
+    "python-multipart>=0.0.4",
+    "cryptography>=43.0.0",
+]
+
+[project.scripts]
+mimir-server = "mimir_v8.server:main"
+mimir-worker = "mimir_v8.worker:main"
+mimir-migrate = "mimir_v8.migrate_cli:main"
+mimir-cli = "mimir_v8.cli:main"
+
+[project.optional-dependencies]
+embeddings = ["sentence-transformers==3.4.1", "transformers>=4.47.0"]
+publish = ["pymupdf>=1.24.0"]
+
+[tool.setuptools.packages.find]
+include = ["mimir_v8*"]
+
+[tool.setuptools.package-data]
+mimir_v8 = ["py.typed"]
