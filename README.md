@@ -1,6 +1,6 @@
-# Mímir — Federated Memory System
+# Mímir — The Memory That Remembers *How* to Forget
 
-> Built for persistent, governed, queryable memory of AI assistants
+> An event-sourced, self-evolving, federated memory system for AI agents.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Schema Version](https://img.shields.io/badge/schema-18-blue.svg)](#)
@@ -8,160 +8,187 @@
 [![CI](https://github.com/sandro1123/mimir-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/sandro1123/mimir-memory/actions)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
+[English](README.md) · [中文](README_zh.md)
+
 ---
 
-## What Mímir Is
+## Why Mímir Is Different
 
-Mímir is a **federated, event-sourced memory system** designed for AI agents and knowledge workers. Unlike vector databases that treat memory as embeddings or RAG pipelines that discard evolution signals, Mímir treats memories as **immutable events** with explicit lifecycle, governance, and multi-layer queries.
+Most memory systems are **databases with a nicer API** — they store vectors and
+return the closest match. Mímir is built on a different premise: **a memory is
+an event, not a row.**
 
-### Core Principles
+That single decision changes everything downstream:
 
-- **Event-Sourced**: every fact is an append-only event stream with ACID triggers
-- **Governed**: LLM-assisted classification, human review, audit log, ACL per fact
-- **Queryable**: vector + full-text + graph channels fused into ranked results with RRF
-- **Durable**: SQLite canonical store with immutability triggers for `memory_events` and `fact_versions`
+| A normal memory store | Mímir |
+|---|---|
+| Overwrites old memories | **Appends immutable events** — every change is a new event, history is never rewritten |
+| "Forgetting" = deleting rows | **Tombstone forgetting** — forget without deleting; the fact is marked, not destroyed |
+| Memory quality = your prompt | **Governed** — an LLM *evaluates* every candidate before commit; the LLM can only *suggest*, never *commit* |
+| Static retrieval score | **Self-evolving** — search feedback (useful/useless/correction) nudges confidence over time |
+| Single vector index | **Three-channel fusion** — vector + full-text + graph, fused by RRF with a local reranker |
+| Facts decay arbitrarily | **Ebbinghaus decay** — five forgetting curves, from never-forget to ephemeral |
+
+Mímir is not "another RAG layer." It is a **complete lifecycle** for agent memory:
+*ingest → govern → commit → retrieve → self-correct → forget* — with every step
+auditable and reversible.
+
+---
+
+## The Core Architecture in One Picture
+
+```
+                         ┌─────────────────────────────┐
+   conversation          │         GOVERNANCE          │
+   / ingestion ────────▶ │  candidate → LLM assess →   │
+                         │  noise / provisional /       │
+                         │  human-review / commit       │
+                         └──────────────┬──────────────┘
+                                        ▼
+                         ┌─────────────────────────────┐
+                         │   CANONICAL (event-sourced) │
+                         │   facts + memory_events +    │
+                         │   fact_versions (immutable)  │
+                         └──────────────┬──────────────┘
+                                        ▼  (outbox fan-out)
+              ┌──────────────┬──────────┴──────────┬──────────────┐
+              ▼              ▼                     ▼              ▼
+          vector (chroma)  fts (FTS5)          graph           core_memory
+              └──────────────┴──────────┬──────────┴──────────────┘
+                                        ▼
+                              RRF fusion + local rerank
+                                        ▼
+                              ranked, ACL-filtered results
+```
+
+---
+
+## What Sets Mímir Apart — The Six Pillars
+
+### 1. Event-Sourced Truth (不可篡改的账本)
+Every fact is an append-only event stream. `memory_events` and `fact_versions`
+are protected by SQLite triggers that **refuse UPDATE and DELETE**. You can
+rewind, audit, and explain *why* a memory is what it is — as a structural
+property, not a promise.
+
+### 2. Governed Ingestion (治理闭环)
+Before any candidate becomes a fact, it passes through a governance pipeline:
+a deterministic rule engine plus an independent LLM assessor classify it as
+noise, low-risk, or uncertain. The LLM is **deliberately separated** from the
+commit path — the same model cannot extract *and* approve. Every decision lands
+in `audit_log`.
+
+### 3. Symmetric Self-Evolution (检索自进化)
+Search feedback (`useful` / `useless` / `correction`) is aggregated over a
+7-day window and nudges fact confidence — up *and* down, gated by a minimum
+signal count so two lucky hits can't inflate a fact's weight. Memories get
+*more* trustworthy the more they're used, and *less* trustworthy when they
+misfire.
+
+### 4. Scientific Forgetting (科学的遗忘)
+Five decay tiers modeled on the Ebbinghaus curve, plus a Chronos dual-timeline
+(`valid_from` / `valid_to`): identity-level rules never decay, ephemeral facts
+half-life in 7 days, and expired facts are deweighted — **never deleted**.
+
+### 5. Three-Layer Knowledge (三层知识)
+Memory isn't one flat pile. Mímir separates **memory** (facts), **learning**
+(methods/experience), and **wiki** (documents), each with its own lifecycle,
+authorization, and feedback loop. Skill crystallization auto-clusters recurring
+topics into reusable pattern facts — with a human in the loop.
+
+### 6. Federated & Private by Default (联邦隔离 + 本地隐私)
+Multi-agent isolation via `owner_principal` + ACL. All embeddings (bge-m3) and
+reranking (ms-marco) run **locally on CPU** — text being embedded never leaves
+your machine. API binds to `127.0.0.1` only.
 
 ---
 
 ## Quick Start
 
-### Environment
-
 ```bash
-# clone
 git clone git@github.com:sandro1123/mimir-memory.git
 cd mimir-memory
+pip install -e ".[embeddings]"        # includes local bge-m3 embedding
 
-# install deps
-pip install fastapi uvicorn httpx jinja2 aiofiles chromadb sentence-transformers
-
-# environment (create your own secrets under MIMIR_HOME/secrets)
+# create your own secrets under MIMIR_HOME/secrets
 export MIMIR_HOME=~/.hermes/mimir
 export MIMIR_DATA_DIR=$MIMIR_HOME/data
 export MIMIR_SECRETS_DIR=$MIMIR_HOME/secrets
-export MIMIR_CONFIG_FILE=$MIMIR_HOME/mimir_config.yaml
 
-# serve loopback-only
 python -m mimir_v8.server --bind 127.0.0.1 --port 8456
 ```
 
-### API Quick Reference
-
-| Endpoint | Method | Auth | What it does |
-|----------|--------|------|-------------|
-| `/health` | GET | none | Liveness |
-| `/ready` | GET | none | readiness + projector lag |
-| `/v8/query` | POST | read | ranked facts by vector/fts/graph RRF |
-| `/v8/learning/remember` | POST | write | candidate → governance pipeline |
-| `/v8/learning/candidates` | GET | review | pending candidates |
-| `/v8/learning/candidates/{id}/review` | POST | review | approve / reject |
-| `/v8/learning/status` | GET | read | learning pipeline status |
-| `/v10/opinions` | GET/POST | write | subjective stances, confidence evolution |
-| `/v10/observations` | GET | read | consolidated summaries from opinions |
-| `/v10/governance/run` | POST | manage | run LLM governance pipeline |
-| `/v10/opinions/consolidate` | POST | manage | auto-generate observations (≥3) |
-| `/v10/candidates/{id}/fast_track` | POST | write | auto approve & commit bypass |
+Then hit `/health` to confirm, and see [`examples/QUICKSTART.md`](examples/QUICKSTART.md)
+for a full walkthrough of write → govern → query.
 
 ---
 
-## Architecture
+## Feature Matrix
 
-### Storage Layers (5 fan-outs per write)
-
-```
-facts (canonical)    ← single insert, core event source
-   ↓
-memory_events        ← append-only, trigger-immute
-   ↓
-fact_versions        ← immutable historical snapshot, ACID trigger
-   ↓
-four db files:   chroma (vector), fts.db (fts5), graph.db (graph), core_memory.db
-                   ↑ outbox pattern with commit-following guarantees
-```
-
-### Governance Pipeline
-
-```
-any write memory(candidate, review_required)
-       ↓
-LLM governance assesses (risk & value) via a configurable local/remote LLM
-  ├─→ auto_rejected (deterministic + LLM noise)
-  ├─→ provisional (AI evaluates but unsure)
-  ├─→ human_review (missing approval)
-  ↓manual审批 → approved → commit → facts (status=active)
-```
-
-### Query Flow
-
-```
-Loader QueryKernel.search：
-1. RelevanceGate (1ms heuristic——skip irrelevant chats)
-2. Vector (chromadb cosmlkem)
-3. FTS (SQLite FTS5)
-4. Graph (one-hop neighbourhood expander)
-→ RRF merge → ACL filter → decay×trust → top-K return, include_provisional flag supported
-```
-
----
-
-## Packages
-
-### v10 release structure
-
-```
-releases/v10.0.0-20260811_104554/
-├── mimir_v8/           # core package (~11k lines)
-│   ├── api.py           # FAST API DAG (~1000 lines)
-│   ├── governance.py    # v10 新：governance P〇〇(auto_log / fast track)
-│   ├── opinion.py       # NEW: opinion confidence evolution, observations
-│   ├── schema.py        # constants (version=10.0.0 schema=13)
-│   ├── store.py         # canonical store + 29 tables + ACID + trigger + outbox
-│   ├── worker.py        # systemd timer entry:all worker commands
-│   └── ...
-├── tests/               # R2-R8 regression (113 test defs)
-├── README.md            # this file
-├── ARCHITECTURE.md      # full architecture
-├── CHANGELOG.md         # releases history
-└── UPGRADE-ROADMAP-20260807.md  # future views
-
-dashboard (separate. routes to v10 API 8800)
-├── Dockerfile
-├── docker-compose.yml
-├── manage.sh            # local start/stop/lifecycle scripts
-├── backend/main.py      # 15 existing endpoints + 5 new v10 routers
-└── frontend/index.html  # Alpine.js SPA，7 tabs + 手机底导航
-```
-
----
-
-## Security
-
-- **Loopback only**: API binds `127.0.0.1` only; external visibility via nginx/cloudflare tunnel
-- **Bearer token auth + scope** in every endpoint (`read/write/review/manage/admin`)
-- **SQLite triggers** prevent `memory_events` and `fact_versions` from UPDATE/DELETE
-- All mutations carry **idempotency key** + actor_principal + audit logging
-- Sensitive profiles can set `egress_policy=local_only` which blocks external processor upstream
-- DLP regex redaction applied on ingestion and extraction
+| Capability | Mímir |
+|---|---|
+| Event sourcing (immutable events) | ✅ |
+| Governance pipeline (LLM assessor) | ✅ |
+| Multi-agent federation + ACL | ✅ |
+| Vector + FTS + graph fusion (RRF) | ✅ |
+| Local CPU embeddings & rerank | ✅ |
+| Search-feedback self-evolution | ✅ |
+| Ebbinghaus decay + Chronos validity | ✅ |
+| Conflict resolution (disputed, never deleted) | ✅ |
+| Skill crystallization | ✅ |
+| Multi-modal fact assets | ✅ |
+| Obsidian wikilink bidirectional linking | ✅ |
+| MCP server (27 tools) | ✅ |
+| Hermes MemoryProvider plugin | ✅ |
+| PyPI + Docker packaging | ✅ |
 
 ---
 
 ## Roadmap
 
 | Milestone | Scope | Status |
-|-----------|-------|--------|
-| v10.0 | Governance main → in-package, Opinion/Observation layer, dashboard fix | ✅ shipped |
-| v11.0 | Symbolic short-term memory + CodeGraph + reflect/federation API (inspired by TencentDB Agent Memory) | ✅ shipped |
-| v12.0 (schema 18) | Insight: Ebbinghaus decay, Chronos, EvolveMem, recall funnel trace, conflict resolution, skill crystallization, MCP 27 tools, multimodal assets, PyPI/Docker packaging, Obsidian wikilink | ✅ shipped |
+|---|---|---|
+| v10.0 | In-package governance, Opinion/Observation confidence layer | ✅ shipped |
+| v11.0 | Symbolic short-term memory + CodeGraph + reflect/federation API | ✅ shipped |
+| v12.0 | Insight: Ebbinghaus decay, Chronos, EvolveMem, recall funnel, conflict resolution, crystallization, MCP, multimodal, PyPI/Docker | ✅ shipped |
 | v12+ | Hermes MemoryProvider live integration, retrieval eval baseline | 🔵 in progress |
 
-See `UPGRADE-ROADMAP-20260807.md` in the release dir for detail.
+---
+
+## Security
+
+- API binds `127.0.0.1` only; remote access via reverse proxy (nginx / Cloudflare Tunnel)
+- Bearer-token auth with scopes (`read/write/review/manage/admin`) on every endpoint
+- SQLite triggers make `memory_events` / `fact_versions` immutable
+- Idempotency keys + `actor_principal` + audit logging on all mutations
+- `egress_policy=local_only` blocks external processing of sensitive facts
+
+See [SECURITY.md](SECURITY.md) for the vulnerability disclosure policy.
+
+---
+
+## Acknowledgements
+
+Mímir stands on the shoulders of several excellent open-source memory projects.
+We are grateful to their authors for ideas we borrowed and built upon:
+
+| Project | Author | What We Learned |
+|---|---|---|
+| [aiduMEI](https://github.com/monkey2jack/aiduMEI) | [monkey2jack](https://github.com/monkey2jack) | The **governance + self-evolution vision** that shaped Mímir v12 "Insight": Tahoe-Gate relevance gating, the EvolveMem feedback loop, conflict-resolution, and skill-crystallization patterns. This project is the single largest influence on our design. |
+| [TencentDB Agent Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory) | Tencent Cloud | Symbolic short-term memory (Mermaid canvas offload + drill-down) and CodeGraph indexing |
+| [Hindsight](https://github.com/obsidianforensics/hindsight) | Obsidian Forensics | Belief modeling — the Opinion/Observation layer that separates "what I know" from "how sure I am" |
+| [Mem0](https://github.com/mem0ai/mem0) / [MemGPT](https://github.com/cpacker/MemGPT) | mem0ai / cpacker | The memory-pipeline paradigm: tiered storage, context management, and memory as a first-class service |
+
+**A special note on [aiduMEI](https://github.com/monkey2jack/aiduMEI)** (aidu Memory Engine
+Insight, "爱嘟优忆思"): beyond the four borrowed patterns above, its author's deep
+thinking on **verbatim preservation vs. distillation** — "蒸馏会丢温度，原文才是证据"
+(distillation loses warmth; the verbatim record is the evidence) — directly
+inspired Mímir's retention-exemption design, where conversation messages cited
+by committed facts are never purged. We are building in the same spirit, and we
+encourage you to check out aiduMEI as well.
 
 ---
 
 ## License
 
 [MIT](LICENSE)
-
-### Inspiration
-
-The v11.0 symbolic short-term memory and CodeGraph modules were inspired by [TencentDB Agent Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory) (MIT) — specifically its symbolic short-term memory (Mermaid canvas + offload/drill-down) and code graph indexing concepts.

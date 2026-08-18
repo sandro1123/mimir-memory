@@ -1,17 +1,35 @@
+# Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.whl
+
+# Databases & data (never commit personal data)
 *.db
 *.db-wal
 *.db-shm
+
+# Logs
 logs/
 *.log
+
+# Virtual environments
 venv/
 .venv/
-*.bak-*
+env/
+
+# Backups & local files
 *.bak
-__pycache__/
-*.pyc
+*.bak-*
+*.orig
 
 # 本机发布信息（含绝对路径），不入库
 .release-info.json
@@ -19,3 +37,7 @@ __pycache__/
 
 # 内部维护文档（含审计/修复/规划，不进开源）
 docs/MIMIR-*.md
+
+# OS / editor
+.DS_Store
+*.swp
