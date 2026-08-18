@@ -22,9 +22,9 @@ logger = logging.getLogger("mimir_v8.evaluator")
 
 EVALUATOR_VERSION = "v8.2-evaluator-3"
 
-DEFAULT_API_URL = "https://token.sensenova.cn/v1"
-DEFAULT_MODEL = "deepseek-v4-flash"
-DEFAULT_KEY_ENV = "SENSENOVA_KEY4"
+DEFAULT_API_URL = os.environ.get("MIMIR_EVAL_API_URL", "https://api.example.com/v1")
+DEFAULT_MODEL = "default-model"
+DEFAULT_KEY_ENV = "MIMIR_EVAL_API_KEY"
 
 ALLOWED_RISK = frozenset({"low", "medium", "high", "critical"})
 ALLOWED_FACT_TYPES = frozenset(FACT_TYPES)

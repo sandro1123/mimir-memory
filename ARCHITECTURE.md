@@ -74,7 +74,7 @@ QueryRequest → RelevanceGate#should_search
 `worker governance` (systemd timer每五分钟）
 ```
 :: review_required ordered created_at
-→ LLM assessment (deepseek-v4-flash via 9router, temperature 0.1, max_tokens 512)
+→ LLM assessment (configurable model, temperature 0.1, max_tokens 512)
 → make_decision:
     is_noise → auto_reject (√ no fast, no fast follow)
     risk high/critical → human_review

@@ -24,9 +24,9 @@ from .schema import MIMIR_VERSION
 
 # ── Config ──────────────────────────────────────────────
 ROUTER_URL = os.environ.get("MIMIR_ROUTER_URL", "http://127.0.0.1:20128/v1")
-ROUTER_API_KEY = os.environ.get("MIMIR_ROUTER_API_KEY", "sk-4166fcd0")
-PRIMARY_MODEL = os.environ.get("MIMIR_GOVERNANCE_MODEL", "cbcn/deepseek-v4-flash")
-FALLBACK_MODEL = os.environ.get("MIMIR_GOVERNANCE_FALLBACK_MODEL", "nvidia/deepseek-ai/deepseek-v4-flash")
+ROUTER_API_KEY = os.environ.get("MIMIR_ROUTER_API_KEY", "")
+PRIMARY_MODEL = os.environ.get("MIMIR_GOVERNANCE_MODEL", "default-model")
+FALLBACK_MODEL = os.environ.get("MIMIR_GOVERNANCE_FALLBACK_MODEL", "fallback-model")
 GOVERNANCE_AUTO_APPROVE = os.environ.get("MIMIR_GOVERNANCE_AUTO_APPROVE", "1") == "1"
 GOVERNANCE_FAST_TRACK_THRESHOLD = float(os.environ.get("MIMIR_FAST_TRACK_THRESHOLD", "0.8"))
 

@@ -13,7 +13,7 @@ services:
       - MIMIR_V8_COLLECTION=mimir_v10_prod_local
       - MIMIR_V8_MODEL=BAAI/bge-m3
       - MIMIR_V9_KNOWLEDGE_LAYERS=memory,learning,wiki
-      - MIMIR_GOVERNANCE_MODEL=cbcn/deepseek-v4-flash
+      - MIMIR_GOVERNANCE_MODEL=${MIMIR_GOVERNANCE_MODEL:-default-model}
       - HF_HUB_OFFLINE=1
       - TOKENIZERS_PARALLELISM=false
     volumes:

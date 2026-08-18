@@ -5,6 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Schema Version](https://img.shields.io/badge/schema-18-blue.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.11+-3776AB.svg)](#)
+[![CI](https://github.com/sandro1123/mimir-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/sandro1123/mimir-memory/actions)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 ---
 
@@ -26,8 +28,9 @@ Mímir is a **federated, event-sourced memory system** designed for AI agents an
 ### Environment
 
 ```bash
-# clone (via lxd/remote/cargo)
-# see https://github.com/mimir-memory/mimir for the upstream repository
+# clone
+git clone git@github.com:sandro1123/mimir-memory.git
+cd mimir-memory
 
 # install deps
 pip install fastapi uvicorn httpx jinja2 aiofiles chromadb sentence-transformers
@@ -81,7 +84,7 @@ four db files:   chroma (vector), fts.db (fts5), graph.db (graph), core_memory.d
 ```
 any write memory(candidate, review_required)
        ↓
-LLM governance assesses (risk & value) via 9router (deepseek-v4-flash)
+LLM governance assesses (risk & value) via a configurable local/remote LLM
   ├─→ auto_rejected (deterministic + LLM noise)
   ├─→ provisional (AI evaluates but unsure)
   ├─→ human_review (missing approval)
@@ -157,9 +160,7 @@ See `UPGRADE-ROADMAP-20260807.md` in the release dir for detail.
 
 ## License
 
-MIT
-
-Built by Sandro with OpenCode assistance. GPL violation checking does not apply; license must be kept simple.
+[MIT](LICENSE)
 
 ### Inspiration
 
