@@ -14,54 +14,36 @@
 
 ---
 
-## The Name · 名字的由来
+## The Name
 
-**Mímir**（密米尔）源自北欧神话 —— 智慧之泉（Well of Mímir）的守护者。
+**Mímir** originates from Norse mythology — the guardian of the Well of Mímir (Mímisbrunnr), the source of wisdom.
 
-在北欧神话中，众神之父奥丁（Odin）为了换取一口智慧之泉的井水，献出了自己
-的一只眼睛。而这口泉水之所以蕴含智慧，正是因为它由巨人 **Mímir** 日夜守护——
-Mímir 本身就是「记忆」与「知识」的化身。奥丁失去一只眼，却得到了预见未来的
-智慧；而 Mímir 的头颅，即使在诸神黄昏（Ragnarök）之后，仍被奥丁带在身边，
-继续为他提供忠告。
+In Norse mythology, Odin, the Allfather, sacrificed one of his own eyes to drink from the Well of Wisdom. The well possessed wisdom precisely because it was guarded day and night by the giant **Mímir** — the personification of memory and knowledge. Odin lost an eye, yet gained the wisdom to foresee the future. Even after Ragnarök, Mímir's severed head remained by Odin's side, continuing to offer him counsel.
 
-这个名字对一套记忆系统而言，是一个恰到好处的隐喻：
+This name is an apt metaphor for a memory system:
 
-- **记忆需要代价** —— 奥丁用一只眼换智慧，正如可靠的记忆需要投入治理、
-  审计与演化的成本，而非廉价的「记下来就行」。
-- **记忆是长存的** —— 即使世界毁灭（诸神黄昏），Mímir 仍在。真正的记忆
-  系统应当经得起时间的冲刷、版本的更迭，而不是随进程重启而消失。
-- **记忆的价值在于「被喝下」** —— 泉水若无人饮用便只是水。记忆若无法在
-  正确的时刻、以正确的权限被检索到，就只是堆积的数据。
+- **Memory comes at a cost** — Odin traded an eye for wisdom, just as reliable memory demands the continuous investment of governance, audit, and evolution, rather than a cheap "just write it down".
+- **Memory endures** — Even when the world ends (Ragnarök), Mímir remains. A true memory system should withstand the passage of time and version iterations, rather than vanishing with a process restart.
+- **The value of memory lies in being "consumed"** — A well without drinkers is merely water. If memory cannot be retrieved at the right moment with the proper permissions, it remains mere accumulated data.
 
-Mímir 因此不只是一个技术命名，而是一句设计承诺：**做一套值得用「一只眼睛」
-去换的、长存的、可饮用的记忆。**
+Mímir is therefore not merely a technical name, but a design promise: **to build a long-lived, consumable memory substrate worthy of trading "an eye" for.**
 
 ---
 
-## The Philosophy · 我们的哲学
+## The Philosophy
 
-Mímir 建立在一个简单但常被忽视的信念上：**记忆不是数据的堆积，而是一个
-有生命周期的过程。**
+Mímir is founded on a simple yet often overlooked conviction: **memory is not a static accumulation of data, but a living lifecycle process.**
 
-大多数记忆系统把「记住」当成终点——存进去，取出来，完事。但真实世界的
-记忆不是这样的。真实记忆会：
+Most memory systems treat "remembering" as the destination — store it, retrieve it, done. But real-world memory does not work this way. Genuine memory:
 
-1. **被审慎地接纳** —— 不是所有信息都值得记住，也不是所有「记住了」都
-   该被无条件信任。所以我们让每一条候选在进入记忆之前，都经过治理评估，
-   并让「提取」与「批准」永远分离。
-2. **随时间演化** —— 用得多的记忆更可信，失效的记忆被降权。记忆的
-   置信度应该是一段随时间变化的曲线，而不是一个静止的数字。
-3. **懂得遗忘** —— 遗忘不是记忆的敌人，而是记忆的一部分。真正的遗忘
-   是「有选择地放下」，而不是「销毁」。所以我们用墓碑标记而非删除，
-   用艾宾浩斯曲线而非一刀切。
-4. **有归属、有边界** —— 在多个智能体共享的世界里，「谁记得」和
-   「谁能看」与「记住了什么」同样重要。记忆必须有主人，有边界，有
-   克制的共享。
+1. **Is admitted with deliberation** — Not all information is worth remembering, nor should everything "remembered" be unconditionally trusted. Every candidate must undergo governance assessment before admission, keeping extraction strictly separated from approval.
+2. **Evolves over time** — Frequently used memories gain trust, while obsolete ones are deweighted. Confidence should be a dynamic curve over time, not a frozen scalar.
+3. **Knows how to forget** — Forgetting is not the enemy of memory, but an essential part of it. True forgetting is selective letting go rather than outright destruction — using tombstones rather than deletion, and Ebbinghaus curves rather than blunt purges.
+4. **Has ownership and boundaries** — In a world shared by multiple agents, *who remembers* and *who can view* are just as crucial as *what was remembered*. Memory must have clear ownership, boundaries, and deliberate sharing.
 
-这就是 Mímir 的全部哲学：**把记忆当作一件需要被尊重、被治理、被演化、
-被有意识地遗忘的事物，而不是一个可以无限写入的哈希表。**
+This is the core philosophy of Mímir: **treating memory as something to be respected, governed, evolved, and consciously forgotten, rather than an unbounded hash table.**
 
-我们不追求「记得最多」，我们追求「记得恰到好处」。
+We do not strive to remember the most; we strive to remember what matters.
 
 ---
 
@@ -69,34 +51,22 @@ Mímir 建立在一个简单但常被忽视的信念上：**记忆不是数据�
 
 Most memory systems are built for **one agent**. Mímir is built for **many**.
 
-In a multi-agent system — a network ops agent, a quant-trading agent, a tech
-consultant, a trainer — each agent has a different job, different knowledge, and
-a different owner. They shouldn't all see everything, but they *should* be able
-to share what matters.
+In a multi-agent system — a network ops agent, a quant-trading agent, a tech consultant, a trainer — each agent has a different job, different knowledge, and a different owner. They shouldn't all see everything, but they *should* be able to share what matters.
 
 Mímir's answer is **federated memory with fine-grained isolation**:
 
-- **Each agent has its own memory** — facts are tagged with `owner_principal`,
-  and ACLs control exactly who can read what.
-- **Agents share deliberately** — three visibility tiers (`all` / `shared` /
-  `owner_only`) let you mark a fact as "mine alone", "for my team", or "public
-  to all agents".
-- **Cross-agent awareness** — an awareness broadcast surfaces what other agents
-  learned recently, so agents don't operate in silos.
-- **Federated search** — `/v10/federation/{peer}` queries across principals with
-  ACL enforcement, so one agent can ask "what does anyone know about X?" safely.
+- **Each agent has its own memory** — facts are tagged with `owner_principal`, and ACLs control exactly who can read what.
+- **Agents share deliberately** — three visibility tiers (`all` / `shared` / `owner_only`) let you mark a fact as "mine alone", "for my team", or "public to all agents".
+- **Cross-agent awareness** — an awareness broadcast surfaces what other agents learned recently, so agents don't operate in silos.
+- **Federated search** — `/v10/federation/{peer}` queries across principals with ACL enforcement, so one agent can ask "what does anyone know about X?" safely.
 
-The result: **a single memory substrate shared by N agents, with the isolation
-of N private memories.** That's the difference between a memory store and a
-*collective* memory.
+The result: **a single memory substrate shared by N agents, with the isolation of N private memories.** That's the difference between a memory store and a *collective* memory.
 
 ---
 
 ## Why Mímir Is Different (Beyond Federation)
 
-Federation is the headline. But Mímir is also built on a fundamentally different
-premise from "a vector database with a nice API": **a memory is an event, not a
-row.**
+Federation is the headline. But Mímir is also built on a fundamentally different premise from "a vector database with a nice API": **a memory is an event, not a row.**
 
 | A normal memory store | Mímir |
 |---|---|
@@ -109,8 +79,7 @@ row.**
 | Facts decay arbitrarily | **Ebbinghaus decay** — five forgetting curves, never-forget to ephemeral |
 
 Mímir is the complete lifecycle for collective agent memory:
-*ingest → govern → commit → retrieve → self-correct → forget* — every step
-auditable and reversible.
+*ingest → govern → commit → retrieve → self-correct → forget* — every step auditable and reversible.
 
 ---
 
@@ -146,39 +115,29 @@ auditable and reversible.
 
 ## The Six Pillars
 
-### 1. Federated Memory (多 Agent 联邦记忆) — *the headline*
-Multiple agents share one memory substrate with `owner_principal` isolation,
-three visibility tiers, cross-agent awareness, and federated search with ACL.
-See [docs/FEDERATION.md](docs/FEDERATION.md) for the multi-agent setup guide.
+### 1. Federated Memory — *the headline*
+Multiple agents share one memory substrate with `owner_principal` isolation, three visibility tiers, cross-agent awareness, and federated search with ACL. See [docs/FEDERATION.md](docs/FEDERATION.md) for the multi-agent setup guide.
 
-### 2. Event-Sourced Truth (事件溯源)
-Every fact is an append-only event stream. `memory_events` and `fact_versions`
-are trigger-protected against UPDATE and DELETE — rewindable, auditable, and
-explainable as a structural property.
+### 2. Event-Sourced Truth
+Every fact is an append-only event stream. `memory_events` and `fact_versions` are trigger-protected against UPDATE and DELETE — rewindable, auditable, and explainable as a structural property.
 
-### 3. Governed Ingestion (治理闭环)
-A deterministic rule engine plus an independent LLM assessor classify every
-candidate before commit. The LLM is **deliberately separated** from the commit
-path — it cannot extract *and* approve.
+### 3. Governed Ingestion
+A deterministic rule engine plus an independent LLM assessor classify every candidate before commit. The LLM is **deliberately separated** from the commit path — it cannot extract *and* approve.
 
-### 4. Symmetric Self-Evolution (检索自进化)
-Search feedback (`useful`/`useless`/`correction`) aggregates over a 7-day window
-and nudges confidence up *and* down, gated by minimum signal count.
+### 4. Symmetric Self-Evolution
+Search feedback (`useful`/`useless`/`correction`) aggregates over a 7-day window and nudges confidence up *and* down, gated by minimum signal count.
 
-### 5. Scientific Forgetting (科学的遗忘)
-Five Ebbinghaus decay tiers + Chronos dual-timeline. Identity rules never decay;
-ephemeral facts half-life in 7 days; expired facts are deweighted — never deleted.
+### 5. Scientific Forgetting
+Five Ebbinghaus decay tiers + Chronos dual-timeline. Identity rules never decay; ephemeral facts half-life in 7 days; expired facts are deweighted — never deleted.
 
-### 6. Local-First Privacy (本地隐私)
-All embeddings (bge-m3) and reranking (ms-marco) run **locally on CPU** —
-embedded text never leaves your machine. API binds `127.0.0.1` only.
+### 6. Local-First Privacy
+All embeddings (bge-m3) and reranking (ms-marco) run **locally on CPU** — embedded text never leaves your machine. API binds `127.0.0.1` only.
 
 ---
 
 ## Quick Start (Out of the Box)
 
-**One command** — installs dependencies, bootstraps config & tokens, and starts
-the server:
+**One command** — installs dependencies, bootstraps config & tokens, and starts the server:
 
 ```bash
 git clone git@github.com:sandro1123/mimir-memory.git
@@ -249,8 +208,7 @@ See [SECURITY.md](SECURITY.md) for the vulnerability disclosure policy.
 
 ## Acknowledgements
 
-Mímir stands on the shoulders of several excellent open-source memory projects.
-We are grateful to their authors for ideas we borrowed and built upon:
+Mímir stands on the shoulders of several excellent open-source memory projects. We are grateful to their authors for ideas we borrowed and built upon:
 
 | Project | Author | What We Learned |
 |---|---|---|
@@ -259,18 +217,15 @@ We are grateful to their authors for ideas we borrowed and built upon:
 | [Hindsight](https://github.com/obsidianforensics/hindsight) | Obsidian Forensics | Belief modeling — the Opinion/Observation layer separating "what I know" from "how sure I am" |
 | [Mem0](https://github.com/mem0ai/mem0) / [MemGPT](https://github.com/cpacker/MemGPT) | mem0ai / cpacker | The memory-pipeline paradigm: tiered storage, context management, memory as a first-class service |
 
-**A special note on [aiduMEI](https://github.com/monkey2jack/aiduMEI)** (aidu Memory
-Engine Insight, "爱嘟优忆思"): beyond the four borrowed patterns, its author's deep
-thinking on **verbatim preservation vs. distillation** — "蒸馏会丢温度，原文才是证据"
-(distillation loses warmth; the verbatim record is the evidence) — directly
-inspired Mímir's retention-exemption design, where conversation messages cited
-by committed facts are never purged. We encourage you to check out aiduMEI.
+**A special note on [aiduMEI](https://github.com/monkey2jack/aiduMEI)** (aidu Memory Engine Insight): beyond the four borrowed patterns, its author's deep thinking on **verbatim preservation vs. distillation** — *"distillation loses warmth; the verbatim record is the evidence"* — directly inspired Mímir's retention-exemption design, where conversation messages cited by committed facts are never purged. We encourage you to check out aiduMEI.
 
 ---
 
 ## License
 
 [MIT](LICENSE)
+
+---
 
 ## Contact
 
