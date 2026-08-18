@@ -1,0 +1,1594 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Mímir Dashboard</title>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#faf9f5; --card:#ffffff; --card2:#f5f4ef; --border:#e8e5dd; --border2:#d9d5cb;
+  --text:#3a3731; --muted:#8f8b83; --faint:#b4b0a7;
+  --accent:#d97757; --accent-soft:#f3e2d9; --accent-ink:#bf5b3a;
+  --green:#3f7d4e; --green-bg:#e5efe7; --red:#b3483f; --red-bg:#f5e4e2;
+  --yellow:#a87924; --yellow-bg:#f6edd9; --blue:#4a6fa5; --blue-bg:#e4ebf4;
+  --purple:#7a5fa5; --purple-bg:#eee7f5;
+  --serif:"Tiempos Text","Source Serif 4","Georgia",serif;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Inter","Helvetica Neue",Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+  --shadow:0 1px 2px rgba(58,55,49,.05),0 4px 16px rgba(58,55,49,.06);
+  --radius:12px;
+}
+html[data-theme="dark"]{
+  --bg:#1d1c1a; --card:#262420; --card2:#2b2a26; --border:#37352f; --border2:#46443c;
+  --text:#ece9e3; --muted:#96918a; --faint:#6e6a63;
+  --accent:#e08b64; --accent-soft:#432e26; --accent-ink:#f0a789;
+  --green:#7cab85; --green-bg:#25322a; --red:#d08a82; --red-bg:#3a2825;
+  --yellow:#d4b368; --yellow-bg:#3a3225; --blue:#8fb0da; --blue-bg:#283244;
+  --purple:#b499dd; --purple-bg:#332a45;
+  --shadow:0 1px 2px rgba(0,0,0,.2),0 4px 16px rgba(0,0,0,.25);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;transition:background .3s,color .3s;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:var(--serif);font-weight:600}
+
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
+.card-hover{transition:border-color .2s,box-shadow .2s,transform .2s}
+.card-hover:hover{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.stat-value{font-family:var(--serif);font-size:1.9rem;font-weight:600;letter-spacing:-.02em;line-height:1}
+.stat-label{font-size:.72rem;color:var(--muted);margin-top:5px}
+.badge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:6px;font-size:.68rem;font-weight:600;line-height:1.5}
+.badge-green{background:var(--green-bg);color:var(--green)}
+.badge-yellow{background:var(--yellow-bg);color:var(--yellow)}
+.badge-red{background:var(--red-bg);color:var(--red)}
+.badge-blue{background:var(--blue-bg);color:var(--blue)}
+.badge-purple{background:var(--purple-bg);color:var(--purple)}
+.badge-gray{background:var(--card2);color:var(--muted)}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.status-dot.green{background:var(--green);box-shadow:0 0 6px var(--green)}
+.status-dot.yellow{background:var(--yellow);box-shadow:0 0 6px var(--yellow)}
+.status-dot.red{background:var(--red);box-shadow:0 0 6px var(--red)}
+.sidebar-item{display:flex;align-items:center;gap:9px;padding:8px 12px;cursor:pointer;color:var(--muted);transition:all .15s;border-radius:8px;font-size:.8rem;border:none;background:none;width:100%;text-align:left;font-weight:500}
+.sidebar-item svg{width:16px;height:16px;flex-shrink:0;stroke-width:1.8}
+.sidebar-item.active{background:var(--accent-soft);color:var(--accent-in-custom)}
+.sidebar-item.active{color:var(--accent-ink)}
+.sidebar-item:hover{color:var(--text);background:var(--card2)}
+
+.nav-item{display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 0;cursor:pointer;color:var(--muted);transition:color .15s;font-size:.62rem;border:none;background:none;flex:1;font-weight:500}
+.nav-item.active{color:var(--accent-ink)}
+.nav-item svg{width:20px;height:20px;stroke-width:1.8}
+.nav-item:hover{color:var(--text)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+.progress-bar{height:4px;border-radius:2px;background:var(--border);overflow:hidden}
+.progress-bar-fill{height:100%;border-radius:2px;transition:width .5s}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;font-size:.78rem;font-weight:600;cursor:pointer;border:none;transition:all .15s}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent-ink)}
+.btn-success{background:var(--green);color:#fff}
+.btn-success:hover{filter:brightness(1.1)}
+.btn-danger{background:var(--red);color:#fff}
+.btn-danger:hover{filter:brightness(1.1)}
+.btn-sm{padding:4px 10px;font-size:.72rem}
+.btn-outline{background:transparent;border:1px solid var(--border2);color:var(--muted)}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent-ink)}
+input,select,textarea{background:var(--card);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;color:var(--text);font-size:.8rem;outline:none;transition:border-color .15s;font-family:var(--sans)}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:9px 12px;font-size:.7rem;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.04em}
+td{padding:9px 12px;font-size:.78rem;border-bottom:1px solid var(--border)}
+tr:hover td{background:var(--card2)}
+
+/* layout */
+main{min-height:100vh;padding:16px;padding-left:16px;transition:padding .2s}
+@media(min-width:769px){main{padding:20px 24px 24px 184px}}
+.mobile-only{display:none}
+@media(max-width:768px){
+  .desktop-only{display:none!important}
+  .mobile-only{display:flex!important}
+  main{padding:10px 10px calc(88px + env(safe-area-inset-bottom))!important}
+  .stat-value{font-size:1.3rem}
+  .card{padding:12px}
+  .grid-2{grid-template-columns:1fr!important}
+  .grid-stats{grid-template-columns:repeat(2,1fr)!important;gap:8px!important}
+  .chart-grid{grid-template-columns:1fr!important}
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .table-wrap td,.table-wrap th{padding:7px 6px!important;white-space:nowrap}
+  .nav-item{font-size:.58rem!important}
+  .nav-item svg{width:18px!important;height:18px!important}
+}
+aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);border-right:1px solid var(--border);z-index:40;padding:12px 8px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.scrollbar-thin{scrollbar-width:thin;scrollbar-color:var(--border2) transparent}
+.scrollbar-thin::-webkit-scrollbar{width:4px}
+.scrollbar-thin::-webkit-scrollbar-track{background:transparent}
+.scrollbar-thin::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.empty{text-align:center;color:var(--muted);padding:24px;font-size:.8rem}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body x-data="dashboard()" x-init="init()" :data-theme="darkMode ? 'dark' : 'light'">
+
+<!-- 登录页 -->
+<div x-show="!authed" style="position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;align-items:center;justify-content:center">
+  <div class="card" style="width:min(340px,90vw);padding:28px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
+      <div style="width:34px;height:34px;border-radius:9px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;font-family:var(--serif)">M</div>
+      <div>
+        <div style="font-family:var(--serif);font-weight:600">Mímir 总管面板</div>
+        <div style="font-size:.68rem;color:var(--muted)">请输入访问密码</div>
+      </div>
+    </div>
+    <input type="password" x-model="password" @keydown.enter="login()" placeholder="访问密码"
+      style="width:100%;padding:10px 12px;border:1px solid var(--border2);border-radius:8px;background:var(--card2);color:var(--text);font-size:.85rem;outline:none;box-sizing:border-box">
+    <div x-show="loginErr" style="color:var(--red);font-size:.74rem;margin-top:8px" x-text="loginErr"></div>
+    <button class="btn" style="width:100%;margin-top:14px;justify-content:center" :disabled="loginBusy" @click="login()">
+      <span x-text="loginBusy ? '验证中...' : '登录'"></span>
+    </button>
+  </div>
+</div>
+
+<!-- 桌面侧边栏 -->
+<aside class="desktop-only">
+  <div style="padding:6px 10px 14px;border-bottom:1px solid var(--border);margin-bottom:8px">
+    <div style="display:flex;align-items:center;gap:9px">
+      <div style="width:26px;height:26px;border-radius:7px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;font-family:var(--serif)">M</div>
+      <div>
+        <div style="font-family:var(--serif);font-weight:600;font-size:.9rem">Mímir</div>
+        <div style="font-size:.62rem;color:var(--muted)">Memory Dashboard</div>
+      </div>
+    </div>
+  </div>
+  <template x-for="item in navItems" :key="item.id">
+    <button class="sidebar-item" :class="{'active':activeTab===item.id}" @click="switchTab(item.id)">
+      <span x-html="item.icon"></span><span x-text="item.label"></span>
+    </button>
+  </template>
+  <div style="margin-top:auto;padding:10px 12px 4px;border-top:1px solid var(--border)">
+    <button class="sidebar-item" @click="logout()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      <span>退出登录</span>
+    </button>
+    <button class="sidebar-item" @click="darkMode=!darkMode">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      <span x-text="darkMode ? '浅色模式' : '深色模式'"></span>
+    </button>
+  </div>
+</aside>
+
+<!-- 主内容区 -->
+<main>
+
+<template x-if="loading">
+  <div style="display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:12px">
+    <div style="width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite"></div>
+    <div style="color:var(--muted);font-size:.85rem">加载中...</div>
+  </div>
+</template>
+
+<div x-show="!loading">
+
+<!-- 总览页 -->
+<div class="tab-content" :class="{'active':activeTab==='overview'}">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <div style="min-width:0">
+      <h1 style="font-size:1.35rem">总览</h1>
+      <div style="font-size:.7rem;color:var(--muted);margin-top:4px;word-break:break-all">
+        v<span x-text="ov.version"></span> · schema <span x-text="ov.schema_version"></span>
+        · <span x-text="lastUpdated"></span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+      <span class="status-dot" :class="ov.status==='ok'?'green':'red'"></span>
+      <span style="font-size:.75rem;font-weight:600" x-text="ov.status==='ok'?'运行中':'异常'"></span>
+      <button class="btn btn-outline btn-sm" style="padding:4px 9px" @click="refresh()">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+        <span>刷新</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- 监控水位告警 (P0-2) -->
+  <div x-show="(ov.alerts||[]).length" style="margin-bottom:16px;display:flex;flex-direction:column;gap:6px">
+    <template x-for="(a,i) in (ov.alerts||[])" :key="i">
+      <div :style="'padding:8px 12px;border-radius:8px;font-size:.78rem;display:flex;align-items:center;gap:8px;border:1px solid ' + (a.level==='crit' ? 'var(--red)' : 'var(--yellow,#d97706)') + ';background:' + (a.level==='crit' ? 'rgba(239,68,68,.08)' : 'rgba(217,119,6,.08)')">
+        <span x-text="a.level==='crit'?'🔴':'🟡'" style="flex-shrink:0"></span>
+        <span x-text="a.message" style="flex:1"></span>
+      </div>
+    </template>
+  </div>
+
+  <div class="grid-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px">
+    <div class="card card-hover stat-card" style="cursor:pointer" @click="switchTab('memory')"><div class="stat-value" x-text="ov.total_facts"></div><div class="stat-label">正式事实</div></div>
+    <div class="card card-hover stat-card" style="cursor:pointer" @click="switchTab('memory')"><div class="stat-value" x-text="ov.event_head"></div><div class="stat-label">总事件数</div></div>
+    <div class="card card-hover stat-card" style="cursor:pointer" @click="switchTab('review')" x-show="ov.candidates.review_required>0"><div class="stat-value" x-text="ov.candidates.review_required"></div><div class="stat-label">待审核</div></div>
+    <div class="card card-hover stat-card" style="cursor:pointer" @click="switchTab('review')"><div class="stat-value" x-text="ov.candidates.committed"></div><div class="stat-label">已提交</div></div>
+    <div class="card card-hover stat-card" style="cursor:pointer" @click="switchTab('review')"><div class="stat-value" x-text="ov.candidates.rejected"></div><div class="stat-label">已拒绝</div></div>
+    <div class="card card-hover stat-card" style="cursor:pointer" @click="switchTab('system')"><div class="stat-value" x-text="ov.memory.used_gb + 'G'"></div><div class="stat-label">内存</div></div>
+  </div>
+
+  <div class="chart-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+    <div class="card">
+      <div style="font-size:.8rem;font-weight:600;margin-bottom:10px">遗忘曲线衰减轨道</div>
+      <div style="height:160px"><canvas id="decayChart"></canvas></div>
+      <div style="margin-top:8px;font-size:.7rem;color:var(--muted);display:flex;justify-content:space-between">
+        <span>已衰减：<span style="color:var(--red);font-weight:600" x-text="decayData.total_decayed"></span> 条</span>
+        <span>衰减事件：<span x-text="decayData.decay_events"></span> 次</span>
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-size:.8rem;font-weight:600;margin-bottom:10px">信任评分分布</div>
+      <div style="height:160px"><canvas id="trustChart"></canvas></div>
+      <div style="margin-top:8px;font-size:.7rem;color:var(--muted);display:flex;justify-content:space-between">
+        <span>评分事实：<span x-text="trustData.total - trustData.none"></span> / <span x-text="trustData.total"></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+    <div class="card">
+      <div style="font-size:.8rem;font-weight:600;margin-bottom:10px">投影器状态</div>
+      <template x-for="p in ov.projectors" :key="p.name">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:.8rem">
+          <span style="font-family:monospace;font-size:.74rem" x-text="p.name"></span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="status-dot" :class="p.lag<5?'green':'yellow'"></span>
+            <span style="color:var(--muted);font-size:.7rem">滞后 <span x-text="p.lag"></span></span>
+          </div>
+        </div>
+      </template>
+      <div style="margin-top:8px;font-size:.7rem;color:var(--red)" x-show="ov.dead_letters>0">
+        ⚠️ Dead Letter: <span x-text="ov.dead_letters"></span>
+      </div>
+      <div class="empty" x-show="!ov.projectors.length">无投影器数据</div>
+    </div>
+    <div class="card">
+      <div style="font-size:.8rem;font-weight:600;margin-bottom:10px">知识层</div>
+      <div style="display:flex;flex-direction:column;gap:6px;font-size:.8rem">
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">启用层</span><span x-text="(ov.knowledge.layers||[]).join(', ')" style="font-weight:600"></span></div>
+        <template x-for="(count,layer) in ov.knowledge.items" :key="layer">
+          <div style="display:flex;justify-content:space-between"><span x-text="'  ' + layer"></span><span x-text="count"></span></div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="font-size:.8rem;font-weight:600;margin-bottom:10px">事实按领域分布</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      <template x-for="(cnt,domain) in ov.facts_by_domain" :key="domain">
+        <div class="badge" :class="'badge-' + (domain==='system'?'blue':domain==='infrastructure'?'green':domain==='personal'?'purple':domain==='quant'?'yellow':'gray')">
+          <span x-text="domain"></span>
+          <span style="margin-left:4px;opacity:.7" x-text="cnt"></span>
+        </div>
+      </template>
+      <div class="empty" x-show="!Object.keys(ov.facts_by_domain||{}).length">暂无事实</div>
+    </div>
+  </div>
+</div>
+
+<!-- 记忆页 -->
+<div class="tab-content" :class="{'active':activeTab==='memory'}">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <h1 style="font-size:1.3rem">记忆</h1>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input x-model="memoryFilter.q" placeholder="搜索..." style="width:160px" @input.debounce="loadMemory()">
+      <select x-model="memoryFilter.domain" @change="loadMemory()">
+        <option value="">全部领域</option>
+        <template x-for="d in memoryStats.by_domain_keys" :key="d"><option :value="d" x-text="d"></option></template>
+      </select>
+      <select x-model="memoryFilter.owner" @change="loadMemory()">
+        <option value="">全部Agent</option>
+        <template x-for="o in memoryStats.by_owner_keys" :key="o"><option :value="o" x-text="o"></option></template>
+      </select>
+      <button class="btn btn-outline btn-sm" @click="loadMemory()">刷新</button>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:12px">
+    <template x-for="(cnt,domain) in memoryStats.by_domain" :key="domain">
+      <div class="card" style="padding:10px"><div style="font-size:.7rem;color:var(--muted)" x-text="domain"></div><div style="font-family:var(--serif);font-size:1.3rem;font-weight:600" x-text="cnt"></div></div>
+    </template>
+  </div>
+
+  <div class="card" style="padding:0;overflow-x:auto">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>内容</th><th class="desktop-only">领域</th><th class="desktop-only">类型</th><th class="desktop-only">Agent</th><th>版本</th><th class="desktop-only">衰减</th><th class="desktop-only">信任</th></tr></thead>
+        <tbody>
+          <template x-for="f in memoryFacts" :key="f.fact_id">
+            <tr>
+              <td style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="f.content || f.summary" :title="f.content"></td>
+              <td class="desktop-only"><span class="badge" :class="'badge-' + (f.domain==='system'?'blue':f.domain==='infrastructure'?'green':f.domain==='personal'?'purple':'gray')" x-text="f.domain"></span></td>
+              <td class="desktop-only" style="font-size:.7rem;color:var(--muted)" x-text="f.fact_type"></td>
+              <td class="desktop-only" style="font-size:.7rem" x-text="f.owner_principal"></td>
+              <td style="font-size:.7rem;color:var(--muted)">v<span x-text="f.current_version"></span></td>
+              <td class="desktop-only"><span class="badge" :class="f.decay_tier==='L0_never'?'badge-blue':f.decay_tier==='L1_preference'?'badge-green':f.decay_tier==='L2_config'?'badge-yellow':f.decay_tier==='L3_event'?'badge-red':'badge-gray'" x-text="(f.decay_tier||'').replace(/L[0-4]_/gm,'')"></span></td>
+              <td class="desktop-only"><span class="badge" :class="f.confidence_score>=0.7?'badge-green':f.confidence_score>=0.3?'badge-yellow':'badge-gray'" x-text="f.confidence_score!=null?f.confidence_score.toFixed(2):'-'"></span></td>
+            </tr>
+          </template>
+          <tr x-show="memoryFacts.length===0"><td colspan="7"><div class="empty">暂无数据</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:.75rem;color:var(--muted)">
+    <span>共 <span x-text="memoryTotal"></span> 条</span>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-outline btn-sm" @click="memoryOffset = Math.max(0, memoryOffset - 50); loadMemory()" x-show="memoryOffset>0">← 上一页</button>
+      <button class="btn btn-outline btn-sm" @click="memoryOffset += 50; loadMemory()" x-show="memoryOffset + 50 < memoryTotal">下一页 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- 审批页 -->
+<div class="tab-content" :class="{'active':activeTab==='review'}">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <h1 style="font-size:1.3rem">审批</h1>
+    <div style="display:flex;gap:8px">
+      <select x-model="reviewFilter" @change="loadReview()">
+        <option value="review_required">待审核</option>
+        <option value="human_review">需人工</option>
+        <option value="provisional">暂定</option>
+        <option value="needs_more_evidence">需更多证据</option>
+        <option value="auto_rejected">自动拒绝</option>
+        <option value="approved">已批准·待提交</option>
+        <option value="committed">已提交</option>
+        <option value="rejected">已拒绝</option>
+      </select>
+      <button class="btn btn-outline btn-sm" @click="loadReview()">刷新</button>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:12px">
+    <template x-for="(cnt,status) in reviewStats" :key="status">
+      <div class="card" style="padding:10px">
+        <div style="font-size:.68rem;color:var(--muted)" x-text="status==='review_required'?'待审核':status==='committed'?'已提交':status==='human_review'?'需人工':status==='provisional'?'暂定':status==='auto_rejected'?'自动拒绝':status==='approved'?'已批准·待提交':status==='needs_more_evidence'?'需更多证据':'已拒绝'"></div>
+        <div style="font-family:var(--serif);font-size:1.3rem;font-weight:600" x-text="cnt"></div>
+      </div>
+    </template>
+  </div>
+
+  <div class="card" style="padding:0;overflow-x:auto">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>内容</th><th class="desktop-only">评估</th><th>操作</th></tr></thead>
+        <tbody>
+          <template x-for="c in reviewCandidates" :key="c.candidate_id">
+            <tr>
+              <td style="font-size:.78rem;word-break:break-all;line-height:1.5">
+                <span x-text="c.content || c.summary || '(无内容)'"></span>
+                <template x-if="reviewAssessments[c.candidate_id]">
+                  <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">
+                    <span class="badge" :class="'badge-' + (reviewAssessments[c.candidate_id].risk==='low'?'green':reviewAssessments[c.candidate_id].risk==='high'?'red':'yellow')" x-text="'风险:' + reviewAssessments[c.candidate_id].risk"></span>
+                    <span class="badge badge-blue" x-text="'置信度:' + (reviewAssessments[c.candidate_id].confidence||'?')"></span>
+                    <span class="badge badge-gray" x-text="reviewAssessments[c.candidate_id].recommendation"></span>
+                  </div>
+                </template>
+              </td>
+              <td class="desktop-only" style="font-size:.7rem;color:var(--muted);max-width:220px">
+                <template x-if="reviewAssessments[c.candidate_id]">
+                  <span x-text="(reviewAssessments[c.candidate_id].summary||'').slice(0,70)"></span>
+                </template>
+              </td>
+              <td>
+                <div style="display:flex;gap:6px" x-show="['review_required','human_review','provisional','needs_more_evidence'].includes(reviewFilter)">
+                  <button class="btn btn-success btn-sm" @click="reviewAction(c.candidate_id,'approve')" :disabled="reviewBusy === c.candidate_id" x-text="reviewBusy === c.candidate_id ? '处理中...' : '批准'"></button>
+                  <button class="btn btn-danger btn-sm" @click="reviewAction(c.candidate_id,'reject')" :disabled="reviewBusy === c.candidate_id" x-text="reviewBusy === c.candidate_id ? '处理中...' : '拒绝'"></button>
+                </div>
+                <div style="display:flex;gap:6px" x-show="reviewFilter==='approved'">
+                  <button class="btn btn-success btn-sm" @click="commitAction(c.candidate_id)" :disabled="reviewBusy === c.candidate_id" x-text="reviewBusy === c.candidate_id ? '处理中...' : '提交为事实'"></button>
+                  <button class="btn btn-danger btn-sm" @click="reviewAction(c.candidate_id,'reject')" :disabled="reviewBusy === c.candidate_id" x-text="reviewBusy === c.candidate_id ? '处理中...' : '撤回拒绝'"></button>
+                </div>
+                <span x-show="!['review_required','human_review','provisional','needs_more_evidence','approved'].includes(reviewFilter)" style="font-size:.7rem;color:var(--muted)" x-text="formatTime(c.updated_at)"></span>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="reviewCandidates.length===0"><td colspan="3"><div class="empty">暂无数据</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 来源研读页 -->
+<div class="tab-content" :class="{'active':activeTab==='sources'}">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <h1 style="font-size:1.3rem">来源与研读</h1>
+    <button class="btn btn-outline btn-sm" @click="loadSources()">刷新</button>
+  </div>
+
+  <div class="card" style="margin-bottom:12px;padding:12px">
+    <div style="font-size:.8rem;font-weight:600;margin-bottom:8px">支持的信息来源格式</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;font-size:.74rem;color:var(--muted)">
+      <div>📰 <b>RSS/Atom</b> — 订阅源</div>
+      <div>🌐 <b>网页</b> — URL 抓取</div>
+      <div>📄 <b>文件</b> — MD/PDF/TXT</div>
+      <div>📝 <b>飞书文档</b> — 知识库读取</div>
+      <div>💻 <b>CLI 输入</b> — mimir-cli</div>
+      <div>🔌 <b>API</b> — REST 接入</div>
+      <div>✍️ <b>手动录入</b> — 下方表单</div>
+      <div>💬 <b>对话采集</b> — CDC 提取</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px;padding:12px">
+    <div style="font-size:.8rem;font-weight:600;margin-bottom:10px">添加信息来源</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input x-model="newSource.url" placeholder="粘贴 RSS / 网页 / 飞书 / API 地址..." style="flex:1;min-width:200px" @input="detectSourceType()">
+        <button class="btn btn-primary btn-sm" @click="addSource()" :disabled="newSource.sending" x-text="newSource.sending?'添加中...':'添加'"></button>
+      </div>
+      <div x-show="newSource.detectedType" style="font-size:.74rem;color:var(--muted)">
+        识别为: <span :style="'color:' + (newSource.detectedType==='rss'?'var(--green)':newSource.detectedType==='feishu'?'var(--blue)':newSource.detectedType==='github'?'var(--purple)':'var(--yellow)')" x-text="newSource.detectedLabel"></span>
+      </div>
+      <div x-show="newSource.message" style="font-size:.74rem;color:var(--green);padding:4px 0" x-text="newSource.message"></div>
+      <div x-show="newSource.error" style="font-size:.74rem;color:var(--red);padding:4px 0" x-text="newSource.error"></div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+    <div class="card">
+      <div style="font-size:.8rem;font-weight:600;margin-bottom:10px">已接入来源</div>
+      <template x-for="s in sourcesData.sources" :key="s.connector_type">
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:.8rem">
+          <span x-text="s.connector_type"></span>
+          <span style="color:var(--muted);font-size:.7rem"><span x-text="s.cnt"></span> 条 · <span x-text="formatTime(s.last_seen)"></span></span>
+        </div>
+      </template>
+      <div class="empty" x-show="!sourcesData.sources.length">暂无来源接入</div>
+    </div>
+    <div class="card">
+      <div style="font-size:.8rem;font-weight:600;margin-bottom:10px">学习引擎</div>
+      <div style="display:flex;flex-direction:column;gap:6px;font-size:.8rem">
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">已提取对话</span><span x-text="(sourcesData.learning||{}).extracted || 0" style="font-weight:600"></span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">已存储</span><span x-text="(sourcesData.learning||{}).stored || 0" style="font-weight:600"></span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">候选生成</span><span x-text="(sourcesData.learning||{}).candidates_created || 0" style="font-weight:600"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;padding:12px">
+    <div style="font-size:.8rem;font-weight:600;margin-bottom:10px">手动录入知识项</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <input x-model="newKnowledge.title" placeholder="标题" style="width:100%">
+      <textarea x-model="newKnowledge.content" placeholder="内容" style="min-height:80px;width:100%" rows="3"></textarea>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select x-model="newKnowledge.layer" style="flex:1">
+          <option value="wiki">知识文档</option>
+          <option value="learning">学习笔记</option>
+        </select>
+        <select x-model="newKnowledge.domain" style="flex:1">
+          <option value="system">系统</option>
+          <option value="infrastructure">基础设施</option>
+          <option value="personal">个人</option>
+          <option value="quant">量化</option>
+          <option value="tech_support">技术</option>
+        </select>
+        <button class="btn btn-primary" @click="addKnowledgeItem()" :disabled="newKnowledge.sending" x-text="newKnowledge.sending?'提交中...':'提交'"></button>
+      </div>
+      <div x-show="newKnowledge.message" style="font-size:.74rem;color:var(--green);padding:4px 0" x-text="newKnowledge.message"></div>
+      <div x-show="newKnowledge.error" style="font-size:.74rem;color:var(--red);padding:4px 0" x-text="newKnowledge.error"></div>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow-x:auto">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">已有知识项</div>
+    <table>
+      <thead><tr><th>标题</th><th class="desktop-only">层</th><th>状态</th><th class="desktop-only">时间</th><th></th></tr></thead>
+      <tbody>
+        <template x-for="k in sourcesData.knowledge_items" :key="k.item_id">
+          <tr>
+            <td style="word-break:break-word;overflow-wrap:break-word;font-size:.78rem" x-text="k.title"></td>
+            <td class="desktop-only"><span class="badge" :class="k.layer==='wiki'?'badge-purple':'badge-blue'" x-text="k.layer==='wiki'?'知识文档':'学习笔记'"></span></td>
+            <td><span class="badge" :class="k.status==='active'?'badge-green':'badge-yellow'" x-text="k.status==='active'?'已激活':'待审核'"></span></td>
+            <td class="desktop-only" style="font-size:.7rem;color:var(--muted);white-space:nowrap" x-text="formatTime(k.created_at)"></td>
+            <td><button class="btn btn-danger btn-sm" @click="deleteKnowledgeItem(k.item_id)" :disabled="deleteBusy===k.item_id" x-text="deleteBusy===k.item_id?'删除中...':'删除'"></button></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 管线页 -->
+<div class="tab-content" :class="{'active':activeTab==='pipeline'}">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <h1 style="font-size:1.3rem">管线脉搏</h1>
+    <button class="btn btn-outline btn-sm" @click="loadPipeline()">刷新</button>
+  </div>
+  <div class="card" style="padding:0;margin-bottom:12px">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">CDC 连接器水位（canonical.db vs 源库）</div>
+    <div style="padding:8px 16px;overflow-x:auto">
+      <table style="width:100%;font-size:.76rem;border-collapse:collapse">
+        <thead><tr style="color:var(--muted);text-align:left"><th style="padding:6px 8px">连接器</th><th style="padding:6px 8px">Owner</th><th style="padding:6px 8px">水位</th><th style="padding:6px 8px">源最大</th><th style="padding:6px 8px">滞后</th><th style="padding:6px 8px">状态</th></tr></thead>
+        <tbody>
+          <template x-for="c in pipelineData.connectors" :key="c.connector_id">
+            <tr style="border-top:1px solid var(--border)">
+              <td style="padding:6px 8px" x-text="c.connector_id"></td>
+              <td style="padding:6px 8px" x-text="c.owner"></td>
+              <td style="padding:6px 8px" x-text="c.watermark"></td>
+              <td style="padding:6px 8px" x-text="c.source_max"></td>
+              <td style="padding:6px 8px" x-text="c.lag"></td>
+              <td style="padding:6px 8px"><span :style="'display:inline-block;padding:3px 10px;border-radius:5px;font-size:.72rem;font-weight:600;' + (c.status==='ok' ? 'color:var(--green);background:var(--green-bg)' : 'color:var(--red);background:var(--red-bg)')" x-text="c.status==='ok'?'正常':'滞后'"></span></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <div class="empty" x-show="!(pipelineData.connectors||[]).length">暂无连接器数据</div>
+    </div>
+  </div>
+  <div class="card" style="padding:0">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">Mimir 定时任务</div>
+    <div style="padding:8px 16px;overflow-x:auto">
+      <table style="width:100%;font-size:.76rem;border-collapse:collapse">
+        <thead><tr style="color:var(--muted);text-align:left"><th style="padding:6px 8px">单元</th><th style="padding:6px 8px">上次运行</th><th style="padding:6px 8px">下次运行</th></tr></thead>
+        <tbody>
+          <template x-for="t in pipelineData.timers" :key="t.unit">
+            <tr style="border-top:1px solid var(--border)">
+              <td style="padding:6px 8px" x-text="t.unit"></td>
+              <td style="padding:6px 8px" x-text="t.last + '（' + t.ago + '前）'"></td>
+              <td style="padding:6px 8px" x-text="t.next + '（剩 ' + t.left + '）'"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <div class="empty" x-show="!(pipelineData.timers||[]).length">暂无定时器数据</div>
+    </div>
+  </div>
+</div>
+
+<!-- Agent 活动页 -->
+<div class="tab-content" :class="{'active':activeTab==='agents'}">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <h1 style="font-size:1.3rem">Agent 活动</h1>
+    <button class="btn btn-outline btn-sm" @click="loadAgents()">刷新</button>
+  </div>
+
+  <div class="card" style="margin-bottom:12px;padding:12px">
+    <div style="font-size:.8rem;font-weight:600;margin-bottom:8px">今日新增事实</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      <template x-for="(cnt,agent) in agentsData.today_facts" :key="agent">
+        <span class="badge badge-blue" x-text="agent + ': ' + cnt + ' 条'"></span>
+      </template>
+      <span class="empty" x-show="!Object.keys(agentsData.today_facts||{}).length" style="padding:4px">今日暂无新增</span>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px;padding:12px">
+    <div style="font-size:.8rem;font-weight:600;margin-bottom:8px">Gateway 状态</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      <template x-for="g in agentsData.gateways" :key="g.principal">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:8px;background:var(--card2);border:1px solid var(--border);font-size:.74rem">
+          <span :style="'width:8px;height:8px;border-radius:50%;background:' + (g.active ? 'var(--green)' : 'var(--red)')"></span>
+          <b x-text="g.principal"></b>
+          <span style="color:var(--muted)" x-text="g.active ? '在线' : '离线'"></span>
+          <span style="color:var(--muted)" x-show="g.last_message" x-text="' · 最近消息 ' + formatTime(g.last_message)"></span>
+        </span>
+      </template>
+      <span class="empty" x-show="!(agentsData.gateways||[]).length" style="padding:4px">暂无 gateway 数据</span>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:16px">
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:16px">
+    <template x-for="(data,agent) in agentsData.agents" :key="agent">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px">
+          <div style="width:32px;height:32px;border-radius:9px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;font-family:var(--serif)" x-text="agent.charAt(0).toUpperCase()"></div>
+          <div>
+            <div style="font-weight:600;font-size:.85rem" x-text="agent"></div>
+            <div style="font-size:.7rem;color:var(--muted)">
+              <span x-text="data.total"></span> 条事实
+              <span x-show="agentsData.today_facts&&agentsData.today_facts[agent]" style="color:var(--green)"> · 今日 +<span x-text="agentsData.today_facts[agent]"></span></span>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          <template x-for="(cnt,domain) in data.by_domain" :key="domain">
+            <span class="badge" :class="domain==='system'?'badge-blue':domain==='infrastructure'?'badge-green':domain==='personal'?'badge-purple':'badge-gray'" x-text="domain + ' ' + cnt"></span>
+          </template>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <div class="card" style="padding:0">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">重要事件</div>
+    <div style="padding:0 16px;max-height:400px;overflow-y:auto" class="scrollbar-thin">
+      <template x-for="e in agentsData.recent_events" :key="e.event_seq">
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">
+          <span style="color:var(--muted);font-size:.74rem;min-width:80px" x-text="formatTime(e.occurred_at || e.created_at)"></span>
+          <span :style="'display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:5px;font-size:.72rem;font-weight:600;' + (e.event_type.includes('reject')?'color:var(--red);background:var(--red-bg)':e.event_type.includes('approve')||e.event_type.includes('commit')?'color:var(--green);background:var(--green-bg)':e.event_type.includes('create')?'color:var(--blue);background:var(--blue-bg)':'color:var(--muted);background:var(--card2)')" x-text="eventTypeLabel(e.event_type)"></span>
+        </div>
+      </template>
+      <div class="empty" x-show="!agentsData.recent_events.length">暂无重要事件</div>
+    </div>
+  </div>
+</div>
+
+<!-- 意见页 -->
+<div class="tab-content" :class="{'active':activeTab==='opinions'}">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <h1 style="font-size:1.3rem">意见与观察</h1>
+    <div style="display:flex;gap:8px">
+      <input x-model="opinionFilter.topic" placeholder="按主题搜索..." style="width:200px" @input.debounce="loadOpinions()">
+      <button class="btn btn-outline btn-sm" @click="loadOpinions()">刷新</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow-x:auto;margin-bottom:16px">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">意见列表</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th class="desktop-only">事实ID</th><th>主题</th><th>立场</th><th>置信度</th><th class="desktop-only">所有者</th><th class="desktop-only">更新时间</th></tr></thead>
+        <tbody>
+          <template x-for="o in opinionsData" :key="o.opinion_id">
+            <tr>
+              <td class="desktop-only" style="font-family:monospace;font-size:.7rem" x-text="o.fact_id.slice(0,8)"></td>
+              <td style="font-size:.78rem" x-text="o.topic"></td>
+              <td><span class="badge" :class="o.stance==='support'?'badge-green':o.stance==='oppose'?'badge-red':'badge-gray'" x-text="o.stance==='support'?'支持':o.stance==='oppose'?'反对':'中立'"></span></td>
+              <td><span x-text="(o.confidence*100).toFixed(0) + '%'"></span></td>
+              <td class="desktop-only" x-text="o.owner_principal"></td>
+              <td class="desktop-only" style="font-size:.7rem;color:var(--muted)" x-text="formatTime(o.updated_at)"></td>
+            </tr>
+          </template>
+          <tr x-show="opinionsData.length===0"><td colspan="6"><div class="empty">暂无意见</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow-x:auto;margin-bottom:16px">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">观察日志</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>主题</th><th>支持意见</th><th>置信度</th><th>状态</th><th class="desktop-only">更新时间</th></tr></thead>
+        <tbody>
+          <template x-for="obs in observationsData" :key="obs.observation_id">
+            <tr>
+              <td style="font-size:.78rem;word-break:break-word" x-text="obs.summary"></td>
+              <td x-text="(function(){try{return JSON.parse(obs.supporting_opinion_ids).length}catch(e){return 0}})()"></td>
+              <td><span class="badge" :class="obs.confidence>=0.7?'badge-green':obs.confidence>=0.4?'badge-yellow':'badge-gray'" x-text="(obs.confidence*100).toFixed(0) + '%'"></span></td>
+              <td><span class="badge" :class="obs.stale?'badge-red':'badge-green'" x-text="obs.stale?'陈旧':'活跃'"></span></td>
+              <td class="desktop-only" style="font-size:.7rem;color:var(--muted)" x-text="formatTime(obs.updated_at)"></td>
+            </tr>
+          </template>
+          <tr x-show="observationsData.length===0"><td colspan="5"><div class="empty">暂无观察（需 ≥3 条同主题意见触发汇总）</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow-x:auto">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">治理决策</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th class="desktop-only">候选</th><th>裁决</th><th>原因</th><th class="desktop-only">发起者</th><th class="desktop-only">时间</th></tr></thead>
+        <tbody>
+          <template x-for="d in governanceData" :key="d.decision_id">
+            <tr>
+              <td class="desktop-only" style="font-family:monospace;font-size:.7rem" x-text="d.candidate_id.slice(0,8)"></td>
+              <td><span class="badge badge-blue" x-text="d.decision"></span></td>
+              <td style="font-size:.75rem;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.reason" :title="d.reason"></td>
+              <td class="desktop-only" x-text="d.actor_principal"></td>
+              <td class="desktop-only" style="font-size:.7rem;color:var(--muted)" x-text="formatTime(d.created_at)"></td>
+            </tr>
+          </template>
+          <tr x-show="governanceData.length===0"><td colspan="5"><div class="empty">暂无治理记录</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 系统页 -->
+<div class="tab-content" :class="{'active':activeTab==='system'}">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <h1 style="font-size:1.3rem">系统</h1>
+    <button class="btn btn-outline btn-sm" @click="loadSystem()">刷新</button>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+    <div class="card">
+      <div style="font-size:.8rem;font-weight:600;margin-bottom:10px">服务信息</div>
+      <div style="display:flex;flex-direction:column;gap:6px;font-size:.8rem">
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">服务</span><span x-text="systemData.service" style="font-weight:600"></span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">版本</span><span x-text="systemData.version" style="font-weight:600"></span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Schema</span><span x-text="systemData.schema_version" style="font-weight:600"></span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">状态</span><span><span class="status-dot" :class="systemData.status==='ok'?'green':'red'"></span><span x-text="systemData.status==='ok'?'正常':'异常'"></span></span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">事实数</span><span x-text="systemData.facts"></span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">事件数</span><span x-text="systemData.event_head"></span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">注册主体数</span><span x-text="systemData.principals"></span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-size:.8rem;font-weight:600;margin-bottom:10px">数据库</div>
+      <div style="display:flex;flex-direction:column;gap:6px;font-size:.8rem">
+        <template x-for="(size,file) in systemData.db_files" :key="file">
+          <div style="display:flex;justify-content:space-between">
+            <span style="font-family:monospace;font-size:.74rem" x-text="file"></span>
+            <span x-text="size + ' MB'"></span>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px;padding:0;overflow-x:auto">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">定时器状态</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>单元</th><th>下次执行</th><th>状态</th></tr></thead>
+      <tbody>
+        <template x-for="t in timerData.timers" :key="t.unit">
+          <tr>
+            <td style="font-family:monospace;font-size:.74rem" x-text="t.unit.replace('mimir-v9.2-','').replace('.timer','')"></td>
+            <td style="font-size:.74rem;color:var(--muted)"><span x-text="t.next"></span> <span x-text="t.left"></span></td>
+            <td><span class="status-dot" :class="t.ago && !t.ago.includes('ago')?'green':'yellow'"></span><span x-text="t.ago ? '已执行' : '等待中'"></span></td>
+          </tr>
+        </template>
+        <tr x-show="!timerData.timers.length"><td colspan="3"><div class="empty">暂无定时器数据</div></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="card" style="padding:0;overflow-x:auto">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">投影器</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>名称</th><th>检查点</th><th>状态</th><th>异常数</th></tr></thead>
+      <tbody>
+        <template x-for="p in systemData.projectors" :key="p.projector_name">
+          <tr>
+            <td style="font-family:monospace;font-size:.78rem" x-text="p.projector_name"></td>
+            <td x-text="p.checkpoint_event_seq"></td>
+            <td><span class="status-dot" :class="p.status==='idle'?'green':'yellow'"></span><span x-text="p.status"></span></td>
+            <td x-text="p.dead_letter"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+<!-- 符号化短期记忆页 (v11) -->
+<div class="tab-content" :class="{'active':activeTab==='insight'}">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <div style="min-width:0">
+      <h1 style="font-size:1.35rem">检索洞察</h1>
+      <div style="font-size:.7rem;color:var(--muted);margin-top:4px">召回漏斗 · 检索质量看板</div>
+    </div>
+  </div>
+
+  <!-- 召回漏斗 -->
+  <div class="card" style="margin-bottom:12px;padding:16px">
+    <div style="font-size:.85rem;font-weight:600;margin-bottom:10px">召回漏斗 Trace</div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <input x-model="traceQuery" placeholder="输入检索词，观测五阶段漏斗..." style="flex:1;min-width:220px">
+      <select x-model="traceThreshold" style="width:110px">
+        <option value="0.3">去重阈值 0.3</option>
+        <option value="0.5">去重阈值 0.5</option>
+        <option value="0.6">去重阈值 0.6</option>
+        <option value="0.8">去重阈值 0.8</option>
+      </select>
+      <button class="btn btn-primary btn-sm" @click="runTrace()" :disabled="traceBusy" x-text="traceBusy?'追踪中...':'开始追踪'"></button>
+    </div>
+    <div x-show="traceErr" style="font-size:.75rem;color:var(--red);margin-bottom:8px" x-text="traceErr"></div>
+
+    <div x-show="traceData.stages && traceData.stages.length" style="display:flex;flex-direction:column;gap:8px">
+      <template x-for="(s,idx) in traceData.stages" :key="s.stage">
+        <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="badge" :class="s.hit>0?'badge-green':'badge-red'" x-text="idx+1 + '. ' + s.stage"></span>
+              <span style="font-size:.75rem;color:var(--muted)" x-text="s.elapsed_ms + 'ms'"></span>
+            </div>
+            <div style="font-size:.8rem">
+              <span style="color:var(--green);font-weight:600" x-text="s.hit"></span>
+              <span style="color:var(--muted)"> / </span>
+              <span x-text="s.total"></span>
+              <span style="color:var(--red);font-size:.7rem" x-show="s.dropped>0" x-text="' （丢弃 ' + s.dropped + '）'"></span>
+            </div>
+          </div>
+          <div style="height:6px;background:var(--card2);border-radius:3px;margin-top:8px;overflow:hidden">
+            <div style="height:100%;border-radius:3px"
+                 :style="'width:' + (s.total? Math.round(s.hit/s.total*100):0) + '%;background:' + (s.hit>0?'var(--green)':'var(--red)')"></div>
+          </div>
+          <div style="margin-top:6px;font-size:.7rem;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap">
+            <span x-show="s.reason" x-text="'理由: ' + s.reason"></span>
+            <span x-show="s.threshold" x-text="'阈值: ' + s.threshold"></span>
+            <span x-show="s.avg_decay_factor" x-text="'平均衰减: ' + s.avg_decay_factor"></span>
+            <span x-show="s.expired" x-text="'已过期: ' + s.expired"></span>
+            <span x-show="s.k" x-text="'Top-K: ' + s.k"></span>
+            <span x-show="s.channels" x-text="'通道: ' + Object.keys(s.channels).join(', ')"></span>
+          </div>
+        </div>
+      </template>
+
+      <div x-show="traceData.results && traceData.results.length" style="margin-top:4px">
+        <div style="font-size:.78rem;font-weight:600;margin-bottom:6px">Top 命中</div>
+        <template x-for="r in traceData.results" :key="r.fact_id">
+          <div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:.78rem">
+            <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="r.content"></div>
+            <div style="display:flex;gap:8px;flex-shrink:0">
+              <span x-show="r.decay_factor<1" class="badge badge-yellow" x-text="'衰减 ' + r.decay_factor"></span>
+              <span x-show="r.not_yet_effective" class="badge badge-blue">未生效</span>
+              <span style="color:var(--muted);font-family:monospace;font-size:.7rem" x-text="r.score.toFixed(4)"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- 技能结晶 -->
+  <div class="card" style="margin-bottom:12px;padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div style="font-size:.85rem;font-weight:600">技能结晶 Candidates</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:.7rem;color:var(--muted)">7 天内 ≥3 次观察的 topic</span>
+        <button class="btn btn-outline btn-sm" @click="scanCrystals()" :disabled="crystalBusy" x-text="crystalBusy?'扫描中...':'扫描'"></button>
+        <button class="btn btn-outline btn-sm" @click="loadCrystals()">刷新</button>
+      </div>
+    </div>
+    <div x-show="crystalMsg" style="font-size:.74rem;color:var(--green);margin-bottom:8px" x-text="crystalMsg"></div>
+    <div x-show="crystalErr" style="font-size:.74rem;color:var(--red);margin-bottom:8px" x-text="crystalErr"></div>
+    <div x-show="!(crystalData.candidates||[]).length">
+      <div class="empty">暂无结晶候选</div>
+    </div>
+    <template x-for="c in crystalData.candidates||[]" :key="c.candidate_id">
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+        <div style="min-width:0;flex:1">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span class="badge badge-green" x-text="'×' + c.freq"></span>
+            <span style="font-weight:600;font-size:.85rem" x-text="c.topic"></span>
+            <span class="badge badge-blue" x-text="c.domain"></span>
+          </div>
+          <div style="font-size:.74rem;color:var(--muted);margin-top:6px;word-break:break-all" x-text="c.suggestion"></div>
+          <div style="font-size:.68rem;color:var(--muted);margin-top:4px" x-text="'创建于 ' + formatTime(c.created_at) + ' · ' + (c.sample_ids||[]).length + ' 个样例行'"></div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:flex-start;flex-shrink:0">
+          <button class="btn btn-primary btn-sm" @click="crystalAction(c.candidate_id,'approve')">批准</button>
+          <button class="btn btn-outline btn-sm" @click="crystalAction(c.candidate_id,'dismiss')">驳回</button>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- 事实冲突裁决 -->
+  <div class="card" style="margin-bottom:12px;padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div style="font-size:.85rem;font-weight:600">事实冲突裁决</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:.7rem;color:var(--muted)">每日 03:41 自动扫描 · 相似度≥0.6 的活跃事实对</span>
+        <button class="btn btn-outline btn-sm" @click="loadConflicts()">刷新</button>
+      </div>
+    </div>
+    <div x-show="conflictMsg" style="font-size:.74rem;color:var(--green);margin-bottom:8px" x-text="conflictMsg"></div>
+    <div x-show="conflictErr" style="font-size:.74rem;color:var(--red);margin-bottom:8px" x-text="conflictErr"></div>
+    <div x-show="!(conflictData.conflicts||[]).length">
+      <div class="empty">暂无待裁决冲突</div>
+    </div>
+    <template x-for="c in conflictData.conflicts||[]" :key="c.conflict_id">
+      <div style="padding:12px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <span class="badge badge-red" x-text="'相似度 ' + (c.similarity||0).toFixed(3)"></span>
+          <span class="badge" x-text="c.conflict_type"></span>
+          <span style="font-size:.68rem;color:var(--muted)" x-text="'发现于 ' + formatTime(c.created_at)"></span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <template x-for="side in ['a','b']" :key="side">
+            <div style="border:1px solid var(--border);border-radius:8px;padding:10px">
+              <div style="font-size:.68rem;color:var(--muted);margin-bottom:6px" x-text="'事实 ' + (side==='a'?'A':'B') + ' · 置信度 ' + ((c.facts||{})[side]||{}).confidence_score"></div>
+              <div style="font-size:.78rem;word-break:break-all" x-text="((c.facts||{})[side]||{}).content"></div>
+              <button class="btn btn-primary btn-sm" style="margin-top:8px" :disabled="conflictBusy===c.conflict_id"
+                @click="resolveConflict(c.conflict_id, ((c.facts||{})[side]||{}).fact_id)">保留此条</button>
+            </div>
+          </template>
+        </div>
+        <div style="margin-top:8px;text-align:right">
+          <button class="btn btn-outline btn-sm" :disabled="conflictBusy===c.conflict_id" @click="dismissConflict(c.conflict_id)">忽略（两条都保留）</button>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- 质量看板 -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px">
+    <div class="card card-hover stat-card"><div class="stat-value" x-text="qualityData.total_feedback||0"></div><div class="stat-label">7 天反馈</div></div>
+    <div class="card card-hover stat-card"><div class="stat-value" style="color:var(--green)" x-text="(qualityData.signals||{}).useful||0"></div><div class="stat-label">有用</div></div>
+    <div class="card card-hover stat-card"><div class="stat-value" style="color:var(--red)" x-text="(qualityData.signals||{}).useless||0"></div><div class="stat-label">无用</div></div>
+    <div class="card card-hover stat-card"><div class="stat-value" style="color:var(--yellow)" x-text="(qualityData.signals||{}).correction||0"></div><div class="stat-label">修正</div></div>
+    <div class="card card-hover stat-card"><div class="stat-value" x-text="(qualityData.recent_cycles||[]).length"></div><div class="stat-label">质量周期</div></div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px" x-show="(qualityData.recent_cycles||[]).length">
+    <div style="font-size:.85rem;font-weight:600;margin-bottom:10px">质量指标</div>
+    <div style="height:180px"><canvas id="qualityChart"></canvas></div>
+    <div style="margin-top:8px;font-size:.7rem;color:var(--muted)">查询数 / 命中 / 零命中率 按日期</div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <div style="font-size:.85rem;font-weight:600;margin-bottom:10px">最近检索反馈</div>
+    <table style="width:100%;font-size:.75rem">
+      <thead><tr style="text-align:left;color:var(--muted)">
+        <th>信号</th><th>查询</th><th>事实</th><th>时间</th>
+      </tr></thead>
+      <tbody>
+        <template x-for="f in qualityData.recent_feedback||[]" :key="f.feedback_id">
+          <tr style="border-bottom:1px solid var(--border)">
+            <td><span class="badge" :class="f.signal==='useful'?'badge-green':f.signal==='useless'?'badge-red':'badge-blue'" x-text="f.signal"></span></td>
+            <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="f.query_text"></td>
+            <td style="font-family:monospace;font-size:.68rem;color:var(--muted)" x-text="f.fact_id"></td>
+            <td style="color:var(--muted)" x-text="formatTime(f.created_at)"></td>
+          </tr>
+        </template>
+        <tr x-show="!(qualityData.recent_feedback||[]).length"><td colspan="4"><div class="empty">暂无反馈</div></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card" x-show="(qualityData.evolved_events||[]).length">
+    <div style="font-size:.85rem;font-weight:600;margin-bottom:10px">最近进化</div>
+    <template x-for="e in qualityData.evolved_events" :key="e.occurred_at">
+      <div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:.78rem">
+        <span style="color:var(--muted);font-size:.72rem" x-text="formatTime(e.occurred_at)"></span>
+        <pre style="flex:1;margin:0;font-size:.7rem;white-space:pre-wrap;word-break:break-all" x-text="e.payload"></pre>
+      </div>
+    </template>
+  </div>
+</div>
+
+<div class="tab-content" :class="{'active':activeTab==='symbolic'}">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <h1 style="font-size:1.3rem">符号化短期记忆</h1>
+    <div style="display:flex;gap:8px">
+      <input x-model="symbolicSession" placeholder="会话 Key（默认当前 Agent）" style="width:220px">
+      <button class="btn btn-outline btn-sm" @click="loadSymbolic()">刷新</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px;padding:12px">
+    <div style="font-size:.8rem;font-weight:600;margin-bottom:8px">卸载日志到符号记忆</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <textarea x-model="symbolicInput" placeholder="粘贴需要卸载的长日志 / 工具输出..." style="min-height:80px;width:100%" rows="3"></textarea>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select x-model="symbolicType" style="flex:1">
+          <option value="log">日志</option>
+          <option value="error">错误</option>
+          <option value="result">结果</option>
+          <option value="decision">决策</option>
+          <option value="tool_call">工具调用</option>
+        </select>
+        <button class="btn btn-primary btn-sm" @click="offloadSymbolic()" :disabled="symbolicBusy" x-text="symbolicBusy?'处理中...':'卸载'"></button>
+      </div>
+      <div x-show="symbolicMsg" style="font-size:.74rem;color:var(--green);padding:4px 0" x-text="symbolicMsg"></div>
+      <div x-show="symbolicErr" style="font-size:.74rem;color:var(--red);padding:4px 0" x-text="symbolicErr"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px;padding:12px">
+    <div style="font-size:.8rem;font-weight:600;margin-bottom:8px">Mermaid 画布（下钻图）</div>
+    <pre style="font-family:monospace;font-size:.72rem;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:12px;overflow-x:auto;white-space:pre-wrap;word-break:break-all" x-text="symbolicCanvas || '（空）'"></pre>
+  </div>
+
+  <div class="card" style="padding:0;overflow-x:auto">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">已卸载块</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>节点</th><th>类型</th><th>摘要</th><th>Token</th><th>时间</th><th></th></tr></thead>
+        <tbody>
+          <template x-for="b in symbolicBlocks" :key="b.block_id">
+            <tr>
+              <td style="font-family:monospace;font-size:.7rem" x-text="b.node_id"></td>
+              <td><span class="badge" :class="b.block_type==='error'?'badge-red':b.block_type==='decision'?'badge-yellow':'badge-blue'" x-text="b.block_type"></span></td>
+              <td style="font-size:.76rem;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="b.summary" :title="b.summary"></td>
+              <td x-text="b.token_estimate"></td>
+              <td style="font-size:.7rem;color:var(--muted)" x-text="formatTime(b.created_at)"></td>
+              <td><button class="btn btn-outline btn-sm" @click="recallSymbolic(b.node_id)">查看原文</button></td>
+            </tr>
+          </template>
+          <tr x-show="symbolicBlocks.length===0"><td colspan="6"><div class="empty">暂无符号块</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 代码图页 (v11) -->
+<div class="tab-content" :class="{'active':activeTab==='codegraph'}">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <h1 style="font-size:1.3rem">代码图 (CodeGraph)</h1>
+    <div style="display:flex;gap:8px">
+      <input x-model="codeQuery" placeholder="搜索函数/类/符号..." style="width:220px" @keyup.enter="searchCode()">
+      <button class="btn btn-outline btn-sm" @click="searchCode()">搜索</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow-x:auto">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">已索引符号</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>符号</th><th>类型</th><th>文件</th><th>行</th><th>签名</th><th></th></tr></thead>
+        <tbody>
+          <template x-for="s in codeSymbols" :key="s.symbol_id">
+            <tr>
+              <td style="font-family:monospace;font-size:.76rem" x-text="s.symbol_name"></td>
+              <td><span class="badge" :class="s.symbol_kind==='class'?'badge-purple':s.symbol_kind==='function'?'badge-blue':'badge-gray'" x-text="s.symbol_kind"></span></td>
+              <td style="font-size:.7rem;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="s.file_path"></td>
+              <td x-text="s.line_number || '-'"></td>
+              <td style="font-size:.72rem;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="s.signature || '-'"></td>
+              <td><button class="btn btn-outline btn-sm" @click="codeImpact(s.symbol_id)">影响分析</button></td>
+            </tr>
+          </template>
+          <tr x-show="codeSymbols.length===0"><td colspan="6"><div class="empty">暂无代码符号（未索引或未搜索）</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px;padding:0;overflow-x:auto" x-show="codeImpactData.symbol">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">影响分析: <span style="font-family:monospace" x-text="codeImpactData.symbol.symbol_name"></span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+      <div style="padding:12px 16px;border-right:1px solid var(--border)">
+        <div style="font-size:.74rem;color:var(--muted);margin-bottom:6px">调用方 (Callers)</div>
+        <template x-for="c in codeImpactData.callers" :key="c.symbol_id">
+          <div style="font-family:monospace;font-size:.74rem;padding:3px 0" x-text="c.symbol_name + ' (' + c.file_path + ')'"></div>
+        </template>
+        <div class="empty" style="padding:6px" x-show="codeImpactData.callers.length===0">无</div>
+      </div>
+      <div style="padding:12px 16px">
+        <div style="font-size:.74rem;color:var(--muted);margin-bottom:6px">被调用方 (Callees)</div>
+        <template x-for="c in codeImpactData.callees" :key="c.symbol_id">
+          <div style="font-family:monospace;font-size:.74rem;padding:3px 0" x-text="c.symbol_name + ' (' + c.file_path + ')'"></div>
+        </template>
+        <div class="empty" style="padding:6px" x-show="codeImpactData.callees.length===0">无</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+</main>
+
+<!-- 手机底部导航 -->
+<nav class="mobile-only" style="position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);z-index:50;padding:4px 0 env(safe-area-inset-bottom);box-shadow:0 -2px 12px rgba(0,0,0,.05)">
+  <template x-for="item in navItems" :key="item.id">
+    <button class="nav-item" :class="{'active':activeTab===item.id}" @click="switchTab(item.id)">
+      <span x-html="item.icon"></span><span x-text="item.label"></span>
+    </button>
+  </template>
+</nav>
+
+<script>
+function dashboard() {
+  return {
+    activeTab: 'overview',
+    loading: true,
+    isMobile: window.innerWidth < 769,
+    lastUpdated: '',
+    darkMode: true,
+
+    navItems: [
+      {id:'overview',label:'总览',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>'},
+      {id:'pipeline',label:'管线',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>'},
+      {id:'memory',label:'记忆',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>'},
+      {id:'review',label:'审批',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>'},
+      {id:'sources',label:'来源',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'},
+      {id:'agents',label:'活动',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'},
+      {id:'opinions',label:'意见',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10a9 9 0 0 1-9 9 9 9 0 1 1 0-18 9 9 0 0 1 9 9z"/><path d="M12 14h.01"/><path d="M9 10h.01M15 10h.01"/></svg>'},
+      {id:'insight',label:'检索',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>'},
+      {id:'system',label:'系统',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>'},
+      {id:'symbolic',label:'符号',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>'},
+      {id:'codegraph',label:'代码',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>'},
+    ],
+
+    ov: {status:'',version:'',schema_version:'',total_facts:0,event_head:0,candidates:{review_required:0,committed:0,rejected:0},projectors:[],knowledge:{items:{},layers:[]},memory:{total_gb:0,used_gb:0},facts_by_domain:{},dead_letters:0,governance:{provisional:0,human_review:0,auto_rejected:0},alerts:[]},
+    memoryFacts: [], memoryTotal: 0, memoryOffset: 0, memoryStats: {by_domain:{},by_type:{},by_owner:{},by_domain_keys:[],by_owner_keys:[]},
+    memoryFilter: {q:'',domain:'',owner:''},
+    reviewCandidates: [], reviewStats: {}, reviewFilter: 'review_required', reviewBusy: '', reviewAssessments: {},
+    opinionsData: [],
+    opinionFilter: {topic: ''},
+    observationsData: [],
+    governanceData: [],
+    deleteBusy: '',
+    sourcesData: {sources:[],learning:{},knowledge_items:[]},
+    agentsData: {agents:{},recent_events:[],today_facts:{}},
+    newSource: {url:'',detectedType:'',detectedLabel:'',sending:false,message:'',error:''},
+    newKnowledge: {title:'',content:'',layer:'wiki',domain:'system',sending:false,message:'',error:''},
+    decayData: {tier_distribution:{},total_decayed:0,decay_events:0},
+    trustData: {high:0,medium:0,low:0,none:0,total:0},
+    timerData: {timers:[]},
+    pipelineData: {connectors:[],timers:[]},
+    authed: false,
+    password: '',
+    loginErr: '',
+    loginBusy: false,
+    _timer: null,
+    systemData: {},
+    symbolicSession: '',
+    symbolicInput: '',
+    symbolicType: 'log',
+    symbolicBusy: false,
+    symbolicMsg: '',
+    symbolicErr: '',
+    symbolicCanvas: '',
+    symbolicBlocks: [],
+    codeQuery: '',
+    codeSymbols: [],
+    codeImpactData: {symbol:null,callers:[],callees:[]},
+    traceQuery: '',
+    traceThreshold: '0.8',
+    traceBusy: false,
+    traceErr: '',
+    traceData: {},
+    qualityData: {},
+    crystalData: {candidates:[]},
+    conflictData: {conflicts:[]},
+    conflictBusy: '',
+    conflictMsg: '',
+    conflictErr: '',
+    crystalBusy: false,
+    crystalMsg: '',
+    crystalErr: '',
+    chartInstances: {},
+
+    async fetchJSON(url, opts={}) {
+      try {
+        const r = await fetch(url, {...opts, headers: this.authHeaders(opts.headers || {})});
+        if (r.status === 401) { this.authed = false; return {}; }
+        if (!r.ok) return {};
+        return await r.json();
+      } catch(e) { return {}; }
+    },
+
+    authHeaders(extra={}) {
+      // Session cookie travels automatically; no token embedded in the page.
+      return {...extra};
+    },
+
+    formatTime(ts) {
+      if (!ts) return '';
+      const d = new Date(ts);
+      const pad = n => String(n).padStart(2,'0');
+      return pad(d.getMonth()+1)+'/'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes());
+    },
+
+    async init() {
+      window.addEventListener('resize', () => { this.isMobile = window.innerWidth < 769; });
+      const ok = await this.authCheck();
+      this.authed = ok;
+      if (ok) {
+        await this.refresh();
+        this._timer = setInterval(() => this.refresh(), 60000);
+      }
+      this.loading = false;
+    },
+
+    async authCheck() {
+      try {
+        const r = await fetch('/api/auth/check');
+        return r.ok && (await r.json()).ok === true;
+      } catch(e) { return false; }
+    },
+
+    async login() {
+      this.loginBusy = true; this.loginErr = '';
+      try {
+        const r = await fetch('/api/auth/login', {method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({password: this.password})});
+        if (r.ok) {
+          this.authed = true; this.password = '';
+          this.loading = true;
+          await this.refresh();
+          this.loading = false;
+          if (!this._timer) this._timer = setInterval(() => this.refresh(), 60000);
+        } else {
+          const d = await r.json().catch(() => ({}));
+          this.loginErr = d.detail || '密码错误';
+        }
+      } catch(e) { this.loginErr = '连接失败'; }
+      this.loginBusy = false;
+    },
+
+    async logout() {
+      try { await fetch('/api/auth/logout', {method:'POST'}); } catch(e) {}
+      this.authed = false;
+    },
+
+    async loadPipeline() {
+      this.pipelineData = await this.fetchJSON('/api/pipeline');
+    },
+
+    async refresh() {
+      this.ov = await this.fetchJSON('/api/overview');
+      this.decayData = await this.fetchJSON('/api/decay');
+      this.trustData = await this.fetchJSON('/api/trust');
+      this.qualityData = await this.fetchJSON('/api/quality');
+      this.lastUpdated = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'});
+      await this.loadTab(this.activeTab);
+      this.$nextTick(() => this.renderCharts());
+    },
+
+    async switchTab(id) {
+      this.activeTab = id;
+      await this.loadTab(id);
+    },
+
+    async loadTab(id) {
+      if (id === 'memory') await this.loadMemory();
+      else if (id === 'review') await this.loadReview();
+      else if (id === 'sources') await this.loadSources();
+      else if (id === 'pipeline') await this.loadPipeline();
+      else if (id === 'agents') await this.loadAgents();
+      else if (id === 'opinions') await this.loadOpinions();
+      else if (id === 'system') await this.loadSystem();
+      else if (id === 'insight') { await this.loadQuality(); await this.loadCrystals(); await this.loadConflicts(); }
+      else if (id === 'symbolic') await this.loadSymbolic();
+      else if (id === 'codegraph') await this.searchCode();
+      this.$nextTick(() => this.renderCharts());
+    },
+
+    async loadQuality() {
+      this.qualityData = await this.fetchJSON('/api/quality');
+    },
+
+    async loadConflicts() {
+      this.conflictData = await this.fetchJSON('/api/conflicts?status=open');
+      this.conflictErr = (this.conflictData||{}).status==='error' ? (this.conflictData||{}).error : '';
+    },
+
+    async resolveConflict(cid, winnerId) {
+      if (!winnerId) return;
+      if (!confirm('确认保留该事实，另一条将被标记为 disputed（不删除）？')) return;
+      this.conflictBusy = cid;
+      const d = await this.fetchJSON('/api/conflicts/' + encodeURIComponent(cid) + '/resolve', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({winner_fact_id: winnerId, reason: 'dashboard 人工裁决'}),
+      });
+      this.conflictBusy = '';
+      if (d.status === 'error') alert('裁决失败: ' + (d.error||'未知错误'));
+      else { this.conflictMsg = '已裁决：胜者保留，败者标记 disputed'; await this.loadConflicts(); }
+    },
+
+    async dismissConflict(cid) {
+      this.conflictBusy = cid;
+      const d = await this.fetchJSON('/api/conflicts/' + encodeURIComponent(cid) + '/dismiss', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({reason: 'dashboard 人工忽略'}),
+      });
+      this.conflictBusy = '';
+      if (d.status === 'error') alert('忽略失败: ' + (d.error||'未知错误'));
+      else { this.conflictMsg = '已忽略该冲突'; await this.loadConflicts(); }
+    },
+
+    async loadCrystals() {
+      this.crystalData = await this.fetchJSON('/api/crystals?status=candidate');
+      this.crystalErr = (this.crystalData||{}).status==='error' ? (this.crystalData||{}).error : '';
+      this.crystalMsg = '';
+    },
+
+    async scanCrystals() {
+      this.crystalBusy = true;
+      this.crystalErr = '';
+      try {
+        const d = await this.fetchJSON('/api/crystals/scan', {
+          method:'POST',
+          headers: this.authHeaders({'Content-Type':'application/json'}),
+          body: JSON.stringify({window_days:7}),
+        });
+        if (d && d.status==='error') this.crystalErr = d.error || '扫描失败';
+        else this.crystalMsg = '扫描完成：新增 ' + (d.created||0) + '，更新 ' + (d.updated||0);
+        await this.loadCrystals();
+      } catch(e) { this.crystalErr = String(e); }
+      this.crystalBusy = false;
+    },
+
+    async crystalAction(cid, mode) {
+      this.crystalBusy = true;
+      this.crystalErr = '';
+      try {
+        const d = await this.fetchJSON('/api/crystals/' + encodeURIComponent(cid) + '/' + mode, {
+          method:'POST',
+          headers: this.authHeaders({'Content-Type':'application/json'}),
+          body: JSON.stringify({}),
+        });
+        if (d && d.status==='error') this.crystalErr = d.error || '操作失败';
+        else this.crystalMsg = mode==='approve' ? '已批准并结晶为 pattern 事实' : '已驳回';
+        await this.loadCrystals();
+      } catch(e) { this.crystalErr = String(e); }
+      this.crystalBusy = false;
+    },
+
+    async runTrace() {
+      if (!this.traceQuery.trim()) { this.traceErr = '请输入检索词'; return; }
+      this.traceBusy = true;
+      this.traceErr = '';
+      try {
+        const d = await this.fetchJSON('/api/search/trace', {
+          method:'POST',
+          headers: this.authHeaders({'Content-Type':'application/json'}),
+          body: JSON.stringify({text:this.traceQuery.trim(), limit:10, dedup_threshold:parseFloat(this.traceThreshold)}),
+        });
+        if (d && d.status==='error') this.traceErr = d.error || '追踪失败';
+        else this.traceData = d || {};
+      } catch(e) { this.traceErr = String(e); }
+      this.traceBusy = false;
+    },
+
+    async loadMemory() {
+      const params = new URLSearchParams({limit:50,offset:this.memoryOffset});
+      if (this.memoryFilter.q) params.set('q', this.memoryFilter.q);
+      if (this.memoryFilter.domain) params.set('domain', this.memoryFilter.domain);
+      if (this.memoryFilter.owner) params.set('owner', this.memoryFilter.owner);
+      const d = await this.fetchJSON('/api/facts?' + params.toString());
+      this.memoryFacts = d.facts || [];
+      this.memoryTotal = d.total || 0;
+      if (d.stats) {
+        this.memoryStats = {
+          ...d.stats,
+          by_domain_keys: Object.keys(d.stats.by_domain || {}),
+          by_owner_keys: Object.keys(d.stats.by_owner || {}),
+        };
+      }
+    },
+
+    async loadReview() {
+      const d = await this.fetchJSON('/api/candidates?status=' + this.reviewFilter + '&limit=50');
+      this.reviewCandidates = d.candidates || [];
+      this.reviewStats = d.stats || {};
+      this.reviewAssessments = d.assessments || {};
+    },
+
+    async reviewAction(candidateId, action) {
+      this.reviewBusy = candidateId;
+      try {
+        const resp = await fetch(`/api/candidates/${candidateId}/review?action=${action}&reason=dashboard`, {method:'POST', headers: this.authHeaders()});
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data.error) {
+          alert('操作失败: ' + (data.error || data.detail || resp.status));
+        } else if (data.commit_error) {
+          alert('已批准但自动提交失败，请在"已批准·待提交"中手动提交: ' + data.commit_error);
+        }
+      } catch(e) { alert('请求失败: ' + e.message); }
+      this.reviewBusy = '';
+      await this.loadReview();
+      await this.refresh();
+    },
+
+    async commitAction(candidateId) {
+      this.reviewBusy = candidateId;
+      try {
+        const resp = await fetch(`/api/candidates/${candidateId}/commit`, {method:'POST', headers: this.authHeaders()});
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data.error) {
+          alert('提交失败: ' + (data.error || data.detail || resp.status));
+        }
+      } catch(e) { alert('请求失败: ' + e.message); }
+      this.reviewBusy = '';
+      await this.loadReview();
+      await this.refresh();
+    },
+
+    async loadSources() {
+      this.sourcesData = await this.fetchJSON('/api/sources');
+    },
+
+    async addKnowledgeItem() {
+      if (!this.newKnowledge.title || !this.newKnowledge.content) {
+        this.newKnowledge.error = '请填写标题和内容';
+        return;
+      }
+      this.newKnowledge.sending = true;
+      this.newKnowledge.message = '';
+      this.newKnowledge.error = '';
+      try {
+        const r = await fetch('/api/knowledge/create', {
+          method: 'POST',
+          headers: this.authHeaders({'Content-Type': 'application/json'}),
+          body: JSON.stringify({
+            title: this.newKnowledge.title,
+            content: this.newKnowledge.content,
+            layer: this.newKnowledge.layer,
+            domain: this.newKnowledge.domain,
+          }),
+        });
+        const d = await r.json();
+        if (d.status === 'ok') {
+          this.newKnowledge.message = '已提交，等待审核';
+          this.newKnowledge.title = '';
+          this.newKnowledge.content = '';
+          await this.loadSources();
+        } else {
+          this.newKnowledge.error = '提交失败: ' + (d.error || '未知错误');
+        }
+      } catch(e) {
+        this.newKnowledge.error = '网络错误';
+      }
+      this.newKnowledge.sending = false;
+    },
+
+    detectSourceType() {
+      const url = this.newSource.url.trim().toLowerCase();
+      if (!url) { this.newSource.detectedType = ''; this.newSource.detectedLabel = ''; return; }
+      if (url.match(/\/feed|rss|atom|\.xml$/)) {
+        this.newSource.detectedType = 'rss';
+        this.newSource.detectedLabel = 'RSS 订阅源';
+      } else if (url.match(/feishu|feishu\.cn|larksuite/)) {
+        this.newSource.detectedType = 'feishu';
+        this.newSource.detectedLabel = '飞书文档';
+      } else if (url.match(/github\.com/)) {
+        this.newSource.detectedType = 'github';
+        this.newSource.detectedLabel = 'GitHub 仓库';
+      } else if (url.match(/api/)) {
+        this.newSource.detectedType = 'api';
+        this.newSource.detectedLabel = 'API 接口';
+      } else {
+        this.newSource.detectedType = 'web';
+        this.newSource.detectedLabel = '网页';
+      }
+    },
+
+    async addSource() {
+      if (!this.newSource.url) {
+        this.newSource.error = '请输入地址';
+        return;
+      }
+      this.newSource.sending = true;
+      this.newSource.message = '';
+      this.newSource.error = '';
+      try {
+        const r = await fetch('/api/source/add', {
+          method: 'POST',
+          headers: this.authHeaders({'Content-Type': 'application/json'}),
+          body: JSON.stringify({
+            type: this.newSource.detectedType || 'web',
+            url: this.newSource.url,
+          }),
+        });
+        const d = await r.json();
+        if (d.status === 'ok') {
+          this.newSource.message = '已记录来源';
+          this.newSource.url = '';
+          this.newSource.detectedType = '';
+          this.newSource.detectedLabel = '';
+          await this.loadSources();
+        } else {
+          this.newSource.error = '添加失败: ' + (d.error || '未知错误');
+        }
+      } catch(e) {
+        this.newSource.error = '网络错误';
+      }
+      this.newSource.sending = false;
+    },
+
+    async deleteKnowledgeItem(itemId) {
+      if (!confirm('确认删除此知识项？')) return;
+      this.deleteBusy = itemId;
+      try {
+        await fetch('/api/knowledge/delete', {
+          method: 'POST',
+          headers: this.authHeaders({'Content-Type': 'application/json'}),
+          body: JSON.stringify({item_id: itemId}),
+        });
+        await this.loadSources();
+      } catch(e) {}
+      this.deleteBusy = '';
+    },
+
+    async loadAgents() {
+      this.agentsData = await this.fetchJSON('/api/agents');
+    },
+
+    async loadSystem() {
+      this.systemData = await this.fetchJSON('/api/system');
+      this.timerData = await this.fetchJSON('/api/timers');
+    },
+
+    async loadOpinions() {
+      this.opinionsData = (await this.fetchJSON('/api/opinions')).opinions || [];
+      this.observationsData = (await this.fetchJSON('/api/observations')).observations || [];
+      this.governanceData = (await this.fetchJSON('/api/governance/decisions?limit=50')).decisions || [];
+    },
+
+    async loadSymbolic() {
+      const session = this.symbolicSession || 'dashboard';
+      const d = await this.fetchJSON('/v11/symbolic/canvas?session_key=' + session);
+      this.symbolicCanvas = d.mermaid || '';
+      this.symbolicBlocks = d.blocks || [];
+    },
+
+    async offloadSymbolic() {
+      if (!this.symbolicInput) { this.symbolicErr = '请输入内容'; return; }
+      this.symbolicBusy = true; this.symbolicMsg = ''; this.symbolicErr = '';
+      try {
+        const r = await fetch('/v11/symbolic/offload', {method:'POST', headers: this.authHeaders({'Content-Type':'application/json'}),
+          body: JSON.stringify({raw_text:this.symbolicInput, session_key:this.symbolicSession||'dashboard', block_type:this.symbolicType})});
+        const d = await r.json();
+        if (d.status === 'ok') {
+          this.symbolicMsg = '已卸载: node_id=' + d.node_id + ' token=' + d.token_estimate;
+          this.symbolicInput = '';
+          await this.loadSymbolic();
+        } else { this.symbolicErr = '卸载失败'; }
+      } catch(e) { this.symbolicErr = '网络错误'; }
+      this.symbolicBusy = false;
+    },
+
+    async recallSymbolic(nodeId) {
+      const d = await this.fetchJSON('/v11/symbolic/' + nodeId);
+      if (d.status === 'ok') {
+        alert('原文内容:\n\n' + (d.raw_text || '(空)') + '\n\n摘要: ' + (d.summary || ''));
+      }
+    },
+
+    async searchCode() {
+      if (!this.codeQuery) { this.codeSymbols = []; this.codeImpactData = {symbol:null,callers:[],callees:[]}; return; }
+      const d = await this.fetchJSON('/v11/code/search?q=' + encodeURIComponent(this.codeQuery) + '&limit=30');
+      this.codeSymbols = d.symbols || [];
+    },
+
+    async codeImpact(symbolId) {
+      const d = await this.fetchJSON('/v11/code/impact/' + symbolId);
+      this.codeImpactData = {symbol:d.symbol, callers:d.callers||[], callees:d.callees||[]};
+    },
+
+    renderCharts() {
+      const tiers = this.decayData.tier_distribution || {};
+      const tierLabels = {'L0_never':'永不衰减','L1_preference':'偏好(365d)','L2_config':'配置(180d)','L3_event':'事件(90d)','L4_temporary':'临时(30d)','L5_ephemeral':'短暂(7d)'};
+      const root = getComputedStyle(document.documentElement);
+      const tierColors = [root.getPropertyValue('--blue').trim(),root.getPropertyValue('--green').trim(),root.getPropertyValue('--yellow').trim(),root.getPropertyValue('--red').trim(),root.getPropertyValue('--purple').trim()];
+      const cvs = document.getElementById('decayChart');
+      if (cvs && Object.keys(tiers).length) {
+        if (this.chartInstances.decay) this.chartInstances.decay.destroy();
+        this.chartInstances.decay = new Chart(cvs, {
+          type: 'doughnut',
+          data: {
+            labels: Object.keys(tiers).map(k => tierLabels[k] || k),
+            datasets: [{data: Object.values(tiers), backgroundColor: tierColors.slice(0, Object.keys(tiers).length), borderColor: root.getPropertyValue('--card').trim(), borderWidth: 2}]
+          },
+          options: {responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom',labels:{color:root.getPropertyValue('--muted').trim(),font:{size:11}}}}}
+        });
+      }
+      const tcvs = document.getElementById('trustChart');
+      if (tcvs) {
+        if (this.chartInstances.trust) this.chartInstances.trust.destroy();
+        const td = this.trustData;
+        this.chartInstances.trust = new Chart(tcvs, {
+          type: 'bar',
+          data: {
+            labels: ['高(≥0.7)', '中(0.3-0.7)', '低(<0.3)', '未评分'],
+            datasets: [{label: '事实数', data: [td.high, td.medium, td.low, td.none], backgroundColor: [root.getPropertyValue('--green').trim(),root.getPropertyValue('--yellow').trim(),root.getPropertyValue('--red').trim(),root.getPropertyValue('--border2').trim()], borderRadius: 4}]
+          },
+          options: {responsive:true, maintainAspectRatio:false, scales:{y:{beginAtZero:true,grid:{color:root.getPropertyValue('--border').trim()},ticks:{color:root.getPropertyValue('--muted').trim()}},x:{ticks:{color:root.getPropertyValue('--muted').trim()}}}, plugins:{legend:{display:false}}}
+        });
+      }
+      const qcvs = document.getElementById('qualityChart');
+      const cycles = (this.qualityData.recent_cycles || []).slice(0, 14).reverse();
+      if (qcvs && cycles.length) {
+        if (this.chartInstances.quality) this.chartInstances.quality.destroy();
+        const total = cycles.map(c => c.query_count || 0);
+        const hits = cycles.map(c => c.hit_count || 0);
+        const zeroPct = cycles.map(c => (c.query_count||0) > 0 ? Math.round(((c.zero_hit_count||0)/(c.query_count||1))*100) : 0);
+        this.chartInstances.quality = new Chart(qcvs, {
+          type: 'bar',
+          data: {
+            labels: cycles.map(c => (c.date||'').slice(5)),
+            datasets: [
+              {label: '查询', data: total, backgroundColor: root.getPropertyValue('--blue').trim(), borderRadius: 3},
+              {label: '命中', data: hits, backgroundColor: root.getPropertyValue('--green').trim(), borderRadius: 3},
+              {label: '零命中率%', data: zeroPct, type: 'line', borderColor: root.getPropertyValue('--red').trim(), backgroundColor: 'transparent', pointRadius: 2, yAxisID: 'y1'}
+            ]
+          },
+          options: {responsive:true, maintainAspectRatio:false, scales:{y:{beginAtZero:true,grid:{color:root.getPropertyValue('--border').trim()},ticks:{color:root.getPropertyValue('--muted').trim()}},y1:{beginAtZero:true,position:'right',grid:{drawOnChartArea:false},max:100,ticks:{color:root.getPropertyValue('--muted').trim()}},x:{ticks:{color:root.getPropertyValue('--muted').trim()}}}, plugins:{legend:{position:'bottom',labels:{color:root.getPropertyValue('--muted').trim(),font:{size:11}}}}}
+        });
+      }
+    },
+
+    eventTypeLabel(t) {
+      const m = {'fact.created':'创建','fact.decayed':'衰减','candidate.created':'候选','candidate.approved':'批准','candidate.rejected':'拒绝','candidate.committed':'提交','core_memory.promoted':'晋升','knowledge.item_created':'知识'};
+      return m[t] || t;
+    },
+  };
+}
+</script>
+</body>
+</html>

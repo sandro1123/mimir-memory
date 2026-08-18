@@ -114,3 +114,8 @@ an issue. We'll get back to you.
 
 在 [discussion](https://github.com/sandro1123/mimir-memory/discussions) 或 issue
 中提问。我们会回复你。
+
+You can also reach the maintainer directly at
+**sandro1123@hotmail.com**.
+
+你也可以直接联系维护者：**sandro1123@hotmail.com**。

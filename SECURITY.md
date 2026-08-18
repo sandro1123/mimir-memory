@@ -16,11 +16,11 @@ vulnerabilities.**
 
 我们认真对待安全。**请勿为安全漏洞公开提交 issue。**
 
-To report a vulnerability, please email the maintainers directly at the contact
-address listed on the repository, or open a private/security advisory via
-GitHub's "Security" tab → "Report a vulnerability".
+To report a vulnerability, please email the maintainers directly at
+**sandro1123@hotmail.com**, or open a private/security advisory via GitHub's
+"Security" tab → "Report a vulnerability".
 
-要报告漏洞，请直接发送邮件给仓库上列出的维护者联系方式，或通过 GitHub 的
+要报告漏洞，请直接发送邮件至维护者 **sandro1123@hotmail.com**，或通过 GitHub 的
 "Security" 标签页 → "Report a vulnerability" 提交私密/安全通告。
 
 Please include 请包含：

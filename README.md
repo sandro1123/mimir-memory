@@ -1,6 +1,8 @@
-# Mímir — The Memory That Remembers *How* to Forget
+# Mímir — Federated Memory for Multi-Agent Systems
 
-> An event-sourced, self-evolving, federated memory system for AI agents.
+> **One shared memory, many agents.** An event-sourced, self-evolving,
+> federated memory system that lets multiple AI agents remember *together* —
+> and forget intelligently.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Schema Version](https://img.shields.io/badge/schema-18-blue.svg)](#)
@@ -12,25 +14,51 @@
 
 ---
 
-## Why Mímir Is Different
+## The One Thing Mímir Does That Others Don't: **Federated Memory**
 
-Most memory systems are **databases with a nicer API** — they store vectors and
-return the closest match. Mímir is built on a different premise: **a memory is
-an event, not a row.**
+Most memory systems are built for **one agent**. Mímir is built for **many**.
 
-That single decision changes everything downstream:
+In a multi-agent system — a network ops agent, a quant-trading agent, a tech
+consultant, a trainer — each agent has a different job, different knowledge, and
+a different owner. They shouldn't all see everything, but they *should* be able
+to share what matters.
+
+Mímir's answer is **federated memory with fine-grained isolation**:
+
+- **Each agent has its own memory** — facts are tagged with `owner_principal`,
+  and ACLs control exactly who can read what.
+- **Agents share deliberately** — three visibility tiers (`all` / `shared` /
+  `owner_only`) let you mark a fact as "mine alone", "for my team", or "public
+  to all agents".
+- **Cross-agent awareness** — an awareness broadcast surfaces what other agents
+  learned recently, so agents don't operate in silos.
+- **Federated search** — `/v10/federation/{peer}` queries across principals with
+  ACL enforcement, so one agent can ask "what does anyone know about X?" safely.
+
+The result: **a single memory substrate shared by N agents, with the isolation
+of N private memories.** That's the difference between a memory store and a
+*collective* memory.
+
+---
+
+## Why Mímir Is Different (Beyond Federation)
+
+Federation is the headline. But Mímir is also built on a fundamentally different
+premise from "a vector database with a nice API": **a memory is an event, not a
+row.**
 
 | A normal memory store | Mímir |
 |---|---|
-| Overwrites old memories | **Appends immutable events** — every change is a new event, history is never rewritten |
-| "Forgetting" = deleting rows | **Tombstone forgetting** — forget without deleting; the fact is marked, not destroyed |
-| Memory quality = your prompt | **Governed** — an LLM *evaluates* every candidate before commit; the LLM can only *suggest*, never *commit* |
-| Static retrieval score | **Self-evolving** — search feedback (useful/useless/correction) nudges confidence over time |
-| Single vector index | **Three-channel fusion** — vector + full-text + graph, fused by RRF with a local reranker |
-| Facts decay arbitrarily | **Ebbinghaus decay** — five forgetting curves, from never-forget to ephemeral |
+| Built for one agent | **Built for N agents with ACL-isolated federation** |
+| Overwrites old memories | **Appends immutable events** — history is never rewritten |
+| "Forgetting" = deleting rows | **Tombstone forgetting** — marked, never destroyed |
+| Memory quality = your prompt | **Governed** — an LLM *evaluates* every candidate; it can only *suggest*, never *commit* |
+| Static retrieval score | **Self-evolving** — feedback nudges confidence up *and* down |
+| Single vector index | **Three-channel fusion** — vector + FTS + graph, RRF + local rerank |
+| Facts decay arbitrarily | **Ebbinghaus decay** — five forgetting curves, never-forget to ephemeral |
 
-Mímir is not "another RAG layer." It is a **complete lifecycle** for agent memory:
-*ingest → govern → commit → retrieve → self-correct → forget* — with every step
+Mímir is the complete lifecycle for collective agent memory:
+*ingest → govern → commit → retrieve → self-correct → forget* — every step
 auditable and reversible.
 
 ---
@@ -49,6 +77,7 @@ auditable and reversible.
                          │   CANONICAL (event-sourced) │
                          │   facts + memory_events +    │
                          │   fact_versions (immutable)  │
+                         │   owner_principal + ACL      │
                          └──────────────┬──────────────┘
                                         ▼  (outbox fan-out)
               ┌──────────────┬──────────┴──────────┬──────────────┐
@@ -58,59 +87,50 @@ auditable and reversible.
                                         ▼
                               RRF fusion + local rerank
                                         ▼
-                              ranked, ACL-filtered results
+                          ranked, ACL-filtered results
+                          (per-agent visibility enforced)
 ```
 
 ---
 
-## What Sets Mímir Apart — The Six Pillars
+## The Six Pillars
 
-### 1. Event-Sourced Truth (不可篡改的账本)
+### 1. Federated Memory (多 Agent 联邦记忆) — *the headline*
+Multiple agents share one memory substrate with `owner_principal` isolation,
+three visibility tiers, cross-agent awareness, and federated search with ACL.
+See [docs/FEDERATION.md](docs/FEDERATION.md) for the multi-agent setup guide.
+
+### 2. Event-Sourced Truth (事件溯源)
 Every fact is an append-only event stream. `memory_events` and `fact_versions`
-are protected by SQLite triggers that **refuse UPDATE and DELETE**. You can
-rewind, audit, and explain *why* a memory is what it is — as a structural
-property, not a promise.
+are trigger-protected against UPDATE and DELETE — rewindable, auditable, and
+explainable as a structural property.
 
-### 2. Governed Ingestion (治理闭环)
-Before any candidate becomes a fact, it passes through a governance pipeline:
-a deterministic rule engine plus an independent LLM assessor classify it as
-noise, low-risk, or uncertain. The LLM is **deliberately separated** from the
-commit path — the same model cannot extract *and* approve. Every decision lands
-in `audit_log`.
+### 3. Governed Ingestion (治理闭环)
+A deterministic rule engine plus an independent LLM assessor classify every
+candidate before commit. The LLM is **deliberately separated** from the commit
+path — it cannot extract *and* approve.
 
-### 3. Symmetric Self-Evolution (检索自进化)
-Search feedback (`useful` / `useless` / `correction`) is aggregated over a
-7-day window and nudges fact confidence — up *and* down, gated by a minimum
-signal count so two lucky hits can't inflate a fact's weight. Memories get
-*more* trustworthy the more they're used, and *less* trustworthy when they
-misfire.
+### 4. Symmetric Self-Evolution (检索自进化)
+Search feedback (`useful`/`useless`/`correction`) aggregates over a 7-day window
+and nudges confidence up *and* down, gated by minimum signal count.
 
-### 4. Scientific Forgetting (科学的遗忘)
-Five decay tiers modeled on the Ebbinghaus curve, plus a Chronos dual-timeline
-(`valid_from` / `valid_to`): identity-level rules never decay, ephemeral facts
-half-life in 7 days, and expired facts are deweighted — **never deleted**.
+### 5. Scientific Forgetting (科学的遗忘)
+Five Ebbinghaus decay tiers + Chronos dual-timeline. Identity rules never decay;
+ephemeral facts half-life in 7 days; expired facts are deweighted — never deleted.
 
-### 5. Three-Layer Knowledge (三层知识)
-Memory isn't one flat pile. Mímir separates **memory** (facts), **learning**
-(methods/experience), and **wiki** (documents), each with its own lifecycle,
-authorization, and feedback loop. Skill crystallization auto-clusters recurring
-topics into reusable pattern facts — with a human in the loop.
-
-### 6. Federated & Private by Default (联邦隔离 + 本地隐私)
-Multi-agent isolation via `owner_principal` + ACL. All embeddings (bge-m3) and
-reranking (ms-marco) run **locally on CPU** — text being embedded never leaves
-your machine. API binds to `127.0.0.1` only.
+### 6. Local-First Privacy (本地隐私)
+All embeddings (bge-m3) and reranking (ms-marco) run **locally on CPU** —
+embedded text never leaves your machine. API binds `127.0.0.1` only.
 
 ---
 
-## Quick Start
+## Quick Start (Single Agent)
 
 ```bash
 git clone git@github.com:sandro1123/mimir-memory.git
 cd mimir-memory
-pip install -e ".[embeddings]"        # includes local bge-m3 embedding
+pip install -e ".[embeddings]"
 
-# create your own secrets under MIMIR_HOME/secrets
 export MIMIR_HOME=~/.hermes/mimir
 export MIMIR_DATA_DIR=$MIMIR_HOME/data
 export MIMIR_SECRETS_DIR=$MIMIR_HOME/secrets
@@ -118,8 +138,8 @@ export MIMIR_SECRETS_DIR=$MIMIR_HOME/secrets
 python -m mimir_v8.server --bind 127.0.0.1 --port 8456
 ```
 
-Then hit `/health` to confirm, and see [`examples/QUICKSTART.md`](examples/QUICKSTART.md)
-for a full walkthrough of write → govern → query.
+> **For a multi-agent federated setup**, run `./scripts/init.sh` to bootstrap
+> agent configs and tokens, then follow [docs/FEDERATION.md](docs/FEDERATION.md).
 
 ---
 
@@ -127,9 +147,11 @@ for a full walkthrough of write → govern → query.
 
 | Capability | Mímir |
 |---|---|
+| **Multi-agent federated memory + ACL isolation** | ✅ |
+| Cross-agent awareness broadcast | ✅ |
+| Federated cross-principal search | ✅ |
 | Event sourcing (immutable events) | ✅ |
 | Governance pipeline (LLM assessor) | ✅ |
-| Multi-agent federation + ACL | ✅ |
 | Vector + FTS + graph fusion (RRF) | ✅ |
 | Local CPU embeddings & rerank | ✅ |
 | Search-feedback self-evolution | ✅ |
@@ -140,6 +162,7 @@ for a full walkthrough of write → govern → query.
 | Obsidian wikilink bidirectional linking | ✅ |
 | MCP server (27 tools) | ✅ |
 | Hermes MemoryProvider plugin | ✅ |
+| Dashboard (9-tab web UI) | ✅ |
 | PyPI + Docker packaging | ✅ |
 
 ---
@@ -174,21 +197,24 @@ We are grateful to their authors for ideas we borrowed and built upon:
 
 | Project | Author | What We Learned |
 |---|---|---|
-| [aiduMEI](https://github.com/monkey2jack/aiduMEI) | [monkey2jack](https://github.com/monkey2jack) | The **governance + self-evolution vision** that shaped Mímir v12 "Insight": Tahoe-Gate relevance gating, the EvolveMem feedback loop, conflict-resolution, and skill-crystallization patterns. This project is the single largest influence on our design. |
+| [aiduMEI](https://github.com/monkey2jack/aiduMEI) | [monkey2jack](https://github.com/monkey2jack) | The **governance + self-evolution vision** that shaped Mímir v12 "Insight": Tahoe-Gate relevance gating, the EvolveMem feedback loop, conflict-resolution, and skill-crystallization patterns. The single largest influence on our design. |
 | [TencentDB Agent Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory) | Tencent Cloud | Symbolic short-term memory (Mermaid canvas offload + drill-down) and CodeGraph indexing |
-| [Hindsight](https://github.com/obsidianforensics/hindsight) | Obsidian Forensics | Belief modeling — the Opinion/Observation layer that separates "what I know" from "how sure I am" |
-| [Mem0](https://github.com/mem0ai/mem0) / [MemGPT](https://github.com/cpacker/MemGPT) | mem0ai / cpacker | The memory-pipeline paradigm: tiered storage, context management, and memory as a first-class service |
+| [Hindsight](https://github.com/obsidianforensics/hindsight) | Obsidian Forensics | Belief modeling — the Opinion/Observation layer separating "what I know" from "how sure I am" |
+| [Mem0](https://github.com/mem0ai/mem0) / [MemGPT](https://github.com/cpacker/MemGPT) | mem0ai / cpacker | The memory-pipeline paradigm: tiered storage, context management, memory as a first-class service |
 
-**A special note on [aiduMEI](https://github.com/monkey2jack/aiduMEI)** (aidu Memory Engine
-Insight, "爱嘟优忆思"): beyond the four borrowed patterns above, its author's deep
+**A special note on [aiduMEI](https://github.com/monkey2jack/aiduMEI)** (aidu Memory
+Engine Insight, "爱嘟优忆思"): beyond the four borrowed patterns, its author's deep
 thinking on **verbatim preservation vs. distillation** — "蒸馏会丢温度，原文才是证据"
 (distillation loses warmth; the verbatim record is the evidence) — directly
 inspired Mímir's retention-exemption design, where conversation messages cited
-by committed facts are never purged. We are building in the same spirit, and we
-encourage you to check out aiduMEI as well.
+by committed facts are never purged. We encourage you to check out aiduMEI.
 
 ---
 
 ## License
 
 [MIT](LICENSE)
+
+## Contact
+
+Maintainer: **sandro1123** · 📧 [sandro1123@hotmail.com](mailto:sandro1123@hotmail.com)

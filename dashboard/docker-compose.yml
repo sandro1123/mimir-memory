@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  mimir-dashboard:
+    build: .
+    container_name: mimir-dashboard
+    restart: unless-stopped
+    network_mode: "host"
+    environment:
+      - MIMIR_API=http://127.0.0.1:8456
+      - CANONICAL_DB=/data/canonical.db
+      - ADMIN_TOKEN_FILE=/data/admin.token
+      - PORT=8800
+    volumes:
+      - ${MIMIR_DATA_DIR:-~/.hermes/mimir/data}/canonical.db:/data/canonical.db:ro
+      - ${MIMIR_SECRETS_DIR:-~/.hermes/mimir/secrets}/clients/admin.token:/data/admin.token:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
