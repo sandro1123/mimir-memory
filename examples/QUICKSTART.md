@@ -99,6 +99,6 @@ fast-track commit; uncertain → human review).
 ## Where to look next · 下一步
 
 - `ARCHITECTURE.md` — full system design 完整系统设计
-- `docs/MIMIR-v12-GOAL.md` — the v12 roadmap v12 路线图
+- `CHANGELOG.md` — release history 版本历史
 - `tests/` — 198+ tests that double as behavioral spec 198+ 测试，兼作行为规范
 - `hermes-plugin/` — integrate Mímir as a Hermes memory provider 将 Mímir 集成为 Hermes 记忆提供方
