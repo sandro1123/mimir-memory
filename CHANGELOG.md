@@ -6,6 +6,18 @@
 
 ---
 
+## v12.0.2 — 2026-08-18 · 安全与隔离修复 (Security Hardening)
+
+### Security · 安全修复
+- **ACL 联邦隔离 (High)**：修复 `store.can_access` 中对所有已认证主体无条件注入 `federated_agents` 角色导致 `shared` 可见性塌陷为 `all` 的缺陷。
+- **特权分离 (High)**：移除 `learning.py` 中所有硬编码的 `actor_principal != "sandro"` 特权绕过分支，统一由系统鉴权层控制。
+- **越权修复 (Med->High)**：修复 `GET /v10/opinions` 与 `GET /v10/observations` 列表端点未按调用主体做 IDOR 隔离的问题。
+- **符号记忆租户隔离 (Med)**：在 `symbolic_blocks` 和 `symbolic_canvases` 表中加入 `owner_principal` 字段并建立索引，API 层强制租户鉴权。
+- **Web 采集器 SSRF 防御 (Low)**：为 `WebCollector` 增加协议限制与私有/回环/保留 IP 阻断检查。
+- **实体解耦 (Low)**：将 `relevance.py` 中硬编码的私有拓扑与 Agent 名单解耦为通用领域术语。
+
+---
+
 ## v12.0.1 — 2026-08-16 · 读侧打通 (Hermes MemoryProvider live)
 
 ### Added · 新增

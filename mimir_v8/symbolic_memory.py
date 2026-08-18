@@ -23,6 +23,7 @@ from .store import CanonicalStore, new_id, sha256_text, utc_now
 V14_ADDITIVE_STATEMENTS = (
     """CREATE TABLE IF NOT EXISTS symbolic_blocks (
         block_id TEXT PRIMARY KEY,
+        owner_principal TEXT NOT NULL DEFAULT '',
         session_key TEXT NOT NULL,
         node_id TEXT NOT NULL,
         parent_node_id TEXT,
@@ -38,8 +39,11 @@ V14_ADDITIVE_STATEMENTS = (
        ON symbolic_blocks(session_key, created_at)""",
     """CREATE INDEX IF NOT EXISTS idx_symbolic_blocks_node
        ON symbolic_blocks(node_id)""",
+    """CREATE INDEX IF NOT EXISTS idx_symbolic_blocks_owner
+       ON symbolic_blocks(owner_principal)""",
     """CREATE TABLE IF NOT EXISTS symbolic_canvases (
         canvas_id TEXT PRIMARY KEY,
+        owner_principal TEXT NOT NULL DEFAULT '',
         session_key TEXT NOT NULL,
         mermaid TEXT NOT NULL,
         block_count INTEGER NOT NULL DEFAULT 0,
@@ -48,6 +52,8 @@ V14_ADDITIVE_STATEMENTS = (
         updated_at TEXT NOT NULL,
         UNIQUE(session_key)
     ) STRICT""",
+    """CREATE INDEX IF NOT EXISTS idx_symbolic_canvases_owner
+       ON symbolic_canvases(owner_principal)""",
     """CREATE TABLE IF NOT EXISTS code_symbols (
         symbol_id TEXT PRIMARY KEY,
         symbol_name TEXT NOT NULL,
@@ -83,6 +89,7 @@ V14_ADDITIVE_STATEMENTS = (
 @dataclass
 class SymbolicBlock:
     block_id: str
+    owner_principal: str
     session_key: str
     node_id: str
     parent_node_id: str | None
@@ -99,6 +106,7 @@ class SymbolicMemoryService:
         self.store = store
 
     def offload_block(self, session_key: str, raw_text: str,
+                      owner_principal: str = "",
                       block_type: str = "log",
                       parent_node_id: str | None = None,
                       summary: str | None = None,
@@ -113,15 +121,15 @@ class SymbolicMemoryService:
         with self.store.transaction() as conn:
             conn.execute(
                 """INSERT OR REPLACE INTO symbolic_blocks(
-                    block_id, session_key, node_id, parent_node_id, block_type,
+                    block_id, owner_principal, session_key, node_id, parent_node_id, block_type,
                     summary, raw_text, mermaid_line, token_estimate, created_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                (block_id, session_key, node_id, parent_node_id, block_type,
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (block_id, owner_principal, session_key, node_id, parent_node_id, block_type,
                  summary, raw_text[:65536], mermaid_line, token_estimate, now),
             )
-            self._upsert_canvas(conn, session_key, now)
+            self._upsert_canvas(conn, session_key, owner_principal, now)
         return SymbolicBlock(
-            block_id=block_id, session_key=session_key, node_id=node_id,
+            block_id=block_id, owner_principal=owner_principal, session_key=session_key, node_id=node_id,
             parent_node_id=parent_node_id, block_type=block_type,
             summary=summary, raw_text=raw_text, mermaid_line=mermaid_line,
             token_estimate=token_estimate, created_at=now,
@@ -150,7 +158,7 @@ class SymbolicMemoryService:
             ).fetchall()
             return [dict(r) for r in rows]
 
-    def _upsert_canvas(self, conn, session_key: str, now: str) -> None:
+    def _upsert_canvas(self, conn, session_key: str, owner_principal: str, now: str) -> None:
         block_rows = conn.execute(
             "SELECT node_id, mermaid_line, summary, block_type FROM symbolic_blocks "
             "WHERE session_key=? ORDER BY created_at ASC",
@@ -178,10 +186,10 @@ class SymbolicMemoryService:
         ) * 4
         conn.execute(
             """INSERT OR REPLACE INTO symbolic_canvases(
-                canvas_id, session_key, mermaid, block_count,
+                canvas_id, owner_principal, session_key, mermaid, block_count,
                 total_token_estimate, created_at, updated_at
-            ) VALUES(?,?,?,?,?,?,?)""",
-            (new_id(), session_key, mermaid, len(block_rows),
+            ) VALUES(?,?,?,?,?,?,?,?)""",
+            (new_id(), owner_principal, session_key, mermaid, len(block_rows),
              total_tokens, now, now),
         )
 

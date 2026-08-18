@@ -1534,7 +1534,7 @@ class CanonicalStore:
             raise ValueError(f"invalid permission: {permission}")
         if is_admin:
             return True
-        roles = set(roles or ()) | {"authenticated", "federated_agents"}
+        roles = set(roles or ()) | {"authenticated"}
         with contextlib.closing(self.connect()) as connection:
             fact = connection.execute(
                 "SELECT owner_principal, status FROM facts WHERE fact_id=?", (fact_id,)

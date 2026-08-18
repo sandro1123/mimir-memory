@@ -1142,7 +1142,8 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             query += " ORDER BY confidence DESC, updated_at DESC LIMIT ?"
             params.append(limit)
             rows = [dict(r) for r in conn.execute(query, params).fetchall()]
-        return {"opinions": rows, "count": len(rows)}
+        visible = [r for r in rows if identity.is_admin or identity.can_act_as(r["owner_principal"])]
+        return {"opinions": visible, "count": len(visible)}
 
     @app.get("/v10/opinions/{fact_id}")
     def get_opinion(fact_id: str, identity: Principal = Depends(scoped("read"))):
@@ -1177,7 +1178,8 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             query += " ORDER BY confidence DESC, updated_at DESC LIMIT ?"
             params.append(limit)
             rows = [dict(r) for r in conn.execute(query, params).fetchall()]
-        return {"observations": rows, "count": len(rows)}
+        visible = [r for r in rows if identity.is_admin or identity.can_act_as(r["owner_principal"])]
+        return {"observations": visible, "count": len(visible)}
 
     @app.post("/v10/observations/consolidate", status_code=201)
     def consolidate_observations(body: ConsolidateBody,
@@ -1308,9 +1310,13 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         from .symbolic_memory import SymbolicMemoryService
         svc = SymbolicMemoryService(context.store)
         session_key = body.get("session_key") or identity.principal_id
+        owner = body.get("owner_principal") or identity.principal_id
+        if not identity.can_act_as(owner):
+            raise AuthError("cannot offload symbolic block for another principal", 403, "owner_boundary")
         block = svc.offload_block(
             session_key=session_key,
             raw_text=body.get("raw_text", ""),
+            owner_principal=owner,
             block_type=body.get("block_type", "log"),
             parent_node_id=body.get("parent_node_id"),
             summary=body.get("summary"),
@@ -1325,10 +1331,13 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         """Return the Mermaid canvas for a session (drill-down map)."""
         from .symbolic_memory import SymbolicMemoryService
         svc = SymbolicMemoryService(context.store)
-        mermaid = svc.get_canvas(session_key)
         blocks = svc.get_session_blocks(session_key)
+        visible_blocks = [b for b in blocks if not b.get("owner_principal") or identity.is_admin or identity.can_act_as(b.get("owner_principal"))]
+        if blocks and not visible_blocks and not identity.is_admin:
+            raise AuthError("access denied to session blocks", 403, "owner_boundary")
+        mermaid = svc.get_canvas(session_key)
         return {"status": "ok", "session_key": session_key,
-                "mermaid": mermaid, "blocks": blocks}
+                "mermaid": mermaid, "blocks": visible_blocks}
 
     @app.get("/v11/symbolic/{node_id}")
     def symbolic_recall(node_id: str,
@@ -1339,6 +1348,9 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         block = svc.recall_block(node_id)
         if not block:
             raise HTTPException(404, "symbol node not found")
+        owner = block.get("owner_principal")
+        if owner and not identity.is_admin and not identity.can_act_as(owner):
+            raise AuthError("access denied to symbol node", 403, "owner_boundary")
         return {"status": "ok", "node_id": node_id,
                 "raw_text": block.get("raw_text"), "summary": block.get("summary"),
                 "block_type": block.get("block_type")}

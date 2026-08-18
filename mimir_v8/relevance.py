@@ -20,11 +20,11 @@ MEMORY_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
-# Agent/entity names that should trigger retrieval
+# Generic domain keywords and technical concepts that indicate context is needed
 ENTITY_PATTERNS = re.compile(
-    r"\b(heimdallr|quantmaster|jarvis|mentor|sandro|"
-    r"mimir|quantstar|n100|sing.?box|chromadb|"
-    r"atlas|hermes|feishu|obsidian)\b",
+    r"\b(agent|assistant|memory|chromadb|sqlite|database|"
+    r"config|token|api|endpoint|server|service|system|"
+    r"architecture|workflow|pipeline|docker|kubernetes)\b",
     re.IGNORECASE,
 )
 

@@ -197,15 +197,15 @@ class LearningService:
         result = redact_text(content)
         source_id = self._create_explicit_source(result.text, owner_principal, actor_principal, idempotency_key)
         candidate = self.candidates.create_candidate(
-            CreateCandidate(content=result.text, summary=summary, proposed_owner_principal=owner_principal, proposed_domain=domain, proposed_fact_type=fact_type, source_id=source_id, source_hash=self._source_hash(source_id), proposed_visibility="owner_only", proposed_egress_policy="local_only", uncertainty_reasons=("explicit_memory_requires_review",) if actor_principal != "sandro" else (), idempotency_key=f"{idempotency_key}:candidate"),
+            CreateCandidate(content=result.text, summary=summary, proposed_owner_principal=owner_principal, proposed_domain=domain, proposed_fact_type=fact_type, source_id=source_id, source_hash=self._source_hash(source_id), proposed_visibility="owner_only", proposed_egress_policy="local_only", uncertainty_reasons=("explicit_memory_requires_review",), idempotency_key=f"{idempotency_key}:candidate"),
             actor_principal,
         )
         return {**candidate, "source_id": source_id, "redaction_applied": result.redacted, "redaction_rules": result.rules, "retention_class": retention_class}
 
     def forget(self, fact_id: str, expected_version: int, reason: str, actor_principal: str, idempotency_key: str) -> dict:
         fact = self.store.get_fact(fact_id)
-        if fact["owner_principal"] != actor_principal and actor_principal != "sandro":
-            raise PermissionError("only the fact owner or Sandro can forget a fact")
+        if fact["owner_principal"] != actor_principal:
+            raise PermissionError("only the fact owner can forget a fact")
         from .schema import TombstoneFact
         return self.store.tombstone_fact(
             TombstoneFact(fact_id=fact_id, expected_version=expected_version, reason=reason, idempotency_key=idempotency_key),
@@ -214,8 +214,8 @@ class LearningService:
 
     def correct(self, fact_id: str, expected_version: int, corrected_content: str, summary: str | None, reason: str, actor_principal: str, idempotency_key: str) -> dict:
         fact = self.store.get_fact(fact_id)
-        if fact["owner_principal"] != actor_principal and actor_principal != "sandro":
-            raise PermissionError("only the fact owner or Sandro can correct a fact")
+        if fact["owner_principal"] != actor_principal:
+            raise PermissionError("only the fact owner can correct a fact")
         if int(fact["current_version"]) != int(expected_version):
             raise ConflictError(
                 f"fact version conflict: expected {expected_version}, current {fact['current_version']}"

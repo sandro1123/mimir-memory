@@ -6,7 +6,10 @@ ready for ingestion into the learning pipeline.
 
 from __future__ import annotations
 
+import ipaddress
 import re
+import socket
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone, timedelta
 from typing import Any
@@ -16,6 +19,35 @@ from .base import BaseCollector, CollectResult, CollectorError
 
 TZ = timezone(timedelta(hours=8))
 USER_AGENT = "Mozilla/5.0 (compatible; MimirCollector/2.0; +https://github.com/mimir-memory/mimir)"
+
+
+def _validate_url_safety(url: str) -> None:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise ValueError(f"unsupported URL scheme: {parsed.scheme}")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL hostname is missing")
+    if hostname.lower() in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        raise ValueError("access to local addresses is restricted")
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            raise ValueError(f"access to private/reserved IP {hostname} is restricted")
+    except ValueError as e:
+        if "is restricted" in str(e):
+            raise
+        # Hostname is a domain name, resolve to check target IP
+        try:
+            addr_info = socket.getaddrinfo(hostname, None)
+            for item in addr_info:
+                sockaddr = item[4]
+                ip_str = sockaddr[0]
+                ip = ipaddress.ip_address(ip_str)
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                    raise ValueError(f"resolved address {ip_str} is private/restricted")
+        except socket.gaierror as gai_err:
+            raise ValueError(f"cannot resolve hostname {hostname}: {gai_err}")
 
 
 class WebCollector(BaseCollector):
@@ -37,6 +69,7 @@ class WebCollector(BaseCollector):
         if not self.enabled:
             return CollectResult(errors=["collector disabled"])
         try:
+            _validate_url_safety(url)
             content, title = self._fetch(url)
             result = CollectResult(
                 title=title,
