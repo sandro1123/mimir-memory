@@ -77,9 +77,56 @@ DOCUMENT_TYPES = frozenset({"decision", "overview", "runbook", "learning", "revi
 DOCUMENT_STATUSES = frozenset({"active", "review", "archived"})
 DOCUMENT_TARGET_SCOPES = frozenset({"private", "shared"})
 
+_DYNAMIC_AGENTS: set[str] = set(AGENT_IDS)
+_DYNAMIC_DOMAINS: set[str] = set(DOMAINS)
+
+
+def get_registered_agents() -> frozenset[str]:
+    """Return all currently registered agent identifiers."""
+    return frozenset(_DYNAMIC_AGENTS)
+
+
+def get_registered_domains() -> frozenset[str]:
+    """Return all currently registered domain identifiers."""
+    return frozenset(_DYNAMIC_DOMAINS)
+
+
+def register_agent(agent_id: str) -> None:
+    """Dynamically register a new agent identifier."""
+    if not isinstance(agent_id, str) or not agent_id.strip():
+        raise ValidationError("agent_id must be non-empty text")
+    _DYNAMIC_AGENTS.add(agent_id.strip())
+
+
+def register_domain(domain: str) -> None:
+    """Dynamically register a new domain identifier."""
+    if not isinstance(domain, str) or not domain.strip():
+        raise ValidationError("domain must be non-empty text")
+    _DYNAMIC_DOMAINS.add(domain.strip())
+
+
+def validate_agent_id(agent_id: str) -> str:
+    """Validate whether an agent_id is registered and valid."""
+    cleaned = _required_text("agent_id", agent_id, 128)
+    if cleaned not in _DYNAMIC_AGENTS:
+        raise SchemaValidationError(f"unknown or unregistered agent_id: {cleaned}")
+    return cleaned
+
+
+def validate_domain(domain: str) -> str:
+    """Validate whether a domain is registered and valid."""
+    cleaned = _required_text("domain", domain, 128)
+    if cleaned not in _DYNAMIC_DOMAINS:
+        raise SchemaValidationError(f"unknown or unregistered domain: {cleaned}")
+    return cleaned
+
 
 class ValidationError(ValueError):
     """Raised when a command violates the current canonical schema."""
+
+
+class SchemaValidationError(ValidationError):
+    """Raised when schema entity validation fails."""
 
 
 def _required_text(name: str, value: str, max_length: int) -> str:
