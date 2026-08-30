@@ -68,12 +68,13 @@
 3. **主动意图预测性唤醒 (Proactive Recall)**：
    - Agent 接收到任务前置意图时，Mímir 自动主动推送强约束（Iron Rules）与避坑指南，变“被动查”为“主动护航”。
 
-### 阶段四：v14.0（认知结晶、自动化技能与分布式联邦 · 远期愿景）
-* **目标**：实现集体经验自主进化与跨设备去中心化生态。
-1. **技能自动结晶流水线 (Auto Skill Crystallization)**：
-   - 自动检测多 Agent 协作中的高频优质排障链路（解决次数 ≥3 且反馈率 ≥90%）。
-   - 自动提炼为标准 Hermes / OpenCode Skill SOP，人类一键审核后直接挂载。
+### 阶段四：v14.0（WikiSkill 认知结晶、自动化技能与分布式联邦 · 远期愿景）
+* **目标**：吸收 **WikiSkill (arXiv:2608.27454)** 理论体系，实现集体经验自主编译为持久化知识与技能进化，支持跨节点分布式生态。
+1. **三层演化模型与自动技能结晶流水线 (WikiSkill Auto-Skill Compilation)**：
+   - 确立 **“执行轨迹 (L0 Traces) → Mímir 联邦知识库 (L1/L2 Wiki Patterns) → 可执行技能 (L3 Hermes Skills)”** 三层解耦进化架构。
+   - **Wiki Maintainer**：由 Mentor 守护者角色定期对多 Agent 的成功与失败 Traces 进行根因分析，沉淀/更新 Wiki 模式页面与影响指标。
+   - **Skill Proposer**：基于沉淀的成熟 Wiki 知识，自动提炼生成结构化、抗遗忘的标准 Hermes Skill SOP，经 Human-in-the-loop 一键审批后直接挂载给全体 Agent。
 2. **跨节点去中心化加密联邦 (Edge-to-Edge Decentralized Federation)**：
-   - 支持多台家庭服务器（N100、台式机、云端节点）基于 CRDT 事件流加密同步，实现高可用容灾。
-3. **跨模型语义自适应投影**：
-   - 自动适配 Claude、DeepSeek、Gemini、本地开源模型的不同上下文窗口与格式特性。
+   - 支持多台家庭服务器（N100、主力台式机、云端节点）基于 CRDT 事件流加密同步，实现高可用容灾。
+3. **跨模型语义自适应投影与小模型赋能**：
+   - 依据 WikiSkill 实验结论，让由强模型提炼的高质量 Skill 赋能本地轻量小模型，实现越级能力爆发与跨模型无缝迁移。
