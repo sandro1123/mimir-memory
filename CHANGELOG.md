@@ -6,6 +6,28 @@
 
 ---
 
+## v12.1.0 — 2026-08-31 · Eval 安全网 (Eval Safety Net)
+
+### Added · 新增
+- **Mímir-Eval 评测套件** — `mimir_v8/eval_suite.py`。纯函数指标层 + 种子化合成基准。
+  - 检索指标：`hit_rate@K`（查询级：任一 ground-truth 进 top-K 即 1.0）与 `mrr`（仅首个命中：1/rank，未命中 0.0）；空 ground_truth 拒绝计分（ValueError）。
+  - 抽取指标：precision / recall / F1，集合语义（重复只计一次）。
+  - ACL 泄漏率：检索行中未授权占比——生产地板值为 0.0，任何非零值即安全回归。
+  - **诚实遥测**：合成基准在报告与摘要两级均盖 `provenance="synthetic"` 章，合成数字永远无法伪装成生产质量；真实地板值在在线金标集（tests/test_r9_eval.py），不在此处。
+  - 双语（CJK+latin）12 主题合成语料 + 固定种子可复现；19 项新测试（tests/test_p18_mimir_eval.py）。
+- **全源采集统一调度管道** — `worker.collect_all` 升级为配置驱动的源注册表（`collector.sources`：rss / web / vault），单一调度入口跑全部启用源。
+  - **Vault (Obsidian) 采集器** — `collectors/vault.py`：扫描 markdown 笔记库转 CollectResult；排除隐藏目录（.obsidian/.git/.trash/.smart-env）与 template.md；幂等键 `vault:<relpath>:<mtime>`（改过的笔记以新版本再采，未动过的去重跳过）。
+  - **配置驱动源注册表** — `load_source_registry`；无配置回落旧版 RSS-only 行为（存量部署零影响）；未知源类型抛 ValueError，绝不静默跳过；单源失败隔离进 `results["errors"]` 不中断其他源。
+  - **幂等键统一** — RSS `rss:sha256(url|title)`、web `web:sha256(url)`、vault `vault:relpath:mtime`，逐条入库防重。
+  - Web 采集错误从 `collect_url` 的静默吞没中上浮到 `results["errors"]`。
+  - 8 项新测试（tests/test_p19_ingestion_pipeline.py）。
+
+### Changed · 变更
+- **版本号 12.0.2 → 12.1.0**（`mimir_v8/schema.py` MIMIR_VERSION + `pyproject.toml`）。
+- （master 先行合入）动态 agent 注册表 d91b0fc——v12.1.0 任务1。
+
+---
+
 ## v12.0.2 — 2026-08-18 · 安全与隔离修复 (Security Hardening)
 
 ### Security · 安全修复
