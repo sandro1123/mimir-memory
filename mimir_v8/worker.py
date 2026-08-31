@@ -364,51 +364,173 @@ def _load_config_feeds(config_path: str | Path | None = None) -> list[dict]:
         return []
 
 
-def collect_all(store: CanonicalStore, actor_principal: str) -> dict:
-    """Run all enabled collectors."""
-    from .schema import RETENTION_CLASSES, MEMORY_MODES
-    learning = LearningService(store)
-    results = {"rss": [], "web": [], "errors": []}
+#: Source types the unified ingestion pipeline can dispatch to.
+SOURCE_TYPES = ("rss", "web", "vault")
 
+
+def load_source_registry(config_path: str | Path | None = None) -> list[dict]:
+    """Load the unified source registry from mimir_config.yaml.
+
+    Reads ``collector.sources`` (list of {name, type, ...params}). When
+    the config file or the section is missing, returns an empty list —
+    the caller (collect_all) then falls back to legacy RSS-only
+    behavior, so existing deployments keep working unchanged.
+
+    Raises ValueError when a source declares an unknown ``type``: a
+    silently-skipped source would look like a working pipeline.
+    """
+    config_path = Path(config_path) if config_path else MimirPaths.from_env().config_file
+    if not config_path.exists():
+        return []
     try:
-        feeds = _load_config_feeds()
-        rss = RSSCollector(feeds=feeds)
-        rss_results = rss.collect()
-        for r in rss_results:
-            items = rss.get_items(r)
-            ingested_count = 0
-            for item in items:
-                content = item.get("content", "")
-                title = item.get("title", "")
-                url = item.get("url", "")
-                if not content:
-                    continue
-                env = ConversationEnvelope(
-                    connector_type="rss",
-                    connector_id="rss-collector",
-                    session_id=None,
-                    owner_principal="mentor",
-                    memory_mode="observe",
-                    retention_class="standard",
-                    messages=(ConversationMessage(role="user", content=content),),
-                    source_uri=url,
-                    title=title,
-                    idempotency_key=f"rss:{sha256_text(url or title)}",
+        import yaml
+
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+    except Exception:
+        return []
+    sources = (config.get("collector", {}) or {}).get("sources", [])
+    if not isinstance(sources, list):
+        return []
+    for source in sources:
+        source_type = source.get("type")
+        if source_type not in SOURCE_TYPES:
+            raise ValueError(
+                f"collector source '{source.get('name', '?')}' has unknown type "
+                f"'{source_type}' (known: {', '.join(SOURCE_TYPES)})"
+            )
+    return sources
+
+
+def _ingest_collect_result(
+    learning: LearningService,
+    items: list[dict],
+    connector_type: str,
+    actor_principal: str,
+    key_fn,
+) -> tuple[int, list[str]]:
+    """Feed collected items through the learning pipeline.
+
+    ``key_fn(item)`` builds the per-item idempotency key: RSS results
+    carry many items and must dedupe per item (not per feed), web/vault
+    carry one payload per result.
+    """
+    ingested = 0
+    errors: list[str] = []
+    for item in items:
+        content = item.get("content", "")
+        if not content:
+            continue
+        env = ConversationEnvelope(
+            connector_type=connector_type,
+            connector_id=f"{connector_type}-collector",
+            session_id=None,
+            owner_principal="mentor",
+            memory_mode="observe",
+            retention_class="standard",
+            messages=(ConversationMessage(role="user", content=content),),
+            source_uri=item.get("url", ""),
+            title=item.get("title", ""),
+            idempotency_key=key_fn(item),
+        )
+        try:
+            learning.ingest_conversation(env, actor_principal)
+            ingested += 1
+        except Exception as e:
+            errors.append(f"ingest:{(item.get('title') or '?')[:30]}:{type(e).__name__}")
+    return ingested, errors
+
+
+def collect_all(
+    store: CanonicalStore,
+    actor_principal: str,
+    *,
+    config_path: str | Path | None = None,
+    vault_root: Path | None = None,
+) -> dict:
+    """Run all enabled collectors across every registered source type.
+
+    v12.1.0: dispatches over the config-driven source registry (rss /
+    web / vault). With no registry the legacy RSS-only path runs, so
+    existing deployments are unaffected until they opt in.
+    """
+    from .schema import RETENTION_CLASSES, MEMORY_MODES  # noqa: F401  (kept for callers)
+
+    learning = LearningService(store)
+    results: dict[str, list] = {"rss": [], "web": [], "vault": [], "errors": []}
+
+    registry = load_source_registry(config_path)
+
+    if not registry:
+        # Legacy fallback: one implicit RSS source over all config feeds.
+        registry = [{"name": "rss-default", "type": "rss", "feeds": None}]
+
+    for source in registry:
+        source_name = source.get("name", "unnamed")
+        source_type = source.get("type")
+        try:
+            if source_type == "rss":
+                feeds = source.get("feeds")
+                if feeds is None:
+                    feeds = _load_config_feeds(config_path)
+                collector = RSSCollector(feeds=feeds)
+                for r in collector.collect():
+                    items = collector.get_items(r)
+                    ingested, errors = _ingest_collect_result(
+                        learning, items, "rss", actor_principal,
+                        key_fn=lambda item: f"rss:{sha256_text(item.get('url') or item.get('title', ''))}",
+                    )
+                    results["rss"].append({
+                        "source": source_name,
+                        "title": r.title,
+                        "url": r.url,
+                        "items": r.items_collected,
+                        "ingested": ingested,
+                        "errors": errors,
+                    })
+            elif source_type == "web":
+                from .collectors import WebCollector
+
+                url = source.get("url", "")
+                if not url:
+                    raise ValueError(f"web source '{source_name}' has no url")
+                collector = WebCollector()
+                r = collector.collect_url(url, category=source.get("category", "knowledge"))
+                items = [{"title": r.title, "url": r.url, "content": r.content}]
+                ingested, errors = _ingest_collect_result(
+                    learning, items, "web", actor_principal,
+                    key_fn=lambda item: f"web:{sha256_text(url)}",
                 )
-                try:
-                    ingest_result = learning.ingest_conversation(env, actor_principal)
-                    ingested_count += 1
-                except Exception as e:
-                    r.errors.append(f"ingest:{title[:30]}:{type(e).__name__}")
-            results["rss"].append({
-                "title": r.title,
-                "url": r.url,
-                "items": r.items_collected,
-                "ingested": ingested_count,
-                "errors": r.errors,
-            })
-    except Exception as e:
-        results["errors"].append(f"rss: {type(e).__name__}: {e}")
+                results["web"].append({
+                    "source": source_name,
+                    "title": r.title,
+                    "url": r.url,
+                    "items": r.items_collected,
+                    "ingested": ingested,
+                    "errors": errors,
+                })
+            elif source_type == "vault":
+                from .collectors import VaultCollector
+
+                root = source.get("vault_root") or vault_root
+                collector = VaultCollector(vault_root=root)
+                for r in collector.collect():
+                    key = collector.idempotency_key(r.source_id)
+                    items = [{"title": r.title, "url": "", "content": r.content}]
+                    ingested, errors = _ingest_collect_result(
+                        learning, items, "vault", actor_principal,
+                        key_fn=lambda item, k=key: k,
+                    )
+                    results["vault"].append({
+                        "source": source_name,
+                        "title": r.title,
+                        "path": r.source_id,
+                        "items": r.items_collected,
+                        "ingested": ingested,
+                        "errors": errors,
+                    })
+        except Exception as e:
+            results["errors"].append(f"{source_name}: {type(e).__name__}: {e}")
 
     return results
 

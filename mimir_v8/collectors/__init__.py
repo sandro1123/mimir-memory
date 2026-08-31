@@ -7,5 +7,13 @@ from .base import BaseCollector, CollectorError
 from .rss import RSSCollector
 from .web import WebCollector
 from .crawler import WebCrawler
+from .vault import VaultCollector
 
-__all__ = ["BaseCollector", "CollectorError", "RSSCollector", "WebCollector", "WebCrawler"]
+__all__ = [
+    "BaseCollector",
+    "CollectorError",
+    "RSSCollector",
+    "WebCollector",
+    "WebCrawler",
+    "VaultCollector",
+]
