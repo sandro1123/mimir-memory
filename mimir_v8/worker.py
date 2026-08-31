@@ -496,6 +496,11 @@ def collect_all(
                     raise ValueError(f"web source '{source_name}' has no url")
                 collector = WebCollector()
                 r = collector.collect_url(url, category=source.get("category", "knowledge"))
+                if r.errors:
+                    # collect_url swallows fetch errors into r.errors —
+                    # surface them so the source lands in results["errors"]
+                    # and the pipeline keeps running the other sources.
+                    raise ValueError(f"{url} -> {r.errors[0]}")
                 items = [{"title": r.title, "url": r.url, "content": r.content}]
                 ingested, errors = _ingest_collect_result(
                     learning, items, "web", actor_principal,
