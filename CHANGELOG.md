@@ -9,6 +9,7 @@
 ## v12.1.0 — 2026-08-31 · Eval 安全网 (Eval Safety Net)
 
 ### Added · 新增
+- **动态注册表通电（hotfix，部署前发现）** — 审计发现 `register_agent()/register_domain()` 建成后全库零调用点（教科书式"建了没通电"），部署 v12.1.0 将使 quantstar（生产硬编码热修注册）写入直接校验失败。修复：`config.py` 新增 `load_federation_registry()`——读 `mimir_config.yaml` 可选 `federation.agents/domains` 段逐项注册；缺文件/缺段静默跳过（worker 无 config 可跑），结构错 ValueError 决不静默（铁律#12）。挂点双入口：`worker.main` 与 `runtime.build_runtime`，server/worker 进程全覆盖。8 项新测试（tests/test_p20_federation_bootstrap.py），注册表模块级集合有快照/还原隔离。
 - **Mímir-Eval 评测套件** — `mimir_v8/eval_suite.py`。纯函数指标层 + 种子化合成基准。
   - 检索指标：`hit_rate@K`（查询级：任一 ground-truth 进 top-K 即 1.0）与 `mrr`（仅首个命中：1/rank，未命中 0.0）；空 ground_truth 拒绝计分（ValueError）。
   - 抽取指标：precision / recall / F1，集合语义（重复只计一次）。
