@@ -84,3 +84,45 @@ def require_paths(production: bool = True) -> MimirPaths:
         import sys
         print(f"MIMIR_CONFIG_ERROR: {e}", file=sys.stderr)
         sys.exit(1)
+
+def load_federation_registry(config_file: str | Path | None = None) -> dict:
+    """Wire the dynamic agent/domain registry from the config file.
+
+    Reads the optional ``federation`` section (``agents`` / ``domains``
+    lists) and registers every entry via schema.register_agent /
+    register_domain. Missing file or missing section is a no-op so worker
+    and server paths can call this unconditionally at boot.
+
+    Raises ValueError on structural errors — a malformed federation
+    section must fail loudly, never silently skip (iron rule #12).
+    """
+    import yaml
+
+    from . import schema
+
+    if config_file is None:
+        config_file = MimirPaths.from_env().config_file
+    path = Path(config_file)
+    if not path.is_file():
+        return {"agents": [], "domains": []}
+
+    with path.open("r", encoding="utf-8") as handle:
+        body = yaml.safe_load(handle) or {}
+    if not isinstance(body, dict):
+        raise ValueError(f"config file is not a mapping: {path}")
+
+    section = body.get("federation") or {}
+    if not isinstance(section, dict):
+        raise ValueError("federation section must be a mapping with agents/domains lists")
+
+    registered: dict[str, list[str]] = {"agents": [], "domains": []}
+    for key, register in (("agents", schema.register_agent), ("domains", schema.register_domain)):
+        entries = section.get(key) or []
+        if not isinstance(entries, list):
+            raise ValueError(f"federation.{key} must be a list")
+        for entry in entries:
+            if not isinstance(entry, str) or not entry.strip():
+                raise ValueError(f"federation.{key} entries must be non-empty strings")
+            register(entry.strip())
+            registered[key].append(entry.strip())
+    return registered

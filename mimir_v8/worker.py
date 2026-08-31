@@ -663,6 +663,8 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     production = os.environ.get("MIMIR_ENV", "").strip().lower() == "production"
     paths = MimirPaths.from_env(production=production)
+    from .config import load_federation_registry
+    load_federation_registry(paths.config_file)
     store = CanonicalStore(paths.data_dir / "canonical.db")
     if args.command == "hermes-cdc":
         state_db = args.state_db or (

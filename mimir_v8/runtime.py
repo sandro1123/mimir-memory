@@ -138,6 +138,8 @@ def build_runtime(
     enabled_knowledge_layers: tuple[str, ...] = ("memory", "learning", "wiki"),
 ):
     enabled_knowledge_layers = normalize_knowledge_layers(enabled_knowledge_layers)
+    from .config import load_federation_registry
+    load_federation_registry(None)
     root = Path(data_dir)
     root.mkdir(parents=True, exist_ok=True)
     store = CanonicalStore(root / "canonical.db")
