@@ -29,7 +29,7 @@
 
 - [x] **v12.0.0 (Insight)**：艾宾浩斯 5 级衰减、Chronos 双时间轴、EvolveMem 反馈自进化、三通道召回漏斗（Vector + FTS + Graph）、冲突标记消解、MCP 27 工具支持。
 - [x] **v12.0.2 (Security Hardening)**：多 Agent ACL 联邦隔离漏洞修复、特权逻辑彻底剥离、符号记忆租户隔离、SSRF 防护。
-- [ ] **v12.1.0 (Mímir-Eval & Ingestion)**：
+- [x] **v12.1.0 (Mímir-Eval & Ingestion)**（2026-08-31 发布，tag v12.1.0；部署前审计发现注册表未通电，热修 v12.1.1，2026-09-01）：
   - **Mímir-Eval 基准套件**：建立涵盖 `HitRate@5`、`MRR`、`Extraction Precision` 与 `ACL Isolation Leak Rate` 的标准化自动化评测基准。
   - **全源自动化采集管道**：将 RSS 订阅源、网页深度提取、Obsidian 笔记双向同步统一调度为 CDC 治理管道的输入源。
   - **动态 Agent 与 Domain 注册**：解耦 `schema.py` 中的硬编码 Agent 名单，支持通过 `mimir_config.yaml` 动态注册多智能体身份。
