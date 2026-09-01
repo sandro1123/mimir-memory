@@ -6,6 +6,23 @@
 
 ---
 
+## v12.1.2 — 2026-09-01 · 写路径注册表半通电补全 (Write-Path Registry Completion)
+
+### Fixed · 修复
+- **静态集消费者全迁动态注册表（部署实弹验收发现）** — v12.1.1 通电了 `validate_agent_id()` 半边，但 6 处写路径消费者仍查静态 `AGENT_IDS`/`DOMAINS` frozenset：quantstar 经 config federation 注册后仍被写路径拒收（生产活进程铁证：`POST /v8/facts` 422 `invalid owner_principal: quantstar`；DB 中 quantstar 存量 15 条系旧热修时代写入，新写入被堵）。修复：全部迁移到 `get_registered_agents()`/`get_registered_domains()`——
+  - `schema.py` `CreateFact.validated()`（owner+domain 两查，POST /v8/facts 主写路径）
+  - `learning.py` `remember()`（显式记忆摄入，agent+domain）
+  - `core_memory.py` `promote()`（canonical 晋升闸门）
+  - `api.py` `crystal_approve`（回落 mentor 前先查动态集——注册 agent 不再被静默改派）
+  - `knowledge.py` `create_item`（domain 闸门，grep 复查新发现）
+  - `evaluator.py` domain 白名单（`ALLOWED_DOMAINS = frozenset(DOMAINS)` 导入期冻结——改为 `_allowed_domains()` 每次评估现算，grep 复查新发现）
+  负向守护：未注册 agent/domain 依旧拒收不变。11 项新测试（tests/test_p21_federation_write_paths.py），含「消费者模块不得 import 静态集」源级总闸。
+
+### Changed · 变更
+- **版本号 12.1.1 → 12.1.2**（`mimir_v8/schema.py` MIMIR_VERSION + `pyproject.toml` + test_r8_release 断言）。tag v12.1.1 已推公共远端不重写，热修以独立 tag v12.1.2 锚定部署树。
+
+---
+
 ## v12.1.1 — 2026-09-01 · 动态注册表通电 (Federation Registry Wiring)
 
 ### Fixed · 修复
