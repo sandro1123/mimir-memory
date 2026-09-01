@@ -14,13 +14,13 @@ from typing import Iterable
 from .candidates import CandidateService, CreateCandidate
 from .classifier import classify
 from .schema import (
-    AGENT_IDS,
     CONVERSATION_ROLES,
-    DOMAINS,
     FACT_TYPES,
     MEMORY_MODES,
     RETENTION_CLASSES,
     ValidationError,
+    get_registered_agents,
+    get_registered_domains,
 )
 from .store import CanonicalStore, ConflictError, canonical_json, new_id, sha256_text, utc_now
 
@@ -188,9 +188,9 @@ class LearningService:
         return {"run_id": run_id, "source_id": source_id, "status": "stored", "message_count": len(env.messages), "redacted_count": redacted_count, "source_category": source_category, "idempotent_replay": False}
 
     def remember(self, content: str, owner_principal: str, domain: str, fact_type: str, actor_principal: str, idempotency_key: str, summary: str | None = None, retention_class: str = "standard") -> dict:
-        if owner_principal not in AGENT_IDS:
+        if owner_principal not in get_registered_agents():
             raise ValidationError("owner_principal must be a registered agent")
-        if domain not in DOMAINS or fact_type not in FACT_TYPES:
+        if domain not in get_registered_domains() or fact_type not in FACT_TYPES:
             raise ValidationError("invalid domain or fact_type")
         if retention_class not in RETENTION_CLASSES:
             raise ValidationError(f"invalid retention_class: {retention_class}")

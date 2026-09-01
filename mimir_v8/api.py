@@ -1480,9 +1480,9 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                         identity: Principal = Depends(scoped("manage"))):
         """Human approval: materialize the crystallized skill as a pattern fact."""
         from .crystallize import CrystalError, CrystalService
-        from .schema import AGENT_IDS
+        from .schema import get_registered_agents
         owner = (body or {}).get("owner_principal") or identity.principal_id
-        if owner not in AGENT_IDS:
+        if owner not in get_registered_agents():
             owner = "mentor"
         svc = CrystalService(context.store)
         try:

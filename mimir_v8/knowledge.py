@@ -17,7 +17,7 @@ from typing import Iterable
 from .classifier import classify
 from .learning import redact_text
 from .query import QueryKernel, QueryRequest
-from .schema import DOMAINS, EGRESS_POLICIES, SENSITIVITIES, VISIBILITIES, ValidationError
+from .schema import EGRESS_POLICIES, SENSITIVITIES, VISIBILITIES, ValidationError, get_registered_domains
 from .store import CanonicalStore, ConflictError, canonical_json, new_id, sha256_text, utc_now
 
 
@@ -111,7 +111,7 @@ class KnowledgeService:
             raise PermissionError("cannot create knowledge for another principal")
         if command.status == "active" and not is_admin:
             raise PermissionError("knowledge activation requires governance review")
-        if command.domain not in DOMAINS:
+        if command.domain not in get_registered_domains():
             raise ValidationError(f"invalid domain: {command.domain}")
         if command.status not in ITEM_STATUSES:
             raise ValidationError(f"invalid status: {command.status}")

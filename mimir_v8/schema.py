@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-MIMIR_VERSION = "12.1.1"
+MIMIR_VERSION = "12.1.2"
 SCHEMA_VERSION = 18
 
 DECAY_TIERS = frozenset({"L0_never", "L1_preference", "L2_config", "L3_event", "L4_temporary", "L5_ephemeral"})
@@ -267,8 +267,8 @@ class CreateFact:
 
     def validated(self) -> "CreateFact":
         content = _required_text("content", self.content, 100_000)
-        owner = _choice("owner_principal", self.owner_principal, AGENT_IDS)
-        domain = _choice("domain", self.domain, DOMAINS)
+        owner = _choice("owner_principal", self.owner_principal, get_registered_agents())
+        domain = _choice("domain", self.domain, get_registered_domains())
         fact_type = _choice("fact_type", self.fact_type, FACT_TYPES)
         visibility = _choice("visibility", self.visibility, VISIBILITIES)
         sensitivity = _choice("sensitivity", self.sensitivity, SENSITIVITIES)

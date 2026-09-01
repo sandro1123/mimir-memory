@@ -15,7 +15,7 @@ import urllib.request
 from dataclasses import dataclass, field, asdict
 from typing import Any, Callable
 
-from .schema import DOMAINS, FACT_TYPES, ValidationError
+from .schema import FACT_TYPES, ValidationError, get_registered_domains
 
 logger = logging.getLogger("mimir_v8.evaluator")
 
@@ -28,7 +28,16 @@ DEFAULT_KEY_ENV = "MIMIR_EVAL_API_KEY"
 
 ALLOWED_RISK = frozenset({"low", "medium", "high", "critical"})
 ALLOWED_FACT_TYPES = frozenset(FACT_TYPES)
-ALLOWED_DOMAINS = frozenset(DOMAINS)
+
+
+def _allowed_domains() -> frozenset[str]:
+    """Live domain whitelist: registry-aware, not frozen at import time.
+
+    Federation-registered domains (config `federation.domains`) must pass
+    evaluation parsing too, so the whitelist is computed per call from the
+    dynamic registry rather than snapshotting the static set at import.
+    """
+    return get_registered_domains()
 
 PROMPT_INJECTION_PATTERNS = (
     re.compile(r"ignore\s+(all\s+)?(previous|above|below)", re.IGNORECASE),
@@ -390,8 +399,9 @@ class Evaluator:
         if not isinstance(domain_raw, str):
             return self._parse_error(raw, content, f"domain must be a string, got {type(domain_raw).__name__}: {domain_raw!r}")
         domain = domain_raw.strip().lower()
-        if domain not in ALLOWED_DOMAINS:
-            return self._parse_error(raw, content, f"domain {domain!r} not in {sorted(ALLOWED_DOMAINS)}")
+        allowed_domains = _allowed_domains()
+        if domain not in allowed_domains:
+            return self._parse_error(raw, content, f"domain {domain!r} not in {sorted(allowed_domains)}")
 
         # --- fact_type: must be string in whitelist ---
         fact_type_raw = data.get("fact_type")

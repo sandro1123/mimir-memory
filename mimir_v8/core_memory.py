@@ -7,7 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from .schema import AGENT_IDS
+from .schema import get_registered_agents
 from .store import CanonicalStore, ConflictError, NotFoundError, canonical_json, new_id, sha256_text, utc_now
 
 CORE_MEMORY_BLOCKS = ("user_profile", "project_context", "key_decisions")
@@ -45,7 +45,7 @@ class CoreMemoryService:
 
     def promote(self, command: PromoteCoreMemory, actor_principal: str, *, is_admin: bool = False) -> dict:
         self._authorize(command.agent_id, actor_principal, is_admin)
-        if command.agent_id not in AGENT_IDS:
+        if command.agent_id not in get_registered_agents():
             raise CoreMemoryPolicyError(f"unknown agent: {command.agent_id}")
         if command.block_name not in CORE_MEMORY_BLOCKS:
             raise CoreMemoryPolicyError(f"invalid block: {command.block_name}")
