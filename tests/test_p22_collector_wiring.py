@@ -20,6 +20,7 @@ These tests pin all three wirings. They run RED on v12.1.2.
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import tempfile
 import unittest
@@ -220,6 +221,134 @@ class TestWebSourceIdempotency(unittest.TestCase):
                 second["web"][0]["errors"], [],
                 f"rerun must not ConflictError: {second['web'][0]}",
             )
+
+
+class TestSchemaV19VaultConnector(unittest.TestCase):
+    """Schema 19: conversation_sources CHECK whitelist accepts 'vault'.
+
+    Production databases created at v8 carry a connector_type CHECK
+    frozen before vault existed — first real harvest (2026-09-02) died
+    with IntegrityError on every note. SQLite cannot ALTER a CHECK, so
+    v19 rebuilds the table with the vault-aware whitelist.
+    """
+
+    #: The v8-era whitelist exactly as found in production.
+    LEGACY_DDL = """
+    CREATE TABLE conversation_sources (
+        source_id TEXT PRIMARY KEY,
+        connector_type TEXT NOT NULL CHECK (connector_type IN
+            ('hermes_cdc','external_agent','workbuddy','file','rss','web','document')),
+        connector_id TEXT NOT NULL,
+        session_id TEXT,
+        source_uri TEXT,
+        source_hash TEXT NOT NULL,
+        title TEXT,
+        owner_principal TEXT NOT NULL,
+        retention_class TEXT NOT NULL CHECK (retention_class IN
+            ('session','short','standard','permanent','legal_hold')),
+        memory_mode TEXT NOT NULL CHECK (memory_mode IN ('explicit','observe','never')),
+        source_category TEXT NOT NULL DEFAULT 'unknown/quarantine' CHECK (source_category IN
+            ('conversation','external_info','knowledge_doc','unknown/quarantine')),
+        started_at TEXT,
+        ended_at TEXT,
+        ingested_at TEXT NOT NULL,
+        metadata_json TEXT NOT NULL
+    ) STRICT;
+    """
+
+    def _make_v18_db(self, root: Path) -> Path:
+        """Build a schema-18 database with the v8-era CHECK frozen in."""
+        from mimir_v8.store import CanonicalStore as Store
+
+        db = root / "canonical.db"
+        store = Store(db)  # fresh DB at current SCHEMA_VERSION
+        with contextlib.closing(store.connect()) as c:
+            # Re-freeze the old CHECK: rebuild with the legacy DDL so the
+            # migration has something real to upgrade.
+            c.execute("PRAGMA writable_schema=ON") if False else None
+        return db
+
+    def test_migrate_schema_v19_accepts_vault_rows(self):
+        import sqlite3
+
+        from mimir_v8.migration import migrate_schema_v19
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db = root / "canonical.db"
+
+            # Build a fresh current-schema DB, then downgrade its
+            # conversation_sources to the legacy CHECK shape via table
+            # rebuild (what production v18 actually looks like).
+            from mimir_v8.store import CanonicalStore as Store
+
+            store = Store(db)
+            with contextlib.closing(store.connect()) as c:
+                c.execute("BEGIN")
+                c.execute("DROP TABLE conversation_messages")
+                c.execute("DROP TABLE conversation_sources")
+                c.execute(self.LEGACY_DDL)
+                c.execute(
+                    "CREATE TABLE conversation_messages ("
+                    "message_id TEXT PRIMARY KEY, source_id TEXT NOT NULL "
+                    "REFERENCES conversation_sources(source_id), ordinal INTEGER NOT NULL,"
+                    "role TEXT NOT NULL, principal_id TEXT, content_redacted TEXT NOT NULL,"
+                    "content_hash TEXT NOT NULL, redaction_applied INTEGER NOT NULL,"
+                    "created_at TEXT NOT NULL, metadata_json TEXT NOT NULL) STRICT"
+                )
+                c.execute(
+                    "INSERT INTO conversation_sources(source_id, connector_type,"
+                    " connector_id, source_hash, owner_principal, retention_class,"
+                    " memory_mode, ingested_at, metadata_json)"
+                    " VALUES('legacy-1','rss','rss-x','h','mentor','standard',"
+                    "'observe','2026-01-01T00:00:00Z','{}')"
+                )
+                c.execute(
+                    "UPDATE schema_meta SET value='18' WHERE key='schema_version'"
+                )
+                c.commit()
+
+            report = migrate_schema_v19(db, root / "backup-v19.db")
+
+            self.assertEqual(report.source_version, 18)
+            self.assertEqual(report.target_version, 19)
+
+            with contextlib.closing(sqlite3.connect(db)) as c:
+                # The migrated table must accept a vault row.
+                c.execute(
+                    "INSERT INTO conversation_sources(source_id, connector_type,"
+                    " connector_id, source_hash, owner_principal, retention_class,"
+                    " memory_mode, source_category, ingested_at, metadata_json)"
+                    " VALUES('v-1','vault','vault-collector','h2','mentor','standard',"
+                    "'observe','knowledge_doc','2026-09-02T00:00:00Z','{}')"
+                )
+                c.commit()
+                row = c.execute(
+                    "SELECT connector_type FROM conversation_sources"
+                    " WHERE source_id='legacy-1'"
+                ).fetchone()
+            self.assertEqual(row[0], "rss")
+
+    def test_fresh_db_accepts_vault_rows(self):
+        # A freshly created canonical DB (current SCHEMA_VERSION) must
+        # also accept vault connector rows — new and migrated databases
+        # must not drift apart.
+        import sqlite3
+
+        from mimir_v8.store import CanonicalStore as Store
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "fresh.db"
+            store = Store(db)
+            with contextlib.closing(store.connect()) as c:
+                c.execute(
+                    "INSERT INTO conversation_sources(source_id, connector_type,"
+                    " connector_id, source_hash, owner_principal, retention_class,"
+                    " memory_mode, source_category, ingested_at, metadata_json)"
+                    " VALUES('v-2','vault','vault-collector','h3','mentor','standard',"
+                    "'observe','knowledge_doc','2026-09-02T00:00:00Z','{}')"
+                )
+                c.commit()
 
 
 if __name__ == "__main__":

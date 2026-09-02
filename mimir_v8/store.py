@@ -326,7 +326,8 @@ CREATE TABLE IF NOT EXISTS core_memory_items (
 
 CREATE TABLE IF NOT EXISTS conversation_sources (
     source_id TEXT PRIMARY KEY,
-    connector_type TEXT NOT NULL,
+    connector_type TEXT NOT NULL CHECK (connector_type IN
+        ('hermes_cdc','external_agent','workbuddy','file','rss','web','document','vault')),
     connector_id TEXT NOT NULL,
     session_id TEXT,
     source_uri TEXT,

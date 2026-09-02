@@ -6,7 +6,24 @@
 
 ---
 
-## v12.1.3 — 2026-09-02 · 采集管道三缺口补全 (Collector Wiring Completion)
+## v12.1.3 — 2026-09-02 · 采集管道三缺口补全 + Schema v19 (Collector Wiring + Schema v19)
+
+### Fixed · 修复
+- **vault 采集物分类补键（通电前审计发现）** — `classifier.SOURCE_CATEGORY_MAP` 无 `"vault"` 键，vault 笔记经 collect_all 摄入后落 `unknown/quarantine`——隔离数据无下游消费者可用。修复：vault 归类 `knowledge_doc`（与 feishu/file/document 同族本地知识文档；`KNOWLEDGE_DOC_TYPES` 同步），extraction 闸门（仅放行 `conversation` 类）自然将其挡在 LLM 提取之外——vault 全文只落库不外呼。
+- **collect_all 透传 per-source `exclude_dirs`** — `worker.py` vault 分支未把 config 的 `exclude_dirs` 传给 `VaultCollector`（只传 vault_root），生产 vault 含明文凭据目录（敏感扫描 7 文件命中）无 config 层排除手段。修复：per-source `exclude_dirs` 与内置默认四目录（.obsidian/.git/.trash/.smart-env，`DEFAULT_EXCLUDE_DIRS`）取并集——配置的排除名单不会静默丢掉默认项。
+- **web 源幂等键加内容指纹** — `web:<sha256(url)>` 只锚 URL：页面内容更新后第二次采集必撞 `ConflictError`（"idempotency key was reused with different content"）进 `results["errors"]`，web 源通电后首内容变更即断流。修复：key 改 `web:<sha256(url)>:<sha256(content)>`，内容变更采集为新版本，同内容仍幂等去重。
+
+### Added · 新增
+- **Schema v19：conversation_sources connector_type CHECK 白名单加 'vault'（vault 首采实弹发现）** — 生产库 v8 建库时 CHECK 冻结在七个旧类型，vault 首采（2026-09-02）全量 `IntegrityError`（415 篇零落库）；dev 新库 DDL 无此 CHECK（宽松），测试全绿掩盖了生产拒绝——新旧库 schema 漂移。修复三件：`schema.py` SCHEMA_VERSION 18→19；`store.py` 新库 DDL 补同款 CHECK（新旧库同约束防再漂移）；`migration.py` 新增 `migrate_schema_v19()`（表重建换 CHECK：SQLite 不能 ALTER CHECK，新表→拷行→改名，行数 before/after 校验 + foreign_key_check，沿 12-step ALTER 惯例），主链 `migrate_schema` 白名单放宽至 {9..18}→{11..19} 并在 additive 链后接 v19 重建。
+
+9 项新测试（tests/test_p22_collector_wiring.py，含 legacy CHECK 造库→迁移→vault 可插入端到端 + 新库同约束）。RED→GREEN：三缺口 5 红 + v19 2 红 → 绿 9/9。
+
+### Changed · 变更
+- **版本号 12.1.2 → 12.1.3**（`mimir_v8/schema.py` MIMIR_VERSION + `pyproject.toml` + test_r8_release 断言）。tag v12.1.2 已推公共远端不重写，本包以独立 tag v12.1.3 锚定部署树。
+
+---
+
+## v12.1.2 — 2026-09-01 · 写路径注册表半通电补全 (Write-Path Registry Completion)
 
 ### Fixed · 修复
 - **vault 采集物分类补键（通电前审计发现）** — `classifier.SOURCE_CATEGORY_MAP` 无 `"vault"` 键，vault 笔记经 collect_all 摄入后落 `unknown/quarantine`——隔离数据无下游消费者可用。修复：vault 归类 `knowledge_doc`（与 feishu/file/document 同族本地知识文档；`KNOWLEDGE_DOC_TYPES` 同步），extraction 闸门（仅放行 `conversation` 类）自然将其挡在 LLM 提取之外——vault 全文只落库不外呼。

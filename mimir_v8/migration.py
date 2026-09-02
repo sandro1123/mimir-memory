@@ -338,6 +338,126 @@ def migrate_schema_v15(
     )
 
 
+def migrate_schema_v19(
+    database: str | Path,
+    backup: str | Path,
+) -> SchemaMigrationReport:
+    """Migrate schema 18 -> 19: vault-aware conversation_sources CHECK.
+
+    Databases created at v8 froze a connector_type CHECK whitelist
+    before the vault collector existed, so the first real vault harvest
+    (2026-09-02) failed with IntegrityError on every note. SQLite
+    cannot ALTER a CHECK constraint, so the table is rebuilt: new table
+    with the vault-aware whitelist -> copy rows -> swap names. Row
+    count and content are verified after the swap.
+    """
+    database_path = Path(database)
+    backup_path = Path(backup)
+    if not database_path.is_file():
+        raise MigrationError("migration database does not exist")
+    with contextlib.closing(sqlite3.connect(database_path)) as probe:
+        source_version = _read_schema_version(probe)
+    if source_version == SCHEMA_VERSION:
+        raise MigrationError("database is already at the runtime schema")
+    if source_version != 18:
+        raise MigrationError(f"schema 18 backup required for v19 migration, found: {source_version}")
+
+    backup_sha256 = _online_backup(database_path, backup_path)
+
+    connection = sqlite3.connect(database_path, timeout=30.0, isolation_level=None)
+    try:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute("PRAGMA busy_timeout=30000")
+        connection.execute("BEGIN IMMEDIATE")
+        rows = _rebuild_conversation_sources_v19(connection)
+        connection.execute(
+            "UPDATE schema_meta SET value=? WHERE key='schema_version'",
+            (str(SCHEMA_VERSION),),
+        )
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise MigrationError("foreign-key violations detected during migration")
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+    finally:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.close()
+
+    CanonicalStore(database_path)
+    return SchemaMigrationReport(
+        source_version=source_version,
+        target_version=SCHEMA_VERSION,
+        database=str(database_path),
+        backup=str(backup_path),
+        backup_sha256=backup_sha256,
+        migrated_rows=rows,
+    )
+
+
+def _rebuild_conversation_sources_v19(connection):
+    """Rebuild conversation_sources with the vault-aware CHECK whitelist.
+
+    SQLite cannot ALTER a CHECK constraint, so the table is rebuilt:
+    new table -> copy rows -> swap names. Must run inside a caller-owned
+    transaction. Conversation tables reference this one, so callers wrap
+    this with PRAGMA foreign_keys=OFF and verify with PRAGMA
+    foreign_key_check afterwards (classic 12-step ALTER recipe).
+    Raises MigrationError if the row count changes across the swap.
+    """
+    before = connection.execute(
+        "SELECT COUNT(*) FROM conversation_sources"
+    ).fetchone()[0]
+    connection.execute(
+        """
+        CREATE TABLE conversation_sources_v19 (
+            source_id TEXT PRIMARY KEY,
+            connector_type TEXT NOT NULL CHECK (connector_type IN
+                ('hermes_cdc','external_agent','workbuddy','file','rss','web','document','vault')),
+            connector_id TEXT NOT NULL,
+            session_id TEXT,
+            source_uri TEXT,
+            source_hash TEXT NOT NULL,
+            title TEXT,
+            owner_principal TEXT NOT NULL,
+            retention_class TEXT NOT NULL CHECK (retention_class IN
+                ('session','short','standard','permanent','legal_hold')),
+            memory_mode TEXT NOT NULL CHECK (memory_mode IN ('explicit','observe','never')),
+            source_category TEXT NOT NULL CHECK (source_category IN
+                ('conversation','external_info','knowledge_doc','unknown/quarantine')),
+            started_at TEXT,
+            ended_at TEXT,
+            ingested_at TEXT NOT NULL,
+            metadata_json TEXT NOT NULL
+        ) STRICT
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO conversation_sources_v19
+            (source_id, connector_type, connector_id, session_id, source_uri,
+             source_hash, title, owner_principal, retention_class, memory_mode,
+             source_category, started_at, ended_at, ingested_at, metadata_json)
+        SELECT source_id, connector_type, connector_id, session_id, source_uri,
+               source_hash, title, owner_principal, retention_class, memory_mode,
+               source_category, started_at, ended_at, ingested_at, metadata_json
+        FROM conversation_sources
+        """
+    )
+    connection.execute("DROP TABLE conversation_sources")
+    connection.execute(
+        "ALTER TABLE conversation_sources_v19 RENAME TO conversation_sources"
+    )
+    after = connection.execute(
+        "SELECT COUNT(*) FROM conversation_sources"
+    ).fetchone()[0]
+    if after != before:
+        raise MigrationError(
+            f"conversation_sources row count changed during rebuild: {before} -> {after}"
+        )
+    return after
+
+
 def _additive_chain(source_version: int) -> tuple:
     """Return the additive statement groups needed to reach the runtime schema."""
     chain = []
@@ -379,7 +499,7 @@ def migrate_schema(
         source_version = _read_schema_version(probe)
     if source_version == SCHEMA_VERSION:
         raise MigrationError("database is already at the runtime schema")
-    if source_version not in {9, 10, 11, 12, 13, 14, 15, 16, 17} or SCHEMA_VERSION not in {11, 14, 15, 16, 17, 18}:
+    if source_version not in {9, 10, 11, 12, 13, 14, 15, 16, 17, 18} or SCHEMA_VERSION not in {11, 14, 15, 16, 17, 18, 19}:
         raise MigrationError(
             f"unsupported schema migration: {source_version} -> {SCHEMA_VERSION}"
         )
@@ -437,6 +557,15 @@ def migrate_schema(
                 connection.execute(statement)
         if failure_hook:
             failure_hook("after_v11_schema")
+        if source_version <= 18 and SCHEMA_VERSION == 19:
+            # v19: rebuild conversation_sources with the vault-aware
+            # connector CHECK. Older databases froze the pre-vault
+            # whitelist at creation time; the additive chain cannot
+            # change a CHECK, so the rebuild runs here, inside the same
+            # transaction, before the version stamp.
+            connection.execute("PRAGMA foreign_keys=OFF")
+            migrated_rows = _rebuild_conversation_sources_v19(connection)
+            connection.execute("PRAGMA foreign_keys=ON")
         connection.execute(
             "UPDATE schema_meta SET value=? WHERE key='schema_version'",
             (str(SCHEMA_VERSION),),
