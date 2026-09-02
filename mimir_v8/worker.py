@@ -502,9 +502,12 @@ def collect_all(
                     # and the pipeline keeps running the other sources.
                     raise ValueError(f"{url} -> {r.errors[0]}")
                 items = [{"title": r.title, "url": r.url, "content": r.content}]
+                # Key over url+content: a page whose content changed
+                # ingests as a new version instead of tripping the
+                # "idempotency key reused with different content" guard.
                 ingested, errors = _ingest_collect_result(
                     learning, items, "web", actor_principal,
-                    key_fn=lambda item: f"web:{sha256_text(url)}",
+                    key_fn=lambda item: f"web:{sha256_text(url)}:{sha256_text(item.get('content', ''))}",
                 )
                 results["web"].append({
                     "source": source_name,
@@ -518,7 +521,16 @@ def collect_all(
                 from .collectors import VaultCollector
 
                 root = source.get("vault_root") or vault_root
-                collector = VaultCollector(vault_root=root)
+                # Per-source exclude_dirs merge over the built-in
+                # defaults (.obsidian/.git/.trash/.smart-env) — a vault
+                # with a plaintext-credentials directory must be able to
+                # keep it out of the harvest from config alone.
+                from .collectors.vault import DEFAULT_EXCLUDE_DIRS
+                exclude = frozenset(source.get("exclude_dirs") or ())
+                collector = VaultCollector(
+                    vault_root=root,
+                    exclude_dirs=DEFAULT_EXCLUDE_DIRS | exclude,
+                )
                 for r in collector.collect():
                     key = collector.idempotency_key(r.source_id)
                     items = [{"title": r.title, "url": "", "content": r.content}]

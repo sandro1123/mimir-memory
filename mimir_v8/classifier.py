@@ -6,7 +6,7 @@ source_category. All ingestion and extraction code must use this module.
 Categories:
 - conversation: hermes_cdc, external_agent, workbuddy
 - external_info: rss, web, searxng
-- knowledge_doc: feishu, file, document
+- knowledge_doc: feishu, file, document, vault
 - unknown/quarantine: any unregistered connector_type
 """
 
@@ -26,6 +26,7 @@ SOURCE_CATEGORY_MAP: dict[str, str] = {
     "feishu": "knowledge_doc",
     "file": "knowledge_doc",
     "document": "knowledge_doc",
+    "vault": "knowledge_doc",
 }
 
 # Conversation sources (allowed for memory extraction)
@@ -35,7 +36,7 @@ CONVERSATION_TYPES = frozenset({"hermes_cdc", "external_agent", "workbuddy"})
 EXTERNAL_INFO_TYPES = frozenset({"rss", "web", "searxng"})
 
 # Knowledge doc sources
-KNOWLEDGE_DOC_TYPES = frozenset({"feishu", "file", "document"})
+KNOWLEDGE_DOC_TYPES = frozenset({"feishu", "file", "document", "vault"})
 
 # All registered types
 REGISTERED_TYPES = CONVERSATION_TYPES | EXTERNAL_INFO_TYPES | KNOWLEDGE_DOC_TYPES

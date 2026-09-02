@@ -6,6 +6,20 @@
 
 ---
 
+## v12.1.3 — 2026-09-02 · 采集管道三缺口补全 (Collector Wiring Completion)
+
+### Fixed · 修复
+- **vault 采集物分类补键（通电前审计发现）** — `classifier.SOURCE_CATEGORY_MAP` 无 `"vault"` 键，vault 笔记经 collect_all 摄入后落 `unknown/quarantine`——隔离数据无下游消费者可用。修复：vault 归类 `knowledge_doc`（与 feishu/file/document 同族本地知识文档；`KNOWLEDGE_DOC_TYPES` 同步），extraction 闸门（仅放行 `conversation` 类）自然将其挡在 LLM 提取之外——vault 全文只落库不外呼。
+- **collect_all 透传 per-source `exclude_dirs`** — `worker.py` vault 分支未把 config 的 `exclude_dirs` 传给 `VaultCollector`（只传 vault_root），生产 vault 含明文凭据目录（敏感扫描 7 文件命中）无 config 层排除手段。修复：per-source `exclude_dirs` 与内置默认四目录（.obsidian/.git/.trash/.smart-env，`DEFAULT_EXCLUDE_DIRS`）取并集——配置的排除名单不会静默丢掉默认项。
+- **web 源幂等键加内容指纹** — `web:<sha256(url)>` 只锚 URL：页面内容更新后第二次采集必撞 `ConflictError`（"idempotency key was reused with different content"）进 `results["errors"]`，web 源通电后首内容变更即断流。修复：key 改 `web:<sha256(url)>:<sha256(content)>`，内容变更采集为新版本，同内容仍幂等去重。
+
+7 项新测试（tests/test_p22_collector_wiring.py）。RED→GREEN 全程：红阵型 5 红（classify 两红/exclude_dirs 两红/web 幂等一红）→ 绿 7/7。
+
+### Changed · 变更
+- **版本号 12.1.2 → 12.1.3**（`mimir_v8/schema.py` MIMIR_VERSION + `pyproject.toml` + test_r8_release 断言）。tag v12.1.2 已推公共远端不重写，本包以独立 tag v12.1.3 锚定部署树。
+
+---
+
 ## v12.1.2 — 2026-09-01 · 写路径注册表半通电补全 (Write-Path Registry Completion)
 
 ### Fixed · 修复
