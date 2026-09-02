@@ -551,5 +551,72 @@ class TestR7RuntimeWiring(unittest.TestCase):
             self.assertFalse(components.supervisor._thread)
 
 
+class TestR7V122APITransparency(unittest.TestCase):
+    """/v8/query 与 /v12/search/trace 须透传 v12.2.0 检索参数。
+
+    depth（分层装配：standard=L3+L2，deep 下钻 L1）与 use_anchor（锚通道
+    开关）是内核已具备的能力——若 REST 层漏透传，调用方将永远锁死在
+    standard 档且锚常开，新能力对 API 使用者不存在。
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.fixture = R7APIFixture(Path(self._tmp.name),
+                                   enabled_layers=("memory", "learning"))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_query_body_echoes_depth_and_anchor(self):
+        r = self.fixture.client.post(
+            "/v8/query",
+            json={"text": "N100 cooling", "depth": "deep", "use_anchor": False},
+            headers=self.fixture.headers(),
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        data = r.json()
+        self.assertEqual(data["filters"]["depth"], "deep")
+        self.assertFalse(data["channels"]["anchor"])
+
+    def test_query_invalid_depth_rejected_with_422(self):
+        r = self.fixture.client.post(
+            "/v8/query",
+            json={"text": "N100 cooling", "depth": "sideways"},
+            headers=self.fixture.headers(),
+        )
+        self.assertEqual(r.status_code, 422, r.text)
+
+    def test_trace_passes_depth_through_to_stages(self):
+        r = self.fixture.client.post(
+            "/v12/search/trace",
+            json={"text": "N100 cooling", "depth": "deep"},
+            headers=self.fixture.headers(),
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        stages = {s["stage"]: s for s in r.json()["stages"]}
+        self.assertEqual(stages["LayerSweep"]["depth"], "deep")
+        self.assertTrue(stages["AnchorChannel"]["enabled"])
+
+    def test_trace_use_anchor_false_disables_anchor_stage(self):
+        r = self.fixture.client.post(
+            "/v12/search/trace",
+            json={"text": "N100 cooling", "use_anchor": False},
+            headers=self.fixture.headers(),
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        stages = {s["stage"]: s for s in r.json()["stages"]}
+        self.assertFalse(stages["AnchorChannel"]["enabled"])
+
+    def test_query_rejects_unknown_body_fields(self):
+        # QueryBody 是 extra="forbid" — 新字段必须显式声明才能被接受，
+        # 该断言钉死「透传」不是靠 pydantic 静默吞字段实现。
+        r = self.fixture.client.post(
+            "/v8/query",
+            json={"text": "N100", "depthx": "deep"},
+            headers=self.fixture.headers(),
+        )
+        self.assertEqual(r.status_code, 422, r.text)
+
+
 if __name__ == "__main__":
     unittest.main()

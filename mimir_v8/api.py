@@ -75,6 +75,12 @@ class QueryBody(BaseModel):
     use_fts: bool = True
     use_graph: bool = True
     include_provisional: bool = False
+    #: v12.2.0 anchor channel switch (iron rules / core prefs ride the
+    #: anchor channel regardless of similarity hits).
+    use_anchor: bool = True
+    #: v12.2.0 layered assembly depth: "standard" keeps L3+L2, "deep"
+    #: drills into L1 atom facts.
+    depth: str = "standard"
 
 
 class CreateFactBody(BaseModel):
@@ -676,6 +682,8 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         return visible
 
     def execute_query(body: QueryBody, identity: Principal) -> dict:
+        if body.depth not in ("standard", "deep"):
+            raise HTTPException(422, "depth must be one of ('standard', 'deep')")
         if body.owner_principal and not identity.can_act_as(body.owner_principal):
             # Filtering by another owner is safe for shared facts, so do not treat it
             # as impersonation. Authorization still happens during canonical hydration.
@@ -694,6 +702,8 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             use_fts=body.use_fts,
             use_graph=body.use_graph,
             include_provisional=body.include_provisional,
+            use_anchor=body.use_anchor,
+            depth=body.depth,
         ))
         try:
             context.store.write_audit(
@@ -1584,6 +1594,8 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             use_fts=body.use_fts,
             use_graph=body.use_graph,
             include_provisional=body.include_provisional,
+            use_anchor=body.use_anchor,
+            depth=body.depth,
         ), dedup_threshold=dedup_threshold)
         return {"status": "ok", **result}
 
