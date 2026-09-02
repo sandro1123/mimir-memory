@@ -76,7 +76,7 @@ class TestKnowledgeLayerConfiguration(unittest.TestCase):
                     validate_vector_collection_name(name)
 
     def test_release_identity(self):
-        self.assertEqual(MIMIR_VERSION, "12.1.4")
+        self.assertEqual(MIMIR_VERSION, "12.2.0")
         self.assertEqual(SCHEMA_VERSION, 19)
 
     def test_pypi_packaging_metadata(self):

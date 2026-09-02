@@ -6,6 +6,25 @@
 
 ---
 
+## v12.2.0 — 2026-09-03 · 记忆分层装配 + 检索免疫双通道 + 血缘继承 (Layered Assembly · Anchor Channel · Lineage Inheritance)
+
+> 五件全零迁移（无 DDL 变更），SCHEMA_VERSION 维持 19。
+
+### Added · 新增
+- **L0~L3 分层装配与渐进式展开（spec 阶段二任务1）** — 检索默认只装配 L3（iron_rule/user_pref）+L2（pattern），L1 原子事实（event/project_config/ephemeral/learning/reference）standard 档不装配、`depth="deep"` 才下钻，大幅削减 Token 消耗；L0（conversation_messages 原始对话）作为证据层检索永不装配。映射零迁移：全部复用 facts.fact_type 既有枚举。分层注入走统一 layer sweep（standard 扫 L2、deep 扫 L2+L1，`LAYER2_BUDGET` 预算内保保存），显式 `fact_type` 过滤器覆盖深度默认（表达精确追溯意图时放行）；hydration 段 L1 门把相似度通道漏进来的 standard 档 L1 拦下并计数 `filtered["layer"]`（可观测）。`trace()` 严格镜像 search()（同 sweep 块+同 L1 门），新增 `LayerSweep` 漏斗阶段，两口径不分叉。
+- **检索锚通道（Anchor Channel，spec 阶段二任务4）** — 铁律与用户核心偏好免被语义相似度一票否决：锚通道在候选池构建阶段直接从 canonical 注入活跃 iron_rule/user_pref，不依赖 vector/fts/graph 三通道命中。ACL 仲裁与状态过滤照常在 hydration 执行（锚通道改变「谁能进池」，不改变「谁能被读到」）；`use_anchor=False` 可关；注入量受预算约束（防铁律库膨胀挤占 top-K）；trace() 报告 `AnchorChannel` 阶段（hits/injected/enabled）。
+- **统一 Profile 视图 API（/v12/profile，spec 阶段二任务2）** — 跨 L3~L1 一站式只读聚合：iron_rule/user_pref/pattern/event/project_config/learning/reference 按 owner+domain 过滤直查 canonical，带 ACL，为上层「人格视图」消费提供单一入口。
+- **XTMEM 血缘最严继承 + Fail-Closed（spec 阶段二任务3）** — supersedes 链上 visibility/sensitivity/egress_policy 三档各取 max(来源，提案)——继承自来源且提案永不放宽；幽灵来源（supersedes_fact_id 不存在）Fail-Closed 抛 `CandidatePolicyError`（422 面），schema FK 是最后防线（500 面）；继承落在 proposed_* 列，commit_approved 直读即贯穿。`create_candidate_in_transaction` 单一卡点全链覆盖。
+
+### Fixed · 修复
+- **disputed 投影同步闭环（spec 阶段二任务5）** — 两处真凶双杀：①`_mark_disputed` 裸 INSERT `memory_events` 无 outbox 行——`fact.conflict_lost` 永不进投影流，fts/graph/vector/core_memory 四投影继续按 active 服务败者（读到已被否决的事实）；修法=对齐 store 既有 `_insert_version_and_side_effects` 先例，向 `PROJECTORS` 全扇出 pending。②conflict.py 三事件 payload_hash 是自造串（非 `sha256(payload_json)`）——`verify_canonical` 一致性门禁对冲突事件必报 `event_hash_mismatch` 误报；修法=三处改对 payload 本身求哈希，verify 误报清零。
+
+### Changed · 变更
+- **API 层透传 v12.2.0 检索参数（收尾件）** — QueryBody 增 `depth`/`use_anchor` 两字段，`/v8/query` 与 `/v12/search/trace` 两构造点透传进 QueryRequest；此前 REST 调用方被永久锁死在 standard 档+锚常开——内核能力已存在但对 API 使用者不可达。`/v8/query` 对非法 depth 答 422（对齐 dedup_threshold 先例）。
+- **版本号 12.1.4 → 12.2.0**（`mimir_v8/schema.py` MIMIR_VERSION + `pyproject.toml` + test_r8_release 断言）。SCHEMA_VERSION 维持 19——五件全零迁移，无 DDL 变更。
+
+---
+
 ## v12.1.4 — 2026-09-02 · 采集管道三缺口补全 + Schema v19 (Collector Wiring + Schema v19)
 
 ### Fixed · 修复

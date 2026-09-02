@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mimir-v8"
-version = "12.1.4"
+version = "12.2.0"
 description = "Mímir v12 Insight — federated memory with Ebbinghaus decay, Chronos validity, symmetric retrieval self-evolution, conflict resolution and skill crystallization."
 readme = "README.md"
 requires-python = ">=3.11"
