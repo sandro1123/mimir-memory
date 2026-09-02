@@ -51,12 +51,13 @@ Mímir 深度融合业界 6 大标杆记忆系统的核心工程精髓（详见 
   - **全源自动化采集管道**：将 RSS 订阅源、网页深度提取、Obsidian 笔记双向同步统一调度为 CDC 治理管道的输入源。
   - **动态 Agent 与 Domain 注册**：解耦 `schema.py` 中的硬编码 Agent 名单，支持通过 `mimir_config.yaml` 动态注册多智能体身份。
   - **开箱即用体验提升**：优化 Docker 容器端口编排，补充本地 BGE-M3 权重离线初始化脚本。
-- [ ] **v12.2.0 (Layered Memory, Unified Profile & XTMEM Gates)**（详见 spec 阶段二，09-02 增补 XTMEM 锚通道与血缘最严继承）：
-  - **L0~L3 记忆分层存储与渐进式展开**（`crystallize.py` / `store.py`）：L0 原始对话与执行痕迹（证据层）→ L1 原子事实与配置偏好 → L2 高频排障模式与场景知识块（Wiki）→ L3 核心人设与强约束铁律；检索时默认只装配 L3+L2，深度追溯才下钻 L1，大幅削减 Token 消耗。
-  - **统一 Profile 视图 API**（`/v12/profile` · `api.py`）：传入 `agent_id` 一键返回 `{iron_rules, user_prefs, dynamic_context}`。
-  - **XTMEM 刚性闸门与血缘最严继承**（`candidates.py` / `governance.py`）：派生事实的 `visibility` 强制继承来源中最严格一档；无来源一律按最严（`owner_only`）处理（Fail-Closed 原则）。
-  - **检索锚通道 (Anchor Channel)**（`query.py`）：高重要度铁律与用户核心偏好免于被语义相似度阈值一票否决，系统安全底线永不丢。
-  - **冲突仲裁投影器闭环**（`conflict.py` / `projector.py`）：修复 `status='disputed'` 事实在 FTS/Graph/Vector 投影中的同步，消除 `verify` 一致性门禁误报。
+- [x] **v12.2.0 (Layered Memory, Unified Profile & XTMEM Gates)**（2026-09-03 发布，tag 候选 ad67148；详见 spec 阶段二，09-02 增补 XTMEM 锚通道与血缘最严继承；五件全零迁移，SCHEMA_VERSION 维持 19）：
+  - **L0~L3 记忆分层存储与渐进式展开**（`query.py`，1caa538）：L0 原始对话与执行痕迹（证据层）→ L1 原子事实与配置偏好 → L2 高频排障模式与场景知识块（Wiki）→ L3 核心人设与强约束铁律；检索时默认只装配 L3+L2，深度追溯才下钻 L1，大幅削减 Token 消耗。
+  - **统一 Profile 视图 API**（`/v12/profile` · `api.py`，1d9c1f1）：传入 `agent_id` 一键返回 `{iron_rules, user_prefs, dynamic_context}`。
+  - **XTMEM 刚性闸门与血缘最严继承**（`candidates.py`，d274957）：派生事实的 `visibility` 强制继承来源中最严格一档；无来源一律按最严（`owner_only`）处理（Fail-Closed 原则）。
+  - **检索锚通道 (Anchor Channel)**（`query.py`，4842e11）：高重要度铁律与用户核心偏好免于被语义相似度阈值一票否决，系统安全底线永不丢。
+  - **冲突仲裁投影器闭环**（`conflict.py`，ef70a5c）：修复 `status='disputed'` 事实在 FTS/Graph/Vector 投影中的同步，消除 `verify` 一致性门禁误报。
+  - 收尾两件：REST 层 `depth`/`use_anchor` 透传（8c5be69，`/v8/query` + `/v12/search/trace`）；版本 bump 12.1.4→12.2.0（ad67148，三锚定+CHANGELOG）。
 
 ---
 
