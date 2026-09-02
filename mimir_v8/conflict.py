@@ -16,6 +16,7 @@ import sqlite3
 from typing import Any
 
 from .dedup import jaccard_similarity
+from .schema import PROJECTORS
 from .store import CanonicalStore, new_id, sha256_text, utc_now
 
 
@@ -109,9 +110,9 @@ class ConflictService:
                         ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                         (new_id(), "conflict", conflict_id, 1, "conflict.detected",
                          actor_principal, new_id(), new_id(), now,
-                         json.dumps({"fact_id_a": a["fact_id"], "fact_id_b": b["fact_id"],
-                                     "similarity": round(sim, 4)}),
-                         sha256_text(f"{a['fact_id']}:{b['fact_id']}:{round(sim, 4)}")),
+                         (payload := json.dumps({"fact_id_a": a["fact_id"], "fact_id_b": b["fact_id"],
+                                     "similarity": round(sim, 4)})),
+                         sha256_text(payload)),
                     )
                     created += 1
         return {"status": "ok", "created": created, "existing": existing}
@@ -189,9 +190,9 @@ class ConflictService:
                 ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (new_id(), "conflict", conflict_id, 2, "conflict.resolved",
                  actor_principal, new_id(), new_id(), now,
-                 json.dumps({"winner_fact_id": winner_fact_id,
-                             "loser_fact_id": loser_fact_id, "reason": reason}),
-                 sha256_text(f"{conflict_id}:{winner_fact_id}:{loser_fact_id}")),
+                 (resolved_payload := json.dumps({"winner_fact_id": winner_fact_id,
+                             "loser_fact_id": loser_fact_id, "reason": reason})),
+                 sha256_text(resolved_payload)),
             )
         return {
             "status": "ok", "conflict_id": conflict_id,
@@ -236,13 +237,29 @@ class ConflictService:
                          "previous_status": loser["status"]}),
              "dispute", reason, actor_principal, new_id(), now),
         )
-        connection.execute(
+        # Payload hash must cover the payload itself (immutable event stream
+        # invariant — verify_canonical recomputes sha256(payload_json)), and
+        # the conflict_lost event must fan out to every projector stream so
+        # FTS/Graph/Vector/CoreMemory drop the disputed loser. Before v12.2.0
+        # this wrote a bare event with a self-invented hash and no outbox:
+        # projections kept serving the loser as active and verify_canonical
+        # flagged event_hash_mismatch on every conflict.
+        conflict_payload = json.dumps(
+            {"reason": reason, "previous_status": loser["status"]}
+        )
+        event_seq = connection.execute(
             """INSERT INTO memory_events(
                 event_id,aggregate_type,aggregate_id,aggregate_version,event_type,
                 actor_principal,request_id,correlation_id,occurred_at,payload_json,payload_hash
             ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
             (new_id(), "fact", loser["fact_id"], new_version, "fact.conflict_lost",
              actor_principal, new_id(), new_id(), now,
-             json.dumps({"reason": reason, "previous_status": loser["status"]}),
-             sha256_text(f"{loser['fact_id']}:conflict_lost:{now}")),
-        )
+             conflict_payload, sha256_text(conflict_payload)),
+        ).lastrowid
+        for projector in PROJECTORS:
+            connection.execute(
+                """INSERT INTO outbox(
+                    outbox_id, event_seq, projector_name, status, available_at
+                ) VALUES(?,?,?,?,?)""",
+                (new_id(), event_seq, projector, "pending", now),
+            )
