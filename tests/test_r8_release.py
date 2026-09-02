@@ -77,7 +77,7 @@ class TestKnowledgeLayerConfiguration(unittest.TestCase):
 
     def test_release_identity(self):
         self.assertEqual(MIMIR_VERSION, "12.1.3")
-        self.assertEqual(SCHEMA_VERSION, 18)
+        self.assertEqual(SCHEMA_VERSION, 19)
 
     def test_pypi_packaging_metadata(self):
         root = Path(__file__).resolve().parent.parent
