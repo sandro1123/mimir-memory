@@ -399,6 +399,39 @@ class AuthFailureLimiter:
             self._failures.pop(ip, None)
 
 
+def _profile_section(connection, owner: str, fact_types: tuple,
+                     limit: int) -> list[dict]:
+    """Assemble one /v12/profile section from the canonical facts table.
+
+    The view is owner-only (can_act_as gate at the route), so every fact
+    under this owner is readable by the caller by construction; shared
+    facts of other agents are never queried and owner_only ones cannot
+    leak because the WHERE clause pins owner_principal.
+    """
+    placeholders = ",".join("?" for _ in fact_types)
+    rows = connection.execute(
+        f"""SELECT fact_id, content, summary, domain, fact_type,
+        confidence_score, recorded_at, updated_at
+        FROM facts WHERE owner_principal=? AND status='active'
+        AND fact_type IN ({placeholders})
+        ORDER BY updated_at DESC, recorded_at DESC, fact_id LIMIT ?""",
+        (owner, *fact_types, limit),
+    ).fetchall()
+    return [
+        {
+            "fact_id": row["fact_id"],
+            "content": row["content"],
+            "summary": row["summary"],
+            "domain": row["domain"],
+            "fact_type": row["fact_type"],
+            "confidence": row["confidence_score"],
+            "recorded_at": row["recorded_at"],
+            "updated_at": row["updated_at"],
+        }
+        for row in rows
+    ]
+
+
 def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
     app = FastAPI(
         title="Mímir REST API",
@@ -1553,6 +1586,42 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             include_provisional=body.include_provisional,
         ), dedup_threshold=dedup_threshold)
         return {"status": "ok", **result}
+
+    @app.get("/v12/profile")
+    def unified_profile(
+        agent_id: str = Query(min_length=1, max_length=128),
+        dynamic_context_limit: int = Query(default=20, ge=1, le=100),
+        identity: Principal = Depends(scoped("read")),
+    ):
+        """v12.2.0 Unified Profile View: one call returns the agent's
+        deconstructed profile — {iron_rules, user_prefs, dynamic_context}.
+
+        Owner-only view: the caller must be able to act as agent_id
+        (admins pass through). Sections are assembled from the canonical
+        facts table (single source of truth, zero new tables):
+        - iron_rules / user_prefs: active facts of those types — the same
+          anchor-channel safety-floor semantics, similarity-independent
+        - dynamic_context: recent active facts of the remaining types
+        """
+        if not identity.can_act_as(agent_id):
+            raise AuthError("profile view is owner-only", 403, "owner_boundary")
+        with context.store.connect() as connection:
+            iron_rows = _profile_section(
+                connection, agent_id, ("iron_rule",), limit=100)
+            pref_rows = _profile_section(
+                connection, agent_id, ("user_pref",), limit=100)
+            other_types = (
+                "project_config", "event", "pattern", "ephemeral",
+                "learning", "reference",
+            )
+            ctx_rows = _profile_section(
+                connection, agent_id, other_types, limit=dynamic_context_limit)
+        return {
+            "agent_id": agent_id,
+            "iron_rules": iron_rows,
+            "user_prefs": pref_rows,
+            "dynamic_context": ctx_rows,
+        }
 
     # Guarded v7 compatibility surface. It preserves client shapes but never
     # bypasses v8 canonical transactions or canonical ACL hydration.
