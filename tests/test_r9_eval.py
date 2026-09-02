@@ -12,6 +12,10 @@ Run:  pytest tests/test_r9_eval.py -q
 The golden set is derived from production facts (fixed fact_ids). Each case
 maps a natural-language user question to the fact it should retrieve.
 Marker strings double as soft checks when fact_ids churn.
+
+The golden set and floors are imported from mimir_v8/eval_suite.py (the
+Mímir-Eval suite, v12.1.0 task 2 + 09-02 spec gap fix) — this test and
+the CLI benchmark share one source of truth and cannot drift apart.
 """
 
 from __future__ import annotations
@@ -28,6 +32,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from mimir_v8.eval_suite import GOLDEN_SET, FLOOR_HIT_RATE_10, FLOOR_HIT_RATE_3
+
 API = os.environ.get("MIMIR_EVAL_API", "http://127.0.0.1:8456")
 TOKEN = os.environ.get(
     "MIMIR_EVAL_TOKEN",
@@ -35,24 +41,14 @@ TOKEN = os.environ.get(
     if (Path.home() / ".hermes/mimir/secrets/clients/admin.token").exists() else "",
 )
 
-#: (question, golden_fact_id, marker_substring)
-GOLDEN_SET = [
-    ("Mentor 的职责是什么", "dad7aea2-f7e9-4b86-b9ea-2e3591a3bb9f", "运维职责"),
-    ("N100 内存过载怎么处理", "4389e49d-5c2b-4d18-a45a-e234de679709", "N100 内存过载"),
-    ("记忆系统有哪些常见故障", "4bddde4a-4c46-4370-a84f-5a7d0e1bd442", "常见故障"),
-    ("早间新闻要怎么呈现", "2de24c79-a228-442d-8d68-a0297f41bc75", "早间新闻"),
-    ("回复卡片 header 改成什么", "57f4c028-fa14-4aa4-b6c6-c7a449194280", "Heimdallr-EX"),
-    ("多个 agent 共享记忆池有什么风险", "789eb5c9-b45c-445e-b48b-10320bc5bb74", "共享记忆池"),
-    ("obsidian 笔记库乱了怎么重构", "7fce0a72-be1e-4fe1-b0fd-cc4b00897250", "obsidian笔记库"),
-    ("让所有 agent 都部署记忆系统", "8e2e6a41-087d-4dfa-970f-c05f97d9ba3c", "部署Mimir"),
-]
-
-#: Regression floors. 2026-08-16 baseline after trigram FTS + weighted RRF +
-#: CJK trigram-fragment expansion measured recall@3 = 100%, recall@10 = 100%,
-#: p50 ≈ 223ms on N100 CPU. Floors leave headroom for production data churn
-#: while still failing on a real degradation.
-FLOOR_RECALL_3 = 0.750
-FLOOR_RECALL_10 = 0.875
+#: Regression floors, re-exported for backward compat with any external
+#: caller that read them here. Same values as eval_suite.GOLDEN_FLOORS —
+#: 2026-08-16 baseline after trigram FTS + weighted RRF + CJK
+#: trigram-fragment expansion measured recall@3 = 100%, recall@10 = 100%,
+#: p50 ≈ 223ms on N100 CPU. Floors leave headroom for production data
+#: churn while still failing on a real degradation.
+FLOOR_RECALL_3 = FLOOR_HIT_RATE_3
+FLOOR_RECALL_10 = FLOOR_HIT_RATE_10
 FLOOR_P50_MS = 1500.0
 
 
