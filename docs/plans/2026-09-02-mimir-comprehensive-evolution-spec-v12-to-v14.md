@@ -55,8 +55,8 @@ Mímir（当前运行基线 `v12.0.2` / Schema 18）深度融合了业界 6 大�
 
 #### 目标：
 落地 L0~L3 渐进式展开，提供一键画像解构端点，修复冲突事实投影器同步。
-
-#### 核心任务与文件指引：
+### 阶段二：v12.2.0（记忆分层、统一 Profile 视图与 XTMEM 闸门对齐）
+* **目标**：吸收 TencentDB 与 XTMEM 核心精髓，落地 L0~L3 渐进式展开，引入锚通道与最严血缘继承。
 1. **L0~L3 记忆分层存储与渐进式展开 (`mimir_v8/crystallize.py`, `mimir_v8/store.py`)**：
    - `L0 Conversation`：原始对话与执行痕迹（证据层）；
    - `L1 Atom Facts`：原子事实与配置偏好；
@@ -65,9 +65,11 @@ Mímir（当前运行基线 `v12.0.2` / Schema 18）深度融合了业界 6 大�
    - 检索时默认只装配 L3+L2，深度追溯才下钻 L1，大幅削减 Token 消耗。
 2. **统一 Profile 视图 API (`/v12/profile` · `mimir_v8/api.py`)**：
    - 一键接口：传入 `agent_id`，直接返回解构后的 `{ "iron_rules": [...], "user_prefs": [...], "dynamic_context": [...] }`。
-3. **血缘最严继承机制 (`mimir_v8/candidates.py`)**：
-   - 派生事实与衍生知识的 `visibility` 强制继承来源中最严格的一档。
-4. **冲突仲裁投影器闭环 (`mimir_v8/conflict.py`, `mimir_v8/projector.py`)**：
+3. **XTMEM 刚性闸门与血缘最严继承机制 (`mimir_v8/candidates.py`, `mimir_v8/governance.py`)**：
+   - 派生事实与衍生知识的 `visibility` 强制继承来源中最严格的一档；无来源一律按最严（`owner_only`）处理（Fail-Closed 原则）。
+4. **检索“锚通道 (Anchor Channel)”机制 (`mimir_v8/query.py`)**：
+   - 高重要度铁律（Iron Rules）与用户核心偏好免于被语义相似度阈值一票否决，确保系统安全底线永不丢。
+5. **冲突仲裁投影器闭环 (`mimir_v8/conflict.py`, `mimir_v8/projector.py`)**：
    - 修复 `status='disputed'` 事实在 FTS/Graph/Vector 中的同步逻辑，彻底消除 `mimir_v8_ops.py verify` 一致性门禁误报。
 
 ---
