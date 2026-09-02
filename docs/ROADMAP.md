@@ -5,17 +5,34 @@
 
 ---
 
+## 🏛️ 理论体系与业界标杆融合架构 (Benchmark Fusion Architecture)
+
+Mímir 深度融合业界 6 大标杆记忆系统的核心工程精髓（详见 [docs/plans/2026-09-02-mimir-comprehensive-evolution-spec-v12-to-v14.md](plans/2026-09-02-mimir-comprehensive-evolution-spec-v12-to-v14.md)）：
+
+```
+1. 接入与刚性闸门层 (XTMEM 四道闸门 · 顺序不可调)
+   ① Identity 认证 ─▶ ② Injection 注入拦截 ─▶ ③ Visibility 权限仲裁 ─▶ ④ Lineage 最严血缘强制
+2. 记忆与分层金字塔 (TencentDB 渐进式展开 & WikiSkill 演化)
+   L0 Traces (不可变审计流) ─▶ L1 Atom Facts ─▶ L2 Patterns (Wiki) ─▶ L3 Skills
+3. 协同与工作记忆区 (Letta / Blackboard) — 任务态秒级共享，事后提炼或销毁
+4. 检索与推理引擎 (Graphiti TKG 时态图谱 & 双层回落) — Refined 结晶区优先，深度回落 Canonical
+5. 异步生命周期引擎 (XTMEM 独立时钟) — 衰减钟 · 结晶钟 · 归名钟 · 冲突仲裁钟 · 梦境凝结钟
+```
+
+---
+
 ## 🗺️ 总体演进图景 (The Big Picture)
 
 ```
 2026 Q3                          2026 Q4                          2027
 ┌─────────────────────────┐     ┌─────────────────────────┐     ┌─────────────────────────┐
-│   v12.x: 生产基线与全源   │ ──▶ │   v13.0: 协作与时序图谱  │ ──▶ │   v14.0: 认知结晶与去中心 │
-│  (Base & Ingestion)     │     │  (Working Memory & TKG) │     │  (Crystallization & P2P)│
+│  v12.x: 基线、全源与分层  │ ──▶ │   v13.0: 协作与时序图谱  │ ──▶ │   v14.0: 认知结晶与去中心 │
+│ (Base, Ingestion, Layer)│     │  (Working Memory & TKG) │     │  (Crystallization & P2P)│
 ├─────────────────────────┤     ├─────────────────────────┤     ├─────────────────────────┤
 │ • Mímir-Eval 自动化评测  │     │ • 多Agent协同工作黑板    │     │ • 自动技能结晶 (AutoSOP) │
 │ • RSS/Web/Vault 全源采集 │     │ • 时态知识图谱 (TKG)    │     │ • 跨节点去中心化联邦    │
 │ • 动态 Agent/Domain 注册 │     │ • 主动预测性记忆唤醒    │     │ • 跨模型认知语义投影    │
+│ • L0~L3 记忆分层与画像   │     │                         │     │                         │
 └─────────────────────────┘     └─────────────────────────┘     └─────────────────────────┘
 ```
 
@@ -23,17 +40,23 @@
 
 ## 📌 阶段规划详解
 
-### 1. v12.x 系列：基线收敛与全源采集 (2026 Q3)
+### 1. v12.x 系列：基线收敛、全源采集与记忆分层 (2026 Q3)
 
-**目标**：巩固事件溯源与联邦隔离底座，建立标准评测体系，打通全源自动化知识采集。
+**目标**：巩固事件溯源与联邦隔离底座，建立标准评测体系，打通全源自动化知识采集，落地记忆分层。
 
 - [x] **v12.0.0 (Insight)**：艾宾浩斯 5 级衰减、Chronos 双时间轴、EvolveMem 反馈自进化、三通道召回漏斗（Vector + FTS + Graph）、冲突标记消解、MCP 27 工具支持。
 - [x] **v12.0.2 (Security Hardening)**：多 Agent ACL 联邦隔离漏洞修复、特权逻辑彻底剥离、符号记忆租户隔离、SSRF 防护。
 - [x] **v12.1.0 (Mímir-Eval & Ingestion)**（2026-08-31 发布，tag v12.1.0；部署前审计发现注册表未通电，热修 v12.1.1，2026-09-01）：
-  - **Mímir-Eval 基准套件**：建立涵盖 `HitRate@5`、`MRR`、`Extraction Precision` 与 `ACL Isolation Leak Rate` 的标准化自动化评测基准。
+  - **Mímir-Eval 基准套件**：建立涵盖 `HitRate@K (K=1,3,5,10)`、`MRR`、`Extraction Precision` 与 `ACL Isolation Leak Rate` 的标准化自动化评测基准（09-02 spec 差距补齐：K=10 + 在线金标运行入口 + CLI `python -m mimir_v8.eval_suite --synthetic|--golden`，金标与回归测试共享单一事实源）。
   - **全源自动化采集管道**：将 RSS 订阅源、网页深度提取、Obsidian 笔记双向同步统一调度为 CDC 治理管道的输入源。
   - **动态 Agent 与 Domain 注册**：解耦 `schema.py` 中的硬编码 Agent 名单，支持通过 `mimir_config.yaml` 动态注册多智能体身份。
   - **开箱即用体验提升**：优化 Docker 容器端口编排，补充本地 BGE-M3 权重离线初始化脚本。
+- [ ] **v12.2.0 (Layered Memory, Unified Profile & XTMEM Gates)**（详见 spec 阶段二，09-02 增补 XTMEM 锚通道与血缘最严继承）：
+  - **L0~L3 记忆分层存储与渐进式展开**（`crystallize.py` / `store.py`）：L0 原始对话与执行痕迹（证据层）→ L1 原子事实与配置偏好 → L2 高频排障模式与场景知识块（Wiki）→ L3 核心人设与强约束铁律；检索时默认只装配 L3+L2，深度追溯才下钻 L1，大幅削减 Token 消耗。
+  - **统一 Profile 视图 API**（`/v12/profile` · `api.py`）：传入 `agent_id` 一键返回 `{iron_rules, user_prefs, dynamic_context}`。
+  - **XTMEM 刚性闸门与血缘最严继承**（`candidates.py` / `governance.py`）：派生事实的 `visibility` 强制继承来源中最严格一档；无来源一律按最严（`owner_only`）处理（Fail-Closed 原则）。
+  - **检索锚通道 (Anchor Channel)**（`query.py`）：高重要度铁律与用户核心偏好免于被语义相似度阈值一票否决，系统安全底线永不丢。
+  - **冲突仲裁投影器闭环**（`conflict.py` / `projector.py`）：修复 `status='disputed'` 事实在 FTS/Graph/Vector 投影中的同步，消除 `verify` 一致性门禁误报。
 
 ---
 
@@ -76,6 +99,17 @@
 | **检索模式** | 向量 + FTS | 向量 + FTS + Graph (RRF 融合) | 三通道融合 + 时态图谱推理 | 意图主动预测召回 |
 | **自进化机制** | 基础置信度 | EvolveMem (7天反馈动态调节) | 动态冲突裁决 + 观察聚合 | 经验自主提炼生成 Skill |
 | **治理机制** | 规则审核 | 规则 + LLM 独立评估分离 | 上下文自适应流式治理 | 社区化共识与治理审计 |
+
+---
+
+## 🛠️ 工程四严律 (Engineering Discipline)
+
+所有 v12.1.0 ~ v14.0 范围内的开发遵循（spec 第三节钉死）：
+
+1. **TDD 先行**：写实现前必须在 `tests/` 下编写对应测试并确认失败（RED → GREEN）。
+2. **不可变事件流**：所有状态变更必须先写 `memory_events`，严禁直接对主表进行破坏性修改。
+3. **绝对路径安全**：所有配置与数据路径走 `MimirPaths` 统一管理。
+4. **全量回归保障**：每次 commit 前运行 `python3 -m pytest`，确保全量测试通过。
 
 ---
 
