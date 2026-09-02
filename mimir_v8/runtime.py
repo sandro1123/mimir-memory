@@ -21,6 +21,7 @@ from .retention import RetentionService
 from .projector import FTSProjector, ProjectorRunner
 from .schema import SCHEMA_VERSION
 from .query import QueryKernel
+from .blackboard import BlackboardService
 from .store import CanonicalStore
 from .vector_projector import VectorProjectionError, VectorProjector, validate_vector_collection_name
 
@@ -176,6 +177,7 @@ def build_runtime(
         query, knowledge, enabled_layers=enabled_knowledge_layers
     )
     feedback_loop = FeedbackLoop(store, knowledge)
+    blackboard = BlackboardService(store, root / "blackboard.db")
     app = create_app(
         ServiceContext(
             store=store,
@@ -190,6 +192,7 @@ def build_runtime(
             knowledge=knowledge,
             unified_search=unified_search,
             feedback_loop=feedback_loop,
+            blackboard=blackboard,
         ),
         lifespan=lifespan,
     )

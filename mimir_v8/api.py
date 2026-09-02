@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .auth import AuthError, Principal, TokenStore
+from .blackboard import BlackboardError, BlackboardService, CreateBoard, PostEntry
 from .candidates import CandidatePolicyError, CandidateService, CreateCandidate, ReviewCandidate
 from .learning import ConversationEnvelope, ConversationMessage, LearningService
 from .knowledge import (
@@ -61,6 +62,7 @@ class ServiceContext:
     knowledge: KnowledgeService | None = None
     unified_search: UnifiedSearch | None = None
     feedback_loop: FeedbackLoop | None = None
+    blackboard: BlackboardService | None = None
 
 
 class QueryBody(BaseModel):
@@ -555,6 +557,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
 
     @app.exception_handler(CandidatePolicyError)
     @app.exception_handler(CoreMemoryPolicyError)
+    @app.exception_handler(BlackboardError)
     async def policy_error(request: Request, exc: ValueError):
         _audit_denial(request, "policy_rejected", str(exc))
         return JSONResponse(error_payload(request, "policy_rejected", str(exc)), status_code=403)
@@ -753,6 +756,81 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                 error_payload(request, "readiness_failed", "readiness check failed", type(exc).__name__),
                 status_code=503,
             )
+
+    # ---- v13.0 blackboard: shared working memory -----------------------
+    def require_blackboard() -> BlackboardService:
+        if context.blackboard is None:
+            raise HTTPException(503, "blackboard service is not configured")
+        return context.blackboard
+
+    @app.post("/v13/blackboard/boards", status_code=201)
+    def blackboard_create_board(
+        body: dict,
+        identity: Principal = Depends(scoped("write")),
+        service: BlackboardService = Depends(require_blackboard),
+    ):
+        participants = tuple(body.get("participants") or [])
+        board = service.create_board(CreateBoard(
+            board_id=str(body.get("board_id") or ""),
+            title=str(body.get("title") or ""),
+            participants=participants,
+        ))
+        if identity.principal_id not in board["participants"]:
+            # creator must be a participant - otherwise the board is unusable
+            service.destroy(board["board_id"], actor_principal=identity.principal_id,
+                            reason="creator_not_participant_rollback")
+            raise HTTPException(422, "board creator must be a participant")
+        return board
+
+    @app.post("/v13/blackboard/boards/{board_id}/entries", status_code=201)
+    def blackboard_post_entry(
+        board_id: str,
+        body: dict,
+        identity: Principal = Depends(scoped("write")),
+        service: BlackboardService = Depends(require_blackboard),
+    ):
+        # author comes from the authenticated identity, never the body.
+        return service.post_entry(PostEntry(
+            board_id=board_id,
+            content=str(body.get("content") or ""),
+            author=identity.principal_id,
+        ), actor_principal=identity.principal_id)
+
+    @app.get("/v13/blackboard/boards/{board_id}/entries")
+    def blackboard_list_entries(
+        board_id: str,
+        after_seq: int = Query(default=0, ge=0),
+        identity: Principal = Depends(scoped("read")),
+        service: BlackboardService = Depends(require_blackboard),
+    ):
+        entries = service.list_entries(board_id, actor_principal=identity.principal_id)
+        if after_seq:
+            entries = [e for e in entries if e["seq"] > after_seq]
+        return {"board_id": board_id, "entries": entries}
+
+    @app.post("/v13/blackboard/boards/{board_id}/distill")
+    def blackboard_distill(
+        board_id: str,
+        body: dict,
+        identity: Principal = Depends(scoped("write")),
+        service: BlackboardService = Depends(require_blackboard),
+    ):
+        return service.distill(
+            board_id, actor_principal=identity.principal_id,
+            summary=str(body.get("summary") or ""),
+        )
+
+    @app.post("/v13/blackboard/boards/{board_id}/destroy")
+    def blackboard_destroy(
+        board_id: str,
+        body: dict,
+        identity: Principal = Depends(scoped("write")),
+        service: BlackboardService = Depends(require_blackboard),
+    ):
+        return service.destroy(
+            board_id, actor_principal=identity.principal_id,
+            reason=str(body.get("reason") or ""),
+        )
 
     @app.get("/v8/projectors")
     def get_projectors(identity: Principal = Depends(scoped("admin"))):
