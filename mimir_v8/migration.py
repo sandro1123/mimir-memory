@@ -412,8 +412,7 @@ def _rebuild_conversation_sources_v19(connection):
         """
         CREATE TABLE conversation_sources_v19 (
             source_id TEXT PRIMARY KEY,
-            connector_type TEXT NOT NULL CHECK (connector_type IN
-                ('hermes_cdc','external_agent','workbuddy','file','rss','web','document','vault')),
+            connector_type TEXT NOT NULL,
             connector_id TEXT NOT NULL,
             session_id TEXT,
             source_uri TEXT,
