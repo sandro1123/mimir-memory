@@ -241,9 +241,10 @@ class TestR7V12SearchTrace(unittest.TestCase):
             self.assertEqual(r.status_code, 200, r.text)
             data = r.json()
             stages = [s["stage"] for s in data.get("stages", [])]
-            # v12.2.0: AnchorChannel sits between pool assembly and dedup.
+            # v12.2.0: AnchorChannel sits between pool assembly and dedup;
+            # LayerSweep (L2/L1 progressive assembly) follows the anchors.
             self.assertEqual(stages, ["RelevanceGate", "CandidatePool",
-                                      "AnchorChannel",
+                                      "AnchorChannel", "LayerSweep",
                                       "JaccardDedup", "ChronosDecay", "TopK"])
             self.assertIn("results", data)
 

@@ -114,12 +114,17 @@ class TestAnchorChannel(unittest.TestCase):
         self.assertIn(self.pref_id, ids)
 
     def test_ordinary_event_not_anchored_only_matched(self):
-        # 事件类型必须仍然通过 FTS 命中（锚通道不注入普通类型）
+        # 事件类型必须仍然通过 FTS 命中（锚通道不注入普通类型）。
+        # v12.2.0-1 起 event 属 L1：standard 档由装配层拦下（非锚注），
+        # deep 档 FTS 命中后放行 — 两档都不允许 anchor 通道标记。
         res = self.fx.search("Kubernetes")
         ids = [r["fact_id"] for r in res["results"]]
-        self.assertIn(self.event_id, ids)  # FTS 命中
+        self.assertNotIn(self.event_id, ids)  # standard 档：L1 被装配层拦下
+        deep = self.fx.search("Kubernetes", depth="deep")
+        deep_ids = [r["fact_id"] for r in deep["results"]]
+        self.assertIn(self.event_id, deep_ids)  # deep 档：FTS 命中下钻可见
         channels = {r["fact_id"]: r["score_explanation"]["channels"]
-                    for r in res["results"]}
+                    for r in deep["results"]}
         self.assertNotIn("anchor", channels.get(self.event_id, {}),
                          "event facts must not be reported as anchor-injected")
 

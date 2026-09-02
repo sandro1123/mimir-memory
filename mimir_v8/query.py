@@ -31,6 +31,12 @@ class QueryRequest:
     #: injected into the candidate pool directly from the canonical store,
     #: immune to semantic-similarity veto by the vector/fts/graph channels.
     use_anchor: bool = True
+    #: v12.2.0 Layered assembly depth. "standard" assembles only the L3+L2
+    #: default surface (persona/iron rules, preferences, crystallized
+    #: patterns); "deep" additionally drills down into L1 atom facts for
+    #: evidence-grade tracebacks. L0 conversations are never assembled by
+    #: retrieval — they are reached only via explicit trace endpoints.
+    depth: str = "standard"
 
 
 class QueryKernel:
@@ -47,6 +53,19 @@ class QueryKernel:
     #: Upper bound on anchor injection per query — the channel guarantees
     #: presence, not unbounded crowding of the candidate pool.
     ANCHOR_BUDGET = 20
+    #: v12.2.0 L0~L3 layered memory mapping (zero-migration: derived from
+    #: the existing facts.fact_type enum). L3 = persona / iron rules;
+    #: L2 = crystallized scenarios / wiki blocks; L1 = atom facts, which
+    #: standard-depth retrieval deliberately skips to cut token cost —
+    #: only depth="deep" tracebacks drill into them. L0 (raw conversations)
+    #: lives in conversation_messages and is never assembled by search().
+    LAYER3_FACT_TYPES = ("iron_rule", "user_pref")
+    LAYER2_FACT_TYPES = ("pattern",)
+    LAYER1_FACT_TYPES = ("event", "project_config", "ephemeral", "learning", "reference")
+    #: The layer-2 injection budget mirrors the anchor budget idea: presence
+    #: for crystallized patterns, bounded crowding.
+    LAYER2_BUDGET = 10
+    DEPTHS = ("standard", "deep")
 
     def __init__(self, store: CanonicalStore, *, vector=None, fts=None, graph=None,
                  embedder=None, rrf_k: int = 60):
@@ -79,6 +98,8 @@ class QueryKernel:
             }
         if not 1 <= request.limit <= 100:
             raise ValueError("limit must be between 1 and 100")
+        if request.depth not in self.DEPTHS:
+            raise ValueError(f"depth must be one of {self.DEPTHS}")
         candidate_limit = max(request.limit, min(request.candidate_limit, 500))
         ranked: dict[str, dict] = {}
 
@@ -111,8 +132,20 @@ class QueryKernel:
             anchor_injected = len(anchor_ids)
             self._add_ranked(ranked, "anchor", anchor_ids)
 
+        # v12.2.0 progressive layer sweep. Standard depth assembles the
+        # L3+L2 surface (persona anchors + crystallized patterns); deep
+        # additionally sweeps L1 atom facts for evidence-grade tracebacks.
+        # The sweep guarantees presence within a budget, mirroring the
+        # anchor channel contract — ACL still arbitrates at hydration.
+        sweep_types, sweep_budget = self._layer_sweep_spec(request)
+        sweep_injected = 0
+        if sweep_types:
+            sweep_ids = self._layer_sweep_ids(request, ranked, sweep_types, sweep_budget)
+            sweep_injected = len(sweep_ids)
+            self._add_ranked(ranked, "layer", sweep_ids)
+
         results = []
-        filtered = {"acl": 0, "status": 0, "missing": 0}
+        filtered = {"acl": 0, "status": 0, "missing": 0, "layer": 0}
         roles = set(request.roles)
         for fact_id, score in ranked.items():
             try:
@@ -128,6 +161,17 @@ class QueryKernel:
             if request.domain and fact["domain"] != request.domain:
                 continue
             if request.fact_type and fact["fact_type"] != request.fact_type:
+                continue
+            # v12.2.0 L1 gate: standard-depth retrieval keeps the assembly
+            # surface at L3+L2. L1 atom facts that slipped into the pool via
+            # a similarity channel are dropped here (and counted) unless the
+            # caller drills deep or names an explicit fact_type.
+            if (
+                request.depth == "standard"
+                and not request.fact_type
+                and fact["fact_type"] in self.LAYER1_FACT_TYPES
+            ):
+                filtered["layer"] += 1
                 continue
             if not self.store.can_read(
                 fact_id, request.principal_id, is_admin=request.is_admin, roles=roles
@@ -191,14 +235,19 @@ class QueryKernel:
                 "domain": request.domain,
                 "fact_type": request.fact_type,
                 "include_provisional": request.include_provisional,
+                "depth": request.depth,
             },
             "channels": {
                 "vector": request.use_vector and self.vector is not None and self.embedder is not None,
                 "fts": request.use_fts and self.fts is not None,
                 "graph": request.use_graph and self.graph is not None,
                 "anchor": request.use_anchor,
+                "layer": bool(sweep_types),
             },
             "anchor": {"injected": anchor_injected},
+            "layers": {"injected": sweep_injected,
+                       "l1_dropped": filtered["layer"],
+                       "depth": request.depth},
         }
 
     def trace(self, request: QueryRequest, *, dedup_threshold: float = 0.8) -> dict:
@@ -263,6 +312,13 @@ class QueryKernel:
             anchor_ids = self._anchor_fact_ids(request, ranked)
             anchor_injected = len(anchor_ids)
             self._add_ranked(ranked, "anchor", anchor_ids)
+        # v12.2.0 progressive layer sweep — same semantics as search().
+        sweep_types, sweep_budget = self._layer_sweep_spec(request)
+        sweep_injected = 0
+        if sweep_types:
+            sweep_ids = self._layer_sweep_ids(request, ranked, sweep_types, sweep_budget)
+            sweep_injected = len(sweep_ids)
+            self._add_ranked(ranked, "layer", sweep_ids)
         stage("CandidatePool", total=len(ranked), keep=len(ranked),
               extra={"channels": {name: c for name, c in (
                   ("vector", self.vector is not None and self.embedder is not None and request.use_vector),
@@ -273,6 +329,9 @@ class QueryKernel:
               extra={"injected": anchor_injected,
                      "fact_types": list(self.ANCHOR_FACT_TYPES),
                      "enabled": request.use_anchor})
+        stage("LayerSweep", total=sweep_injected, keep=sweep_injected,
+              extra={"injected": sweep_injected, "depth": request.depth,
+                     "fact_types": list(sweep_types) if sweep_types else []})
 
         # Hydrate facts once for the whole funnel.
         facts: dict[str, dict] = {}
@@ -285,6 +344,15 @@ class QueryKernel:
             if fact["status"] not in ("active", "provisional") if request.include_provisional else fact["status"] != "active":
                 continue
             if request.owner_principal and fact["owner_principal"] != request.owner_principal:
+                continue
+            if request.fact_type and fact["fact_type"] != request.fact_type:
+                continue
+            # v12.2.0 L1 gate — mirrors search() so trace and search agree.
+            if (
+                request.depth == "standard"
+                and not request.fact_type
+                and fact["fact_type"] in self.LAYER1_FACT_TYPES
+            ):
                 continue
             if not self.store.can_read(
                 fact_id, request.principal_id, is_admin=request.is_admin, roles=roles
@@ -357,8 +425,52 @@ class QueryKernel:
             "total_results": len(results),
         }
 
+    def _layer_sweep_spec(self, request: QueryRequest) -> tuple[tuple[str, ...], int]:
+        """Which non-anchor layers the progressive sweep covers.
+
+        An explicit fact_type expresses precise traceback intent and
+        overrides the depth default — whatever type is named gets swept
+        regardless of its layer (with the anchor types already handled by
+        the anchor channel, a named non-anchor type is the only way an
+        L1/L2 type can ride the sweep).
+        """
+        if request.fact_type:
+            if request.fact_type in self.ANCHOR_FACT_TYPES:
+                return (), 0
+            return (request.fact_type,), self.LAYER2_BUDGET
+        if request.depth == "deep":
+            return self.LAYER2_FACT_TYPES + self.LAYER1_FACT_TYPES, self.LAYER2_BUDGET
+        return self.LAYER2_FACT_TYPES, self.LAYER2_BUDGET
+
+    def _layer_sweep_ids(self, request: QueryRequest, ranked: dict,
+                         types: tuple[str, ...], budget: int) -> list[str]:
+        """v12.2.0 progressive layer sweep: pull the depth's surface from
+        the canonical store so it enters the pool regardless of channel
+        similarity — same presence-within-budget contract as the anchor
+        channel; ACL still arbitrates at canonical hydration."""
+        where = ["status='active'", "fact_type IN ({})".format(
+            ",".join("?" for _ in types))]
+        params: list = list(types)
+        if request.owner_principal:
+            where.append("owner_principal=?")
+            params.append(request.owner_principal)
+        if request.domain:
+            where.append("domain=?")
+            params.append(request.domain)
+        params.append(budget)
+        with contextlib.closing(self.store.connect()) as connection:
+            rows = connection.execute(
+                "SELECT fact_id FROM facts WHERE {} "
+                "ORDER BY updated_at DESC, fact_id LIMIT ?".format(
+                    " AND ".join(where)),
+                params,
+            ).fetchall()
+        fresh = [row["fact_id"] for row in rows]
+        return [fact_id for fact_id in fresh if fact_id not in ranked]
+
     def _anchor_fact_ids(self, request: QueryRequest, ranked: dict) -> list[str]:
         """v12.2.0 Anchor Channel: pull active iron rules and core user
+        preferences straight from the canonical store so they enter the
         preferences straight from the canonical store so they enter the
         candidate pool regardless of vector/fts similarity ranking.
 

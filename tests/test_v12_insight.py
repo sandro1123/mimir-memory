@@ -314,9 +314,10 @@ class TestM2aRecallFunnel(unittest.TestCase):
         fx.project()
         data = fx.trace("canonical store facts")
         names = [s["stage"] for s in data["stages"]]
-        # v12.2.0: AnchorChannel sits between pool assembly and dedup.
+        # v12.2.0: AnchorChannel sits between pool assembly and dedup;
+        # LayerSweep (L2/L1 progressive assembly) follows the anchors.
         self.assertEqual(names, ["RelevanceGate", "CandidatePool",
-                                 "AnchorChannel",
+                                 "AnchorChannel", "LayerSweep",
                                  "JaccardDedup", "ChronosDecay", "TopK"])
         for s in data["stages"]:
             self.assertIn("elapsed_ms", s)
@@ -342,8 +343,10 @@ class TestM2aRecallFunnel(unittest.TestCase):
         fx.seed("delta omega unrelated")  # not matched by query
         fx.project()
         # query matches both near-duplicates → dedup should drop one
+        # (depth=deep: event facts are L1, standard assembly would gate them
+        #  before the funnel under test here is reached)
         data = fx.trace("agent stores facts in canonical memory store",
-                        dedup_threshold=0.6)
+                        dedup_threshold=0.6, depth="deep")
         dedup = [s for s in data["stages"] if s["stage"] == "JaccardDedup"][0]
         self.assertGreaterEqual(dedup["total"], 2)
         self.assertLess(dedup["hit"], dedup["total"])
@@ -440,10 +443,12 @@ class TestM2bQualityBoard(unittest.TestCase):
 
     def test_deduped_summary_via_query_kernel_present(self):
         # sanity: funnel results carry decay factor + not_yet_effective flags
+        # (depth=deep: event facts are L1, gated out of standard assembly)
         fx = _FunnelFixture(tempfile.mkdtemp())
         fx.seed("agent stores facts in canonical memory store")
         fx.project()
-        data = fx.trace("agent canonical memory", dedup_threshold=0.8)
+        data = fx.trace("agent canonical memory", dedup_threshold=0.8,
+                        depth="deep")
         self.assertTrue(data["results"])
         for r in data["results"]:
             self.assertIn("decay_factor", r)
