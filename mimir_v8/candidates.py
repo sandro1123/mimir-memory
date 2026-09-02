@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .schema import CreateFact
 from .store import CanonicalStore, ConflictError, NotFoundError, canonical_json, new_id, sha256_text, utc_now
@@ -10,6 +10,19 @@ from .store import CanonicalStore, ConflictError, NotFoundError, canonical_json,
 
 class CandidatePolicyError(ValueError):
     """Raised when candidate governance policy rejects an operation."""
+
+
+# ── XTMEM lineage strictness ladders (v12.2.0) ────────────────────────
+# Higher value = stricter. Derived facts inherit max(source, proposal);
+# the literals mirror schema.VISIBILITIES/SENSITIVITIES/EGRESS_POLICIES.
+_VISIBILITY_STRICTNESS = {"all": 0, "shared": 1, "owner_only": 2}
+_SENSITIVITY_STRICTNESS = {"internal": 0, "confidential": 1, "restricted": 2}
+_EGRESS_STRICTNESS = {"external_allowed": 0, "redacted_external": 1, "local_only": 2}
+
+
+def _stricter(proposed: str, source: str, ladder: dict) -> str:
+    """Return the stricter of the two ACL tiers; never relax below the source."""
+    return proposed if ladder[proposed] >= ladder[source] else source
 
 
 @dataclass(frozen=True)
@@ -111,6 +124,29 @@ class CandidateService:
                 raise CandidatePolicyError("source_id does not exist")
             if command.source_hash and source["content_hash"] != command.source_hash:
                 raise CandidatePolicyError("source hash does not match canonical source")
+        # ── XTMEM Lineage Gate (v12.2.0) ──────────────────────────────
+        # Derived candidates (supersedes chain) inherit the strictest of
+        # source vs proposal per ACL field; a dangling supersedes_fact_id is
+        # Fail-Closed — rejected here with a governance error instead of
+        # silently relaxing or surfacing a raw FK failure at insert time.
+        if command.supersedes_fact_id:
+            source_fact = connection.execute(
+                """SELECT visibility, sensitivity, egress_policy FROM facts
+                WHERE fact_id=?""", (command.supersedes_fact_id,)
+            ).fetchone()
+            if not source_fact:
+                raise CandidatePolicyError(
+                    "supersedes_fact_id does not exist (lineage fail-closed)"
+                )
+            validated_fact = replace(
+                validated_fact,
+                visibility=_stricter(validated_fact.visibility,
+                                    source_fact["visibility"], _VISIBILITY_STRICTNESS),
+                sensitivity=_stricter(validated_fact.sensitivity,
+                                      source_fact["sensitivity"], _SENSITIVITY_STRICTNESS),
+                egress_policy=_stricter(validated_fact.egress_policy,
+                                         source_fact["egress_policy"], _EGRESS_STRICTNESS),
+            )
         now = utc_now()
         candidate_id = new_id()
         event_id = new_id()
