@@ -27,13 +27,26 @@ class QueryRequest:
     use_fts: bool = True
     use_graph: bool = True
     include_provisional: bool = False
+    #: v12.2.0 Anchor Channel: iron rules and core user preferences are
+    #: injected into the candidate pool directly from the canonical store,
+    #: immune to semantic-similarity veto by the vector/fts/graph channels.
+    use_anchor: bool = True
 
 
 class QueryKernel:
     #: RRF channel weights — vector (bge-m3) carries the primary semantic
     #: signal, fts is strong for exact terminology, graph is weakest until
-    #: entity–entity relations exist (currently tag-only).
-    CHANNEL_WEIGHTS = {"vector": 1.0, "fts": 0.85, "graph": 0.6}
+    #: entity–entity relations exist (currently tag-only). The anchor
+    #: channel is deliberately weighted below vector: it guarantees entry
+    #: into the candidate pool, not top placement.
+    CHANNEL_WEIGHTS = {"vector": 1.0, "fts": 0.85, "graph": 0.6, "anchor": 0.5}
+    #: Fact types that ride the anchor channel: iron rules (L0_never) and
+    #: core user preferences (L1_preference) are the system's safety floor
+    #: and must never be lost to a similarity threshold veto.
+    ANCHOR_FACT_TYPES = ("iron_rule", "user_pref")
+    #: Upper bound on anchor injection per query — the channel guarantees
+    #: presence, not unbounded crowding of the candidate pool.
+    ANCHOR_BUDGET = 20
 
     def __init__(self, store: CanonicalStore, *, vector=None, fts=None, graph=None,
                  embedder=None, rrf_k: int = 60):
@@ -91,6 +104,12 @@ class QueryKernel:
             )[: min(10, candidate_limit)]]
             graph_ids = self._graph_neighbors(seeds, candidate_limit)
             self._add_ranked(ranked, "graph", graph_ids)
+
+        anchor_injected = 0
+        if request.use_anchor:
+            anchor_ids = self._anchor_fact_ids(request, ranked)
+            anchor_injected = len(anchor_ids)
+            self._add_ranked(ranked, "anchor", anchor_ids)
 
         results = []
         filtered = {"acl": 0, "status": 0, "missing": 0}
@@ -177,7 +196,9 @@ class QueryKernel:
                 "vector": request.use_vector and self.vector is not None and self.embedder is not None,
                 "fts": request.use_fts and self.fts is not None,
                 "graph": request.use_graph and self.graph is not None,
+                "anchor": request.use_anchor,
             },
+            "anchor": {"injected": anchor_injected},
         }
 
     def trace(self, request: QueryRequest, *, dedup_threshold: float = 0.8) -> dict:
@@ -237,12 +258,21 @@ class QueryKernel:
             )[: min(10, candidate_limit)]]
             graph_ids = self._graph_neighbors(seeds, candidate_limit)
             self._add_ranked(ranked, "graph", graph_ids)
+        anchor_injected = 0
+        if request.use_anchor:
+            anchor_ids = self._anchor_fact_ids(request, ranked)
+            anchor_injected = len(anchor_ids)
+            self._add_ranked(ranked, "anchor", anchor_ids)
         stage("CandidatePool", total=len(ranked), keep=len(ranked),
               extra={"channels": {name: c for name, c in (
                   ("vector", self.vector is not None and self.embedder is not None and request.use_vector),
                   ("fts", self.fts is not None and request.use_fts),
                   ("graph", self.graph is not None and request.use_graph),
               ) if c}})
+        stage("AnchorChannel", total=anchor_injected, keep=anchor_injected,
+              extra={"injected": anchor_injected,
+                     "fact_types": list(self.ANCHOR_FACT_TYPES),
+                     "enabled": request.use_anchor})
 
         # Hydrate facts once for the whole funnel.
         facts: dict[str, dict] = {}
@@ -326,6 +356,47 @@ class QueryKernel:
             "total_candidates": len(pool),
             "total_results": len(results),
         }
+
+    def _anchor_fact_ids(self, request: QueryRequest, ranked: dict) -> list[str]:
+        """v12.2.0 Anchor Channel: pull active iron rules and core user
+        preferences straight from the canonical store so they enter the
+        candidate pool regardless of vector/fts similarity ranking.
+
+        Explicit caller filters (owner/domain/fact_type) are honoured here —
+        the anchor channel changes who enters the pool, not who can be read;
+        ACL arbitration still happens during canonical hydration, so
+        owner_only iron rules of other agents cannot leak through it.
+        """
+        types = list(self.ANCHOR_FACT_TYPES)
+        if request.fact_type:
+            # Explicit fact_type filter expresses searcher intent; an anchor
+            # type passes through, anything else disqualifies every anchor.
+            if request.fact_type in self.ANCHOR_FACT_TYPES:
+                types = [request.fact_type]
+            else:
+                return []
+        where = ["status='active'", "fact_type IN ({})".format(
+            ",".join("?" for _ in types))]
+        params: list = list(types)
+        if request.owner_principal:
+            where.append("owner_principal=?")
+            params.append(request.owner_principal)
+        if request.domain:
+            where.append("domain=?")
+            params.append(request.domain)
+        params.append(self.ANCHOR_BUDGET)
+        with contextlib.closing(self.store.connect()) as connection:
+            rows = connection.execute(
+                "SELECT fact_id FROM facts WHERE {} "
+                "ORDER BY updated_at DESC, fact_id LIMIT ?".format(
+                    " AND ".join(where)),
+                params,
+            ).fetchall()
+        # Freshness ordering: most recently updated anchors win the budget.
+        fresh = [row["fact_id"] for row in rows]
+        # Facts already surfaced by a similarity channel keep their richer
+        # provenance — only inject what the channels missed (the veto case).
+        return [fact_id for fact_id in fresh if fact_id not in ranked]
 
     def _add_ranked(self, ranked: dict, channel: str, ids, distances=None) -> None:
         weight = self.CHANNEL_WEIGHTS.get(channel, 1.0)

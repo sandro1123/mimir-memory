@@ -314,7 +314,9 @@ class TestM2aRecallFunnel(unittest.TestCase):
         fx.project()
         data = fx.trace("canonical store facts")
         names = [s["stage"] for s in data["stages"]]
+        # v12.2.0: AnchorChannel sits between pool assembly and dedup.
         self.assertEqual(names, ["RelevanceGate", "CandidatePool",
+                                 "AnchorChannel",
                                  "JaccardDedup", "ChronosDecay", "TopK"])
         for s in data["stages"]:
             self.assertIn("elapsed_ms", s)
