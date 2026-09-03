@@ -330,18 +330,32 @@ class CandidateService:
             )
             superseded = candidate["supersedes_fact_id"]
             if superseded:
+                # v13.0 TKG: supersede opens a validity window on the new
+                # relation and closes the reverse edge at the same instant
+                # (valid_from == valid_until == now -> zero-width edge that
+                # never shows as "currently valid", but history sees it).
                 connection.execute(
                     """INSERT INTO relations(
                         relation_id, source_fact_id, target_type, target_id, relation_type,
-                        status, created_by, created_at, source_event_id
-                    ) VALUES(?,?,?,?,?,?,?,?,?)""",
-                    (new_id(), result["fact_id"], "fact", superseded, "supersedes", "active", actor_principal, now, event_id),
+                        status, created_by, created_at, source_event_id, valid_from, valid_until
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    (new_id(), result["fact_id"], "fact", superseded, "supersedes",
+                     "active", actor_principal, now, event_id, now, ""),
+                )
+                connection.execute(
+                    """INSERT INTO relations(
+                        relation_id, source_fact_id, target_type, target_id, relation_type,
+                        status, created_by, created_at, source_event_id, valid_from, valid_until
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    (new_id(), superseded, "fact", result["fact_id"], "superseded_by",
+                     "active", actor_principal, now, event_id, now, now),
                 )
         return {
             "candidate_id": candidate_id,
             "fact_id": result["fact_id"],
             "status": "committed",
             "idempotent_replay": result["idempotent_replay"],
+            "committed_at": now,
         }
 
     @staticmethod

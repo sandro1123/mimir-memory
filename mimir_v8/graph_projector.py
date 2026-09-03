@@ -27,7 +27,9 @@ CREATE TABLE IF NOT EXISTS graph_edges (
     target_type TEXT NOT NULL,
     target_id TEXT NOT NULL,
     relation_type TEXT NOT NULL,
-    status TEXT NOT NULL
+    status TEXT NOT NULL,
+    valid_from TEXT NOT NULL DEFAULT '',
+    valid_until TEXT NOT NULL DEFAULT ''
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_graph_edges_source ON graph_edges(source_fact_id, relation_type);
@@ -57,7 +59,8 @@ class GraphProjector:
         with contextlib.closing(self.store.connect()) as canonical:
             relations = canonical.execute(
                 """SELECT relation_id, source_fact_id, target_type, target_id,
-                relation_type, status FROM relations WHERE source_fact_id=?""",
+                relation_type, status, valid_from, valid_until
+                FROM relations WHERE source_fact_id=?""",
                 (fact["fact_id"],),
             ).fetchall()
         with contextlib.closing(self.connect()) as connection:
@@ -94,8 +97,8 @@ class GraphProjector:
                             connection.execute(
                                 """INSERT INTO graph_edges(
                                     relation_id, source_fact_id, target_type, target_id,
-                                    relation_type, status
-                                ) VALUES(?,?,?,?,?,?)""",
+                                    relation_type, status, valid_from, valid_until
+                                ) VALUES(?,?,?,?,?,?,?,?)""",
                                 tuple(relation),
                             )
                 else:
@@ -111,3 +114,27 @@ class GraphProjector:
                 "nodes": connection.execute("SELECT COUNT(*) FROM fact_nodes").fetchone()[0],
                 "edges": connection.execute("SELECT COUNT(*) FROM graph_edges").fetchone()[0],
             }
+
+    def history(self, entity_id: str, *, at_timestamp: str | None = None) -> list[dict]:
+        """v13.0 TKG: edges touching an entity, optionally filtered to the
+        ones valid at a point in time. Empty valid_until = open interval.
+        Without at_timestamp, the full history is returned."""
+        with contextlib.closing(self.connect()) as connection:
+            if at_timestamp is None:
+                rows = connection.execute(
+                    """SELECT relation_id, source_fact_id, target_type, target_id,
+                    relation_type, status, valid_from, valid_until FROM graph_edges
+                    WHERE source_fact_id=? OR target_id=? ORDER BY valid_from""",
+                    (entity_id, entity_id),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """SELECT relation_id, source_fact_id, target_type, target_id,
+                    relation_type, status, valid_from, valid_until FROM graph_edges
+                    WHERE (source_fact_id=? OR target_id=?)
+                    AND valid_from <= ?
+                    AND (valid_until = '' OR valid_until > ?)
+                    ORDER BY valid_from""",
+                    (entity_id, entity_id, at_timestamp, at_timestamp),
+                ).fetchall()
+        return [dict(row) for row in rows]

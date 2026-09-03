@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 MIMIR_VERSION = "12.2.0"
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 DECAY_TIERS = frozenset({"L0_never", "L1_preference", "L2_config", "L3_event", "L4_temporary", "L5_ephemeral"})
 DECAY_TIER_MAP = {

@@ -6,6 +6,7 @@ import contextlib
 import threading
 import time
 import uuid
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Any
 
@@ -63,6 +64,7 @@ class ServiceContext:
     unified_search: UnifiedSearch | None = None
     feedback_loop: FeedbackLoop | None = None
     blackboard: BlackboardService | None = None
+    graph: object | None = None  # GraphProjector for /v13/graph/*
 
 
 class QueryBody(BaseModel):
@@ -595,6 +597,13 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                 f"fact {permission} permission is denied", 403, "acl_denied"
             )
 
+    def _valid_iso_timestamp(value: str) -> bool:
+        try:
+            datetime.fromisoformat(value)
+            return True
+        except ValueError:
+            return False
+
     def health_payload() -> dict:
         return {
             "status": "ok",
@@ -756,6 +765,24 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                 error_payload(request, "readiness_failed", "readiness check failed", type(exc).__name__),
                 status_code=503,
             )
+
+    # ---- v13.0 TKG: temporal knowledge graph ---------------------------
+    @app.get("/v13/graph/history")
+    def graph_history(
+        entity_id: str = Query(min_length=1),
+        at_timestamp: str | None = Query(default=None),
+        identity: Principal = Depends(scoped("read")),
+    ):
+        if context.graph is None:
+            raise HTTPException(503, "graph projector is not configured")
+        if at_timestamp is not None and not _valid_iso_timestamp(at_timestamp):
+            raise HTTPException(422, "at_timestamp must be an ISO-8601 string")
+        edges = context.graph.history(entity_id, at_timestamp=at_timestamp)
+        return {
+            "entity_id": entity_id,
+            "at_timestamp": at_timestamp,
+            "edges": edges,
+        }
 
     # ---- v13.0 blackboard: shared working memory -----------------------
     def require_blackboard() -> BlackboardService:

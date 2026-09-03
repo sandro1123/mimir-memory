@@ -140,6 +140,11 @@ CREATE TABLE IF NOT EXISTS fact_sources (
     FOREIGN KEY (fact_id, version) REFERENCES fact_versions(fact_id, version)
 ) STRICT;
 
+-- relations: v13.0 TKG adds valid_from/valid_until ('' = open
+-- interval, also the additive default for pre-existing rows). Keep
+-- comments OUT of the column list: SQLite stores the DDL verbatim and
+-- DROP COLUMN (used to simulate old schemas in tests/migrations) cannot
+-- reparse a table whose comments dangle after a dropped column.
 CREATE TABLE IF NOT EXISTS relations (
     relation_id TEXT PRIMARY KEY,
     source_fact_id TEXT NOT NULL REFERENCES facts(fact_id),
@@ -149,7 +154,9 @@ CREATE TABLE IF NOT EXISTS relations (
     status TEXT NOT NULL DEFAULT 'active',
     created_by TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    source_event_id TEXT NOT NULL
+    source_event_id TEXT NOT NULL,
+    valid_from TEXT NOT NULL DEFAULT '',
+    valid_until TEXT NOT NULL DEFAULT ''
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS resource_grants (

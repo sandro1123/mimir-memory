@@ -371,8 +371,7 @@ def migrate_schema_v19(
         connection.execute("BEGIN IMMEDIATE")
         rows = _rebuild_conversation_sources_v19(connection)
         connection.execute(
-            "UPDATE schema_meta SET value=? WHERE key='schema_version'",
-            (str(SCHEMA_VERSION),),
+            "UPDATE schema_meta SET value='19' WHERE key='schema_version'"
         )
         if connection.execute("PRAGMA foreign_key_check").fetchall():
             raise MigrationError("foreign-key violations detected during migration")
@@ -384,10 +383,13 @@ def migrate_schema_v19(
         connection.execute("PRAGMA foreign_keys=ON")
         connection.close()
 
-    CanonicalStore(database_path)
+    # Schema 19 sits behind the runtime schema (the v13.0 TKG window
+    # lives in v20): the store's own version guard fails the open
+    # closed, by design. The generic migrate_schema() takes a database
+    # stamped 19 the rest of the way.
     return SchemaMigrationReport(
         source_version=source_version,
-        target_version=SCHEMA_VERSION,
+        target_version=19,
         database=str(database_path),
         backup=str(backup_path),
         backup_sha256=backup_sha256,
@@ -476,6 +478,26 @@ def _additive_chain(source_version: int) -> tuple:
         chain.append(V18_ADDITIVE_STATEMENTS)
     return tuple(chain)
 
+def _ensure_relations_window(connection: sqlite3.Connection) -> None:
+    """v13.0 TKG (schema 20): temporal validity window on relations.
+
+    Additive columns default to '' (open interval) so pre-existing rows
+    remain valid forever. The ALTERs are guarded against an already-present
+    column: databases built by the runtime DDL and then down-stamped (the
+    standard way tests simulate legacy schemas) already carry the columns,
+    and a blind ALTER would abort the whole migration chain. Must run
+    inside the caller-owned transaction.
+    """
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(relations)")}
+    if "valid_from" not in columns:
+        connection.execute(
+            "ALTER TABLE relations ADD COLUMN valid_from TEXT NOT NULL DEFAULT ''"
+        )
+    if "valid_until" not in columns:
+        connection.execute(
+            "ALTER TABLE relations ADD COLUMN valid_until TEXT NOT NULL DEFAULT ''"
+        )
+
 
 def migrate_schema(
     database: str | Path,
@@ -498,7 +520,7 @@ def migrate_schema(
         source_version = _read_schema_version(probe)
     if source_version == SCHEMA_VERSION:
         raise MigrationError("database is already at the runtime schema")
-    if source_version not in {9, 10, 11, 12, 13, 14, 15, 16, 17, 18} or SCHEMA_VERSION not in {11, 14, 15, 16, 17, 18, 19}:
+    if source_version not in {9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19} or SCHEMA_VERSION not in {11, 14, 15, 16, 17, 18, 19, 20}:
         raise MigrationError(
             f"unsupported schema migration: {source_version} -> {SCHEMA_VERSION}"
         )
@@ -556,7 +578,7 @@ def migrate_schema(
                 connection.execute(statement)
         if failure_hook:
             failure_hook("after_v11_schema")
-        if source_version <= 18 and SCHEMA_VERSION == 19:
+        if source_version <= 18:
             # v19: rebuild conversation_sources with the vault-aware
             # connector CHECK. Older databases froze the pre-vault
             # whitelist at creation time; the additive chain cannot
@@ -565,6 +587,11 @@ def migrate_schema(
             connection.execute("PRAGMA foreign_keys=OFF")
             migrated_rows = _rebuild_conversation_sources_v19(connection)
             connection.execute("PRAGMA foreign_keys=ON")
+        # v20 (v13.0 TKG): temporal validity window on relations.
+        # Guarded so databases that already carry the columns (runtime
+        # DDL plus a down-stamped version, the standard test-fixture
+        # shape) are left alone.
+        _ensure_relations_window(connection)
         connection.execute(
             "UPDATE schema_meta SET value=? WHERE key='schema_version'",
             (str(SCHEMA_VERSION),),
