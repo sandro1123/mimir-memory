@@ -1676,6 +1676,49 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         except CrystalError as exc:
             raise HTTPException(409, str(exc))
 
+    # ── v14.0 AutoSkill pipeline (WikiSkill evolution chain) ──────────
+    @app.post("/v14/skills/record-success")
+    def autoskill_record_success(body: dict,
+                                 identity: Principal = Depends(scoped("write"))):
+        """Record a successful execution trace under a topic (L0 ledger)."""
+        from .autoskill import AutoSkillError, AutoSkillService
+        trace_id = str((body or {}).get("trace_id") or "")
+        topic = str((body or {}).get("topic") or "")
+        if not trace_id or not topic:
+            raise HTTPException(422, "trace_id and topic are required")
+        svc = AutoSkillService(context.store)
+        try:
+            return svc.record_success(
+                trace_id=trace_id, topic=topic,
+                actor_principal=identity.principal_id,
+            )
+        except AutoSkillError as exc:
+            raise HTTPException(409, str(exc))
+
+    @app.get("/v14/skills/candidates")
+    def autoskill_candidates(identity: Principal = Depends(scoped("read"))):
+        """List topics that cleared the competence threshold."""
+        from .autoskill import AutoSkillService
+        svc = AutoSkillService(context.store)
+        return {"status": "ok",
+                "candidates": svc.compile_wiki_candidates()}
+
+    @app.post("/v14/skills/promote")
+    def autoskill_promote(body: dict,
+                          identity: Principal = Depends(scoped("manage"))):
+        """One-click approval: materialize a competent topic as an L3 skill."""
+        from .autoskill import AutoSkillError, AutoSkillService
+        topic = str((body or {}).get("topic") or "")
+        if not topic:
+            raise HTTPException(422, "topic is required")
+        svc = AutoSkillService(context.store)
+        try:
+            return svc.promote_to_skill(
+                topic, actor_principal=identity.principal_id
+            )
+        except AutoSkillError as exc:
+            raise HTTPException(409, str(exc))
+
     # ── v12 Multi-modal assets (M4) ────────────────────────────────────
     @app.post("/v12/facts/{fact_id}/assets")
     def fact_asset_attach(fact_id: str, body: dict,

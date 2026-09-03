@@ -183,8 +183,9 @@ class TestLayerConstants(unittest.TestCase):
 
     def test_L3_types_are_anchor_types(self):
         # L3 与锚通道共享语义（安全底线），但分层集合是超集也无妨——
-        # 这里钉死 L3 = {iron_rule, user_pref}
-        self.assertEqual(set(QueryKernel.LAYER3_FACT_TYPES), {"iron_rule", "user_pref"})
+        # v14.0 起钉死 L3 = {iron_rule, user_pref, skill}
+        # （skill = 胜任门槛 + 一键审批编译出的 Hermes Skill）
+        self.assertEqual(set(QueryKernel.LAYER3_FACT_TYPES), {"iron_rule", "user_pref", "skill"})
 
     def test_L2_types_are_pattern(self):
         self.assertEqual(set(QueryKernel.LAYER2_FACT_TYPES), {"pattern"})

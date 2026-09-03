@@ -51,6 +51,7 @@ FACT_TYPES = frozenset(
         "ephemeral",
         "learning",
         "reference",
+        "skill",
     }
 )
 VISIBILITIES = frozenset({"all", "shared", "owner_only"})

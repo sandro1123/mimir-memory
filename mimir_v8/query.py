@@ -49,7 +49,10 @@ class QueryKernel:
     #: Fact types that ride the anchor channel: iron rules (L0_never) and
     #: core user preferences (L1_preference) are the system's safety floor
     #: and must never be lost to a similarity threshold veto.
-    ANCHOR_FACT_TYPES = ("iron_rule", "user_pref")
+    #: v14.0 compiled skills ride the anchor channel too — they are
+    #: L3 by construction (competence-gated, human-approved) and must
+    #: not be lost to a similarity veto, same as the safety floor.
+    ANCHOR_FACT_TYPES = ("iron_rule", "user_pref", "skill")
     #: Upper bound on anchor injection per query — the channel guarantees
     #: presence, not unbounded crowding of the candidate pool.
     ANCHOR_BUDGET = 20
@@ -59,7 +62,10 @@ class QueryKernel:
     #: standard-depth retrieval deliberately skips to cut token cost —
     #: only depth="deep" tracebacks drill into them. L0 (raw conversations)
     #: lives in conversation_messages and is never assembled by search().
-    LAYER3_FACT_TYPES = ("iron_rule", "user_pref")
+    #: v14.0 skills (compiled from competent traces) join the L3
+    #: surface — always-on assembly, same presence contract as the
+    #: persona anchors.
+    LAYER3_FACT_TYPES = ("iron_rule", "user_pref", "skill")
     LAYER2_FACT_TYPES = ("pattern",)
     LAYER1_FACT_TYPES = ("event", "project_config", "ephemeral", "learning", "reference")
     #: The layer-2 injection budget mirrors the anchor budget idea: presence
