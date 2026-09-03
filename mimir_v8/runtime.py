@@ -22,6 +22,7 @@ from .projector import FTSProjector, ProjectorRunner
 from .schema import SCHEMA_VERSION
 from .query import QueryKernel
 from .blackboard import BlackboardService
+from .relevance import ProactiveWake
 from .store import CanonicalStore
 from .vector_projector import VectorProjectionError, VectorProjector, validate_vector_collection_name
 
@@ -178,6 +179,9 @@ def build_runtime(
     )
     feedback_loop = FeedbackLoop(store, knowledge)
     blackboard = BlackboardService(store, root / "blackboard.db")
+    # v13 wiring gap fix: /v13/wake used to 503 forever because runtime never
+    # constructed ProactiveWake (tests passed wake= manually, masking this).
+    wake = ProactiveWake(store)
     app = create_app(
         ServiceContext(
             store=store,
@@ -193,6 +197,7 @@ def build_runtime(
             unified_search=unified_search,
             feedback_loop=feedback_loop,
             blackboard=blackboard,
+            wake=wake,
         ),
         lifespan=lifespan,
     )

@@ -288,5 +288,57 @@ class TestProactiveWakeAPI(unittest.TestCase):
         self.assertEqual(r.status_code, 403, r.text)
 
 
+class TestProactiveWakeRuntimeWiring(unittest.TestCase):
+    """runtime 组装守卫：build_runtime 必须构造并注入 ProactiveWake。
+
+    v14 部署验收抓到的「建了没通电」判例：库/REST 面/测试全在，
+    但 runtime.build_runtime 从未构造 ProactiveWake —— ServiceContext.wake
+    恒为 None，/v13/wake 在生产永远 503。此前测试手动塞 wake=self.wake
+    才绿，掩盖了组装缺口。本测试直接断言真实组装路径（不手动塞参），
+    防止未来再次断线。
+    """
+
+    def test_build_runtime_wires_proactive_wake(self):
+        import hashlib
+        import json
+
+        from mimir_v8.runtime import build_runtime
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            token = "runtime-wake-token"
+            token_path = root / "tokens.json"
+            token_path.write_text(
+                json.dumps({"principals": [{
+                    "id": "mentor",
+                    "token_sha256": hashlib.sha256(token.encode()).hexdigest(),
+                    "scopes": ["read", "write"],
+                    "roles": [],
+                    "admin": False,
+                }]}),
+                encoding="utf-8",
+            )
+            app, _components = build_runtime(
+                root / "data",
+                token_path,
+                vector_enabled=False,
+                start_supervisor=False,
+            )
+            context = app.state.context
+            self.assertIsNotNone(context.wake)
+            from mimir_v8.relevance import ProactiveWake
+            self.assertIsInstance(context.wake, ProactiveWake)
+
+            # 端到端：组装出的 app 对 /v13/wake 真实返回 200 而非 503。
+            from fastapi.testclient import TestClient
+            with TestClient(app) as client:
+                r = client.post(
+                    "/v13/wake", json={"text": "写一份周报总结"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                self.assertEqual(r.status_code, 200, r.text)
+                self.assertEqual(r.json()["intent"], "generic")
+
+
 if __name__ == "__main__":
     unittest.main()
