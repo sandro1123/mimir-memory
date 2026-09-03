@@ -86,6 +86,9 @@ class EvolveQueryE2ETest(unittest.TestCase):
             limit=10,
             use_vector=False,  # isolated store has no vector projection
             use_graph=False,
+            depth="deep",  # v12.2 layered assembly: this fixture's fact_type
+            # ("event") sits in LAYER1 — standard-depth search deliberately
+            # skips L1 atoms, so drill deep to assert retrieval.
         ))
         hit_ids = {r["fact_id"] for r in response.get("results", [])}
         self.assertIn(fact_id, hit_ids, "evolved fact not retrievable via QueryKernel")
