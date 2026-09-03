@@ -21,6 +21,12 @@ CANONICAL_DB = Path(os.environ.get(
     "CANONICAL_DB",
     str(Path.home() / ".hermes/mimir/v9/production-v9.0-20260805_214614/canonical.db"),
 ))
+# v13 blackboards live in a dedicated transient SQLite file next to the
+# canonical store (runtime: root / "blackboard.db") — NOT in canonical.db.
+BLACKBOARD_DB = Path(os.environ.get(
+    "BLACKBOARD_DB",
+    str(CANONICAL_DB.parent / "blackboard.db"),
+))
 ADMIN_TOKEN_FILE = Path(os.environ.get(
     "ADMIN_TOKEN_FILE",
     str(Path.home() / ".hermes/mimir/secrets/clients/admin.token"),
@@ -41,7 +47,7 @@ HUMAN_REVIEW_WARN = int(os.environ.get("HUMAN_REVIEW_WARN", "50"))
 PENDING_OUTBOX_WARN = int(os.environ.get("PENDING_OUTBOX_WARN", "100"))
 # ──────────────────────────────────────────────────────
 
-app = FastAPI(title="Mímir Dashboard", version="3.0.0")
+app = FastAPI(title="Mímir Dashboard", version="3.0.1")
 
 # ── Auth middleware ────────────────────────────────────
 DASHBOARD_TOKEN = os.environ.get("DASHBOARD_TOKEN") or ""
@@ -228,12 +234,13 @@ async def _mimir_post(path: str, data: dict) -> dict | None:
 
 # ── 工具函数 ──────────────────────────────────────────
 
-def _db_query(query: str, params: tuple = ()) -> list[dict]:
-    """只读 SQLite 查询"""
-    if not CANONICAL_DB.exists():
+def _db_query(query: str, params: tuple = (), database: Path | None = None) -> list[dict]:
+    """只读 SQLite 查询（database=None 时落默认 canonical 库）"""
+    target = database or CANONICAL_DB
+    if not target.exists():
         return []
     try:
-        conn = sqlite3.connect(str(CANONICAL_DB))
+        conn = sqlite3.connect(str(target))
         conn.row_factory = sqlite3.Row
         rows = conn.execute(query, params).fetchall()
         conn.close()
@@ -1453,11 +1460,13 @@ async def api_blackboard():
     """
     boards = _db_query(
         "SELECT board_id, title, participants, status, created_at, ended_at "
-        "FROM blackboards ORDER BY created_at DESC LIMIT 200"
+        "FROM blackboards ORDER BY created_at DESC LIMIT 200",
+        database=BLACKBOARD_DB,
     )
     counts = _db_query(
         "SELECT board_id, COUNT(*) AS entries FROM blackboard_entries "
-        "GROUP BY board_id"
+        "GROUP BY board_id",
+        database=BLACKBOARD_DB,
     )
     count_map = {c["board_id"]: c["entries"] for c in counts}
     for board in boards:
@@ -1466,7 +1475,8 @@ async def api_blackboard():
         "SELECT e.seq, e.board_id, e.author, e.content, e.created_at "
         "FROM blackboard_entries e JOIN blackboards b "
         "ON e.board_id=b.board_id "
-        "WHERE b.status='active' ORDER BY e.seq DESC LIMIT 50"
+        "WHERE b.status='active' ORDER BY e.seq DESC LIMIT 50",
+        database=BLACKBOARD_DB,
     )
     return {
         "status": "ok",
