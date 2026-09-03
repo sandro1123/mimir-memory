@@ -46,6 +46,22 @@ class GraphProjector:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with contextlib.closing(self.connect()) as connection:
             connection.executescript(GRAPH_SCHEMA)
+            # v13 additive columns for pre-v13 graph.db files: CREATE TABLE
+            # IF NOT EXISTS is a no-op on a legacy table, so a v8-era
+            # graph_edges (6 columns) would keep its old shape and every
+            # history() query would fail with "no such column: valid_from".
+            # Guarded ALTER mirrors the canonical relations migration
+            # (v20): legacy rows keep '' = open interval = always valid.
+            existing = {
+                row[1] for row in connection.execute(
+                    "PRAGMA table_info(graph_edges)")
+            }
+            for column in ("valid_from", "valid_until"):
+                if column not in existing:
+                    connection.execute(
+                        f"ALTER TABLE graph_edges ADD COLUMN {column} "
+                        "TEXT NOT NULL DEFAULT ''"
+                    )
             connection.commit()
 
     def connect(self) -> sqlite3.Connection:

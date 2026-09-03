@@ -282,5 +282,81 @@ class TestMigrationV19ToV20(unittest.TestCase):
         return fx.seed_supersedes()
 
 
+class LegacyGraphDbUpgradeTest(unittest.TestCase):
+    """v14 生产验收判例：存量旧形 graph.db 的 schema 漂移。
+
+    生产 graph.db 的 graph_edges 是 v8 时代 6 列形态（无 valid_from /
+    valid_until），而 GraphProjector 构造器只跑 CREATE TABLE IF NOT
+    EXISTS —— 对存量表零效果，history() 撞 no such column: valid_from
+    → /v13/graph/history 生产 500。姊妹判例：v19 conversation_sources
+    CHECK 漂移（09-02）。修法=构造器 guarded ALTER 幂等补列，老行
+    空串 = 永远有效（与 canonical relations 迁移同语义）。
+    """
+
+    def _make_legacy_graph_db(self, root: Path) -> Path:
+        import sqlite3
+        path = root / "graph.db"
+        conn = sqlite3.connect(path)
+        conn.executescript("""
+            CREATE TABLE graph_edges (
+                relation_id TEXT PRIMARY KEY,
+                source_fact_id TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                relation_type TEXT NOT NULL,
+                status TEXT NOT NULL
+            ) STRICT;
+            CREATE TABLE fact_nodes (
+                fact_id TEXT PRIMARY KEY,
+                version INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                owner_principal TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                fact_type TEXT NOT NULL,
+                project_id TEXT,
+                content_hash TEXT NOT NULL,
+                source_event_seq INTEGER NOT NULL
+            ) STRICT;
+            INSERT INTO graph_edges VALUES (
+                'rel-legacy-1', 'fact-a', 'entity', 'auto_synced',
+                'about_entity', 'active');
+        """)
+        conn.commit()
+        conn.close()
+        return path
+
+    def test_constructor_upgrades_legacy_edges_table(self):
+        """构造器必须把旧 6 列 graph_edges 幂等升到 v13 形态。"""
+        from mimir_v8.graph_projector import GraphProjector
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            legacy = self._make_legacy_graph_db(root)
+            store = CanonicalStore(root / "canonical.db")
+            projector = GraphProjector(store, legacy)
+
+            cols = {r[1] for r in projector.connect().execute(
+                "PRAGMA table_info(graph_edges)")}
+            self.assertIn("valid_from", cols)
+            self.assertIn("valid_until", cols)
+
+            # 老行存活且被视为永远有效（空串 = open interval）
+            edges = projector.history("auto_synced")
+            self.assertEqual(len(edges), 1)
+            self.assertEqual(edges[0]["valid_from"], "")
+            self.assertEqual(edges[0]["valid_until"], "")
+
+    def test_history_with_timestamp_on_upgraded_legacy_rows(self):
+        """升级后的老边对 at_timestamp 点查语义正确（空窗=恒真）。"""
+        from mimir_v8.graph_projector import GraphProjector
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            legacy = self._make_legacy_graph_db(root)
+            store = CanonicalStore(root / "canonical.db")
+            projector = GraphProjector(store, legacy)
+            edges = projector.history(
+                "auto_synced", at_timestamp="2026-09-03T00:00:00Z")
+            self.assertEqual(len(edges), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
