@@ -83,14 +83,14 @@ Mímir 深度融合业界 6 大标杆记忆系统的核心工程精髓（详见 
 
 **目标**：实现集体经验的自主进化，从记忆积累跃升为技能结晶，支持跨节点分布式联邦。
 
-- [ ] **技能自动结晶流水线 (Auto Skill Crystallization)**：
-  - 自动检测多 Agent 协作中的高频优质排障链路（解决次数 ≥3 且有用反馈率 ≥90%）。
-  - LLM 自动将该排障经验提炼为标准 Hermes Skill SOP，经人类一键审批（Human-in-the-loop）后直接挂载至 Agent 技能库。
-- [ ] **边缘多节点联邦同步 (Edge-to-Edge Decentralized Federation)**：
-  - 支持跨多台家庭服务器、云端边缘实例的 Mímir 节点进行加密同步与 ACL 鉴权共享。
-  - 采用 CRDT（无冲突复制数据类型）或去中心化事件日志机制，保障离线容灾与最终一致性。
-- [ ] **跨模型认知语义投影 (Cross-Model Cognitive Alignment)**：
-  - 适配不同基础模型（Claude / DeepSeek / Gemini / 本地小模型）的记忆上下文注入格式，实现记忆形态的自适应压缩与重构。
+- [x] **技能自动结晶流水线 (Auto Skill Crystallization)**（fcd45da ✅ 2026-09-03 收官）：
+  - 自动检测多 Agent 协作中的高频优质排障链路（解决次数 ≥3 且有用反馈率 ≥90%）——实现为 `autoskill.py`：`record_success` 按主题沉淀成功 trace（幂等 per trace，拒绝非 active trace，Fail-Closed）；胜任门槛 = 成功 ≥3 且成员零 negative feedback；`compile_wiki_candidates` 出列候选；`promote_to_skill` 一键审批物化 L3 skill fact（promotion 时再验门槛，幂等）。skill 入 `ANCHOR_FACT_TYPES`/`LAYER3_FACT_TYPES`，检索面自动全量挂载。
+  - LLM 自动将该排障经验提炼为标准 Hermes Skill SOP，经人类一键审批（Human-in-the-loop）后直接挂载至 Agent 技能库——REST 面 `/v14/skills/record-success|candidates|promote`（write/read/manage scope 门）。
+- [x] **边缘多节点联邦同步 (Edge-to-Edge Decentralized Federation)**（acea7a9 ✅ 2026-09-03 收官）：
+  - 支持跨多台家庭服务器、云端边缘实例的 Mímir 节点进行加密同步与 ACL 鉴权共享——`federation/` 包：federation_peers 注册表（node_id+共享密钥指纹，人工核对握手凭据）。
+  - 采用 CRDT（无冲突复制数据类型）或去中心化事件日志机制，保障离线容灾与最终一致性——append-only federation_events 事件流：lamport 时钟 LWW 全序合并（lamport 高者胜、同刻比 node_id，无分叉）；离线各自写入重连按 since 游标增量重放，合并可交换最终一致；Fernet 加密信封 Fail-Closed（未注册 sender 密文无法解密、篡改拒收）；`(crdt_key, lamport, node_id)` UNIQUE 重投递 no-op。
+- [x] **跨模型认知语义投影 (Cross-Model Cognitive Alignment)**（cd5055d ✅ 2026-09-03 收官）：
+  - 适配不同基础模型（Claude / DeepSeek / Gemini / 本地小模型）的记忆上下文注入格式，实现记忆形态的自适应压缩与重构——`projection.py`：MODEL_TIERS 三档（claude 8k markdown / deepseek 3k structured / local-small 1.2k compact）；L3（铁律/偏好/技能）全保真永不裁剪（锚通道保证穿越投影存活——小模型挂载优质技能后越级能力爆发的全部来源）；L2 按档降级（全文→摘要→硬截断）；L1 只留类型+溯源行；预算守卫先丢 L1 再丢 L2，永不丢 L3。
 
 ---
 

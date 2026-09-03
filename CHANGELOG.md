@@ -6,6 +6,15 @@
 
 ---
 
+## v14.0.0 — 2026-09-03 · WikiSkill 技能流水线 + 加密联邦 + 跨模型投影 (AutoSkill · Encrypted Federation · Cross-Model Projection)
+
+> 三件功能 + 升版收尾，全零迁移（无 DDL 变更），SCHEMA_VERSION 维持 20。
+
+- **WikiSkill 技能自动编译流水线**（`autoskill.py` + `/v14/skills/*`，fcd45da）：Traces (L0) → Mímir Wiki (L1/L2) → Hermes Skills (L3) 三层演化链。`record_success` 按主题沉淀成功 trace（幂等 per trace；拒绝 unknown/非 active trace，Fail-Closed）；胜任门槛 = 成功 ≥3 且成员零 negative feedback；`compile_wiki_candidates` 出列候选；`promote_to_skill` 一键审批物化 L3 skill fact（promotion 时再验门槛——ledger 可能已变；幂等：重复晋升同一 fact）。skill 入 `ANCHOR_FACT_TYPES`/`LAYER3_FACT_TYPES`——检索面自动全量挂载，与铁律同一存在保证。REST 面 `write`/`read`/`manage` scope 门（ingest-only 403）。
+- **跨节点去中心化加密联邦**（`federation/`，acea7a9）：多台家庭服务器（N100/台式机/云端节点）基于 append-only CRDT 事件流加密同步。federation_events 每次变更一行携带 lamport 时钟+node_id；冲突按 LWW 合并（lamport 高者胜，同刻比 node_id DESC——全序无分叉）；离线容灾：断线期间各自写入，重连按 since 游标交换事件流增量重放，合并可交换（A∘B == B∘A，最终一致）。加密信封 Fernet：出节点加密、入节点按注册 peer 密钥解密——未注册 sender 的密文无法解密（Fail-Closed），篡改信封拒收。`(crdt_key, lamport, node_id)` UNIQUE → 重投递 no-op。federation_peers 注册表带密钥指纹（sha256 前 9 字节 base64，人工核对握手凭据）。
+- **跨模型认知语义投影**（`projection.py`，cd5055d）：适配不同模型窗口与输出格式，实现小模型挂载优质技能后的越级能力爆发。MODEL_TIERS 三档：claude（大窗 8k，全保真 markdown）> deepseek（中窗 3k，结构化列表）> local-small（小窗 1.2k，紧凑 KEY: value 方言）。`project_context` 把同一检索面投影成目标模型注入块：L3（iron_rule/user_pref/skill）content 全保真——锚通道保证穿越投影存活，技能永不裁剪（越级能力的全部来源）；L2 按档降级（全文→摘要→硬截断）；L1 所有档只留类型+溯源行（fact_id 可溯源不占预算）。预算守卫从尾部先丢 L1 再丢 L2，永不丢 L3。token 估算保守 2 字符≈1 token，截断必带省略号（无静默截断）。
+- **版本号 13.0.0 → 14.0.0**（三锚定：`schema.py` MIMIR_VERSION + `pyproject.toml` + test_r8_release 断言；SCHEMA_VERSION 维持 20）。
+
 ## v13.0.0 — 2026-09-03 · 共享工作黑板 + 时态知识图谱 + 主动前置唤醒 (Blackboard · Temporal Knowledge Graph · Proactive Wake)
 
 > 三件功能 + 升版收尾。SCHEMA_VERSION 19 → 20（relations 增 `valid_from`/`valid_until` 双列，守卫式 ALTER，旧库平滑升级）。
