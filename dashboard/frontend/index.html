@@ -570,8 +570,6 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
   </div>
 
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:16px">
-
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:16px">
     <template x-for="(data,agent) in agentsData.agents" :key="agent">
       <div class="card">
         <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px">
@@ -1155,7 +1153,7 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
   </div>
 
   <div class="card" style="margin-top:12px;padding:0;overflow-x:auto" x-show="codeImpactData.symbol">
-    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">影响分析: <span style="font-family:monospace" x-text="codeImpactData.symbol.symbol_name"></span></div>
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">影响分析: <span style="font-family:monospace" x-text="(codeImpactData.symbol||{}).symbol_name"></span></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
       <div style="padding:12px 16px;border-right:1px solid var(--border)">
         <div style="font-size:.74rem;color:var(--muted);margin-bottom:6px">调用方 (Callers)</div>
@@ -1261,6 +1259,14 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
 </nav>
 
 <script>
+// Chart.js instances live OUTSIDE Alpine's reactive x-data on purpose.
+// Alpine deep-proxies plain objects stored in x-data, but Chart.js plugin
+// boxes (title etc.) are registered in internal Maps keyed by the RAW
+// instance — reading the instance back through reactive state yields a
+// proxy whose .update() fails those lookups and throws
+// ("Cannot set properties of undefined (setting 'fullSize')", or a
+// RangeError on deep data paths). Keep raw references only.
+const chartInstances = {};
 function dashboard() {
   return {
     activeTab: 'overview',
@@ -1343,7 +1349,6 @@ function dashboard() {
     crystalBusy: false,
     crystalMsg: '',
     crystalErr: '',
-    chartInstances: {},
 
     async fetchJSON(url, opts={}) {
       try {
@@ -1794,38 +1799,63 @@ function dashboard() {
       const root = getComputedStyle(document.documentElement);
       const tierColors = [root.getPropertyValue('--blue').trim(),root.getPropertyValue('--green').trim(),root.getPropertyValue('--yellow').trim(),root.getPropertyValue('--red').trim(),root.getPropertyValue('--purple').trim()];
       const cvs = document.getElementById('decayChart');
-      if (cvs && Object.keys(tiers).length) {
-        if (this.chartInstances.decay) this.chartInstances.decay.destroy();
-        this.chartInstances.decay = new Chart(cvs, {
-          type: 'doughnut',
-          data: {
-            labels: Object.keys(tiers).map(k => tierLabels[k] || k),
-            datasets: [{data: Object.values(tiers), backgroundColor: tierColors.slice(0, Object.keys(tiers).length), borderColor: root.getPropertyValue('--card').trim(), borderWidth: 2}]
-          },
-          options: {responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom',labels:{color:root.getPropertyValue('--muted').trim(),font:{size:11}}}}}
-        });
+      if (cvs && cvs.offsetParent !== null && Object.keys(tiers).length) {
+        const dlabels = Object.keys(tiers).map(k => tierLabels[k] || k);
+        const ddata = Object.values(tiers);
+        const dcolors = tierColors.slice(0, Object.keys(tiers).length);
+        if (chartInstances.decay && chartInstances.decay.canvas === cvs) {
+          chartInstances.decay.data.labels = dlabels;
+          chartInstances.decay.data.datasets[0].data = ddata;
+          chartInstances.decay.data.datasets[0].backgroundColor = dcolors;
+          chartInstances.decay.update();
+        } else {
+          if (chartInstances.decay) chartInstances.decay.destroy();
+          chartInstances.decay = new Chart(cvs, {
+            type: 'doughnut',
+            data: {
+              labels: dlabels,
+              datasets: [{data: ddata, backgroundColor: dcolors, borderColor: root.getPropertyValue('--card').trim(), borderWidth: 2}]
+            },
+            options: {responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom',labels:{color:root.getPropertyValue('--muted').trim(),font:{size:11}}}}}
+          });
+        }
       }
       const tcvs = document.getElementById('trustChart');
-      if (tcvs) {
-        if (this.chartInstances.trust) this.chartInstances.trust.destroy();
+      if (tcvs && tcvs.offsetParent !== null) {
         const td = this.trustData;
-        this.chartInstances.trust = new Chart(tcvs, {
-          type: 'bar',
-          data: {
-            labels: ['高(≥0.7)', '中(0.3-0.7)', '低(<0.3)', '未评分'],
-            datasets: [{label: '事实数', data: [td.high, td.medium, td.low, td.none], backgroundColor: [root.getPropertyValue('--green').trim(),root.getPropertyValue('--yellow').trim(),root.getPropertyValue('--red').trim(),root.getPropertyValue('--border2').trim()], borderRadius: 4}]
-          },
-          options: {responsive:true, maintainAspectRatio:false, scales:{y:{beginAtZero:true,grid:{color:root.getPropertyValue('--border').trim()},ticks:{color:root.getPropertyValue('--muted').trim()}},x:{ticks:{color:root.getPropertyValue('--muted').trim()}}}, plugins:{legend:{display:false}}}
-        });
+        const tdata = [td.high, td.medium, td.low, td.none];
+        if (chartInstances.trust && chartInstances.trust.canvas === tcvs) {
+          chartInstances.trust.data.datasets[0].data = tdata;
+          chartInstances.trust.update();
+        } else {
+          if (chartInstances.trust) chartInstances.trust.destroy();
+          chartInstances.trust = new Chart(tcvs, {
+            type: 'bar',
+            data: {
+              labels: ['高(≥0.7)', '中(0.3-0.7)', '低(<0.3)', '未评分'],
+              datasets: [{label: '事实数', data: tdata, backgroundColor: [root.getPropertyValue('--green').trim(),root.getPropertyValue('--yellow').trim(),root.getPropertyValue('--red').trim(),root.getPropertyValue('--border2').trim()], borderRadius: 4}]
+            },
+            options: {responsive:true, maintainAspectRatio:false, scales:{y:{beginAtZero:true,grid:{color:root.getPropertyValue('--border').trim()},ticks:{color:root.getPropertyValue('--muted').trim()}},x:{ticks:{color:root.getPropertyValue('--muted').trim()}}}, plugins:{legend:{display:false}}}
+          });
+        }
       }
       const qcvs = document.getElementById('qualityChart');
       const cycles = (this.qualityData.recent_cycles || []).slice(0, 14).reverse();
-      if (qcvs && cycles.length) {
-        if (this.chartInstances.quality) this.chartInstances.quality.destroy();
+      if (qcvs && qcvs.offsetParent !== null && cycles.length) {
         const total = cycles.map(c => c.query_count || 0);
         const hits = cycles.map(c => c.hit_count || 0);
         const zeroPct = cycles.map(c => (c.query_count||0) > 0 ? Math.round(((c.zero_hit_count||0)/(c.query_count||1))*100) : 0);
-        this.chartInstances.quality = new Chart(qcvs, {
+        const qlabels = cycles.map(c => (c.date||'').slice(5));
+        if (chartInstances.quality && chartInstances.quality.canvas === qcvs) {
+          const q = chartInstances.quality;
+          q.data.labels = qlabels;
+          q.data.datasets[0].data = total;
+          q.data.datasets[1].data = hits;
+          q.data.datasets[2].data = zeroPct;
+          q.update();
+        } else {
+        if (chartInstances.quality) chartInstances.quality.destroy();
+        chartInstances.quality = new Chart(qcvs, {
           type: 'bar',
           data: {
             labels: cycles.map(c => (c.date||'').slice(5)),
@@ -1837,6 +1867,7 @@ function dashboard() {
           },
           options: {responsive:true, maintainAspectRatio:false, scales:{y:{beginAtZero:true,grid:{color:root.getPropertyValue('--border').trim()},ticks:{color:root.getPropertyValue('--muted').trim()}},y1:{beginAtZero:true,position:'right',grid:{drawOnChartArea:false},max:100,ticks:{color:root.getPropertyValue('--muted').trim()}},x:{ticks:{color:root.getPropertyValue('--muted').trim()}}}, plugins:{legend:{position:'bottom',labels:{color:root.getPropertyValue('--muted').trim(),font:{size:11}}}}}
         });
+        }
       }
     },
 
