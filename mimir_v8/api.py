@@ -65,6 +65,7 @@ class ServiceContext:
     feedback_loop: FeedbackLoop | None = None
     blackboard: BlackboardService | None = None
     graph: object | None = None  # GraphProjector for /v13/graph/*
+    wake: object | None = None  # ProactiveWake for /v13/wake
 
 
 class QueryBody(BaseModel):
@@ -170,6 +171,15 @@ class SetOpinionBody(BaseModel):
     confidence: float
     owner_principal: str
     evidence_id: str | None = None
+
+
+class WakeBody(BaseModel):
+    """v13.0-3 — proactive wake request body. Module-level on purpose:
+    api.py uses `from __future__ import annotations`, so FastAPI resolves
+    string annotations against module globals — a class defined inside
+    create_app is invisible there and degrades to a query parameter."""
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=10_000)
 
 
 class ConsolidateBody(BaseModel):
@@ -783,6 +793,21 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             "at_timestamp": at_timestamp,
             "edges": edges,
         }
+
+    # ---- v13.0-3 proactive wake: intent-driven pre-push ----------------
+    @app.post("/v13/wake")
+    def proactive_wake(
+        body: WakeBody,
+        identity: Principal = Depends(scoped("read")),
+    ):
+        if context.wake is None:
+            raise HTTPException(503, "proactive wake is not configured")
+        return context.wake.wake(
+            body.text,
+            principal_id=identity.principal_id,
+            is_admin=identity.is_admin,
+            roles=set(identity.roles or []),
+        )
 
     # ---- v13.0 blackboard: shared working memory -----------------------
     def require_blackboard() -> BlackboardService:
