@@ -198,6 +198,7 @@ def build_runtime(
             feedback_loop=feedback_loop,
             blackboard=blackboard,
             wake=wake,
+            graph=graph,
         ),
         lifespan=lifespan,
     )

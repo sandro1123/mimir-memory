@@ -328,8 +328,14 @@ class TestProactiveWakeRuntimeWiring(unittest.TestCase):
             self.assertIsNotNone(context.wake)
             from mimir_v8.relevance import ProactiveWake
             self.assertIsInstance(context.wake, ProactiveWake)
+            # v14 部署验收抓到的第三处同病：graph 投影器建了（供检索
+            # 内核用）但从不传 ServiceContext —— /v13/graph/* 生产 503。
+            self.assertIsNotNone(context.graph)
+            from mimir_v8.graph_projector import GraphProjector
+            self.assertIsInstance(context.graph, GraphProjector)
 
-            # 端到端：组装出的 app 对 /v13/wake 真实返回 200 而非 503。
+            # 端到端：组装出的 app 对 /v13/wake 与 /v13/graph/history
+            # 真实返回 200 而非 503（空库 → history 为空列表，非报错）。
             from fastapi.testclient import TestClient
             with TestClient(app) as client:
                 r = client.post(
@@ -338,6 +344,14 @@ class TestProactiveWakeRuntimeWiring(unittest.TestCase):
                 )
                 self.assertEqual(r.status_code, 200, r.text)
                 self.assertEqual(r.json()["intent"], "generic")
+
+                r2 = client.get(
+                    "/v13/graph/history",
+                    params={"entity_id": "auto_synced"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                self.assertEqual(r2.status_code, 200, r2.text)
+                self.assertIn("edges", r2.json())
 
 
 if __name__ == "__main__":
