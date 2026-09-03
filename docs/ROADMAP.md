@@ -65,14 +65,17 @@ Mímir 深度融合业界 6 大标杆记忆系统的核心工程精髓（详见 
 
 **目标**：从“静态记忆存取”进化到“动态任务协同”，为多智能体群组提供实时共享工作区与时序因果推理。
 
-- [ ] **多 Agent 共享工作记忆 (Shared Working Memory / Blackboard)**：
-  - 在长期规范化存储之上，引入基于轻量内存/SQLite 的共享工作黑板（Task Scratchpad）。
-  - 支持多 Agent 在排查故障、量化分析或技术研讨时秒级共享局部任务上下文，任务结束后自动提炼总结为长期事实或安全销毁。
-- [ ] **时态知识图谱 (Temporal Knowledge Graph, TKG)**：
-  - 为实体与关系边增加有效时间区间（`valid_during: [t_start, t_end]`）。
-  - 支持跨时间推理：“某时刻网络拓扑是什么状态？”、“某项配置在过去 30 天由哪个 Agent 进行了什么变更？”
-- [ ] **主动预测性召回 (Proactive & Predictive Recall)**：
+- [x] **多 Agent 共享工作记忆 (Shared Working Memory / Blackboard)**（2026-09-03 收官，`blackboard.py` + `/v13/blackboard/*` REST 面）：
+  - 在长期规范化存储之上，引入基于 SQLite 的共享工作黑板（Task Scratchpad）。
+  - 支持多 Agent 在排查故障、量化分析或技术研讨时秒级共享局部任务上下文，任务结束后自动提炼总结为长期事实（distill）或安全销毁（destroy，留 audit 痕）。
+  - 参与者边界硬闸：非参与者读写被拒；creator-not-participant 守卫自动回滚。
+- [x] **时态知识图谱 (Temporal Knowledge Graph, TKG)**（2026-09-03 收官，a0aa913，SCHEMA_VERSION 19→20）：
+  - 为关系边增加有效时间区间（`valid_from`/`valid_until`，空串=开放区间；supersede 写双向边：supersedes 开窗 + superseded_by 零宽关窗）。
+  - 支持跨时间推理：`/v13/graph/history?at=ISO8601` 时点快照——"某时刻网络拓扑是什么状态？"、“某项配置在过去 30 天由哪个 Agent 进行了什么变更？”
+  - 通用迁移链 `source_version <= 18` 恒 rebuild；专用 `migrate_schema_v19` 冻结产出真 19 形；守卫式 ALTER（`PRAGMA table_info` 先查列）免疫新库降 stamp 夹具。
+- [x] **主动预测性召回 (Proactive & Predictive Recall)**（2026-09-03 收官，`relevance.py` + `/v13/wake`，65e35d3）：
   - Agent 在接收到任务指令前置阶段，Mímir 自动根据上下文意图与风险特征，主动推送历史避坑指南与强约束规则（Iron Rules），无需 Agent 被动发起查询。
+  - IntentProfiler 关键词驱动意图分类（destructive > change > troubleshooting，轻实现可测不依赖 LLM）；铁律+核心偏好任何意图永远推送（安全底线）；L2 pattern 按意图家族匹配（排障意图推排障 pattern；generic 不推，宁缺毋滥）；全程 `can_read` ACL 仲裁（Fail-Closed）。
 
 ---
 

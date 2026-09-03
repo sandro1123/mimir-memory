@@ -6,6 +6,15 @@
 
 ---
 
+## v13.0.0 — 2026-09-03 · 共享工作黑板 + 时态知识图谱 + 主动前置唤醒 (Blackboard · Temporal Knowledge Graph · Proactive Wake)
+
+> 三件功能 + 升版收尾。SCHEMA_VERSION 19 → 20（relations 增 `valid_from`/`valid_until` 双列，守卫式 ALTER，旧库平滑升级）。
+
+- **多 Agent 共享工作记忆黑板**（`blackboard.py` + `/v13/blackboard/*`）：多 Agent 在排障/分析/研讨时秒级共享局部任务上下文；board 参与者边界（非参与者读写被拒+入参防伪造）、distill 提炼总结沉淀为长期事实、destroy 安销（留 audit 痕）；creator-not-participant 回滚守卫。REST 面 `write`/`read` scope 门。
+- **时态知识图谱 TKG**（`schema.py`+`store.py`+`migration.py`+`graph_projector.py`，a0aa913）：relations 增 `valid_from`/`valid_until` 时效窗（空串=开放区间）；supersede 写双向边（supersedes 开窗 + superseded_by 零宽关窗）；`/v13/graph/history?at=ISO8601` 时点快照查询。通用迁移链 `<=18` 恒 rebuild，专用 `migrate_schema_v19` 冻结产出真 19 形。守卫式 ALTER 对新库降 stamp 夹具免疫。
+- **主动意图预测性前置唤醒**（`relevance.py` + `/v13/wake`，65e35d3）：IntentProfiler 关键词驱动意图分类（destructive/change/troubleshooting/generic，轻实现不依赖 LLM）；ProactiveWake 前置推送铁律+核心偏好（任何意图永远推送，安全底线）+同意图家族 pattern（排障意图推排障 pattern；generic 不推，宁缺毋滥）；全程过 `can_read` ACL 仲裁（Fail-Closed）。
+- **版本号 12.2.0 → 13.0.0**（三锚定：`schema.py` MIMIR_VERSION + `pyproject.toml` + test_r8_release 断言；SCHEMA_VERSION 断言随 TKG 19→20 对齐）。
+
 ## v12.2.0 — 2026-09-03 · 记忆分层装配 + 检索免疫双通道 + 血缘继承 (Layered Assembly · Anchor Channel · Lineage Inheritance)
 
 > 五件全零迁移（无 DDL 变更），SCHEMA_VERSION 维持 19。
