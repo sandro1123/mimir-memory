@@ -41,7 +41,7 @@ HUMAN_REVIEW_WARN = int(os.environ.get("HUMAN_REVIEW_WARN", "50"))
 PENDING_OUTBOX_WARN = int(os.environ.get("PENDING_OUTBOX_WARN", "100"))
 # ──────────────────────────────────────────────────────
 
-app = FastAPI(title="Mímir Dashboard", version="2.0.0")
+app = FastAPI(title="Mímir Dashboard", version="3.0.0")
 
 # ── Auth middleware ────────────────────────────────────
 DASHBOARD_TOKEN = os.environ.get("DASHBOARD_TOKEN") or ""
@@ -1364,8 +1364,138 @@ async def api_governance_decisions(limit: int = Query(default=50, ge=1, le=200))
     return {"decisions": rows, "count": len(rows)}
 
 
-# ── v11: symbolic memory + code graph proxy ──────────────────────────────
-@app.post("/v11/symbolic/offload")
+# ── v13/v14: skills / federation / blackboard / projection ───────────────
+
+@app.get("/api/skills")
+@_cached("skills")
+async def api_skills():
+    """v14 AutoSkill: competent wiki candidates + already-promoted skills.
+
+    Dual view from one endpoint: candidates come from the /v14 API;
+    promoted skills are read straight off the canonical facts table
+    (fact_type='skill').
+    """
+    api_resp = await _mimir_get("/v14/skills/candidates") or {}
+    candidates = api_resp.get("candidates", [])
+    promoted = _db_query(
+        "SELECT fact_id, content, summary, owner_principal, "
+        "domain, status, created_at FROM facts "
+        "WHERE fact_type='skill' ORDER BY created_at DESC LIMIT 200"
+    )
+    ledger = _db_query(
+        "SELECT topic, success_count, skill_fact_id, last_success_at "
+        "FROM skill_topics ORDER BY success_count DESC, topic LIMIT 500"
+    )
+    return {
+        "status": "ok",
+        "candidates": candidates,
+        "promoted": promoted,
+        "ledger": ledger,
+    }
+
+
+@app.post("/api/skills/promote")
+async def api_skills_promote(body: dict):
+    """One-click approval: materialize a competent topic as an L3 skill."""
+    result = await _mimir_post("/v14/skills/promote", {
+        "topic": (body or {}).get("topic", ""),
+    })
+    if result is None:
+        return {"status": "error",
+                "error": "promote failed (below threshold or API down)"}
+    _invalidate("skills")
+    return result
+
+
+@app.get("/api/federation")
+@_cached("federation")
+async def api_federation():
+    """v14 cross-node CRDT federation: peer registry + event ledger stats.
+
+    Federation has no REST surface by design (it is a node-to-node
+    protocol); the dashboard reads the two additive tables directly.
+    """
+    peers = _db_query(
+        "SELECT node_id, fingerprint, registered_at "
+        "FROM federation_peers ORDER BY registered_at"
+    )
+    events_total = _db_query_one(
+        "SELECT COUNT(*) AS n FROM federation_events"
+    )
+    events_by_op = _db_query(
+        "SELECT op, COUNT(*) AS count FROM federation_events GROUP BY op"
+    )
+    lamport_max = _db_query_one(
+        "SELECT MAX(lamport) AS m FROM federation_events"
+    )
+    recent = _db_query(
+        "SELECT seq, event_id, crdt_key, lamport, node_id, op, recorded_at "
+        "FROM federation_events ORDER BY seq DESC LIMIT 50"
+    )
+    return {
+        "status": "ok",
+        "configured": bool(peers) or bool(events_total and events_total["n"]),
+        "peers": peers,
+        "events_total": events_total["n"] if events_total else 0,
+        "events_by_op": events_by_op,
+        "lamport_max": lamport_max["m"] if lamport_max else 0,
+        "recent_events": recent,
+    }
+
+
+@app.get("/api/blackboard")
+@_cached("blackboard")
+async def api_blackboard():
+    """v13 shared blackboards: board list + entry counts (read-only view).
+
+    The active board surface stays on the /v13 API; this endpoint gives
+    the dashboard a census across all boards.
+    """
+    boards = _db_query(
+        "SELECT board_id, title, participants, status, created_at, ended_at "
+        "FROM blackboards ORDER BY created_at DESC LIMIT 200"
+    )
+    counts = _db_query(
+        "SELECT board_id, COUNT(*) AS entries FROM blackboard_entries "
+        "GROUP BY board_id"
+    )
+    count_map = {c["board_id"]: c["entries"] for c in counts}
+    for board in boards:
+        board["entry_count"] = count_map.get(board["board_id"], 0)
+    active_entries = _db_query(
+        "SELECT e.seq, e.board_id, e.author, e.content, e.created_at "
+        "FROM blackboard_entries e JOIN blackboards b "
+        "ON e.board_id=b.board_id "
+        "WHERE b.status='active' ORDER BY e.seq DESC LIMIT 50"
+    )
+    return {
+        "status": "ok",
+        "boards": boards,
+        "active_entries": active_entries,
+    }
+
+
+@app.post("/api/projection")
+async def api_projection(body: dict):
+    """v14 cross-model projection preview: search → tier injection blocks.
+
+    Proxies /v14/projection so the dashboard UI can show what each model
+    tier would receive for a given query, without exposing the admin
+    token to the browser.
+    """
+    payload = {
+        "text": (body or {}).get("text", ""),
+        "tier": (body or {}).get("tier", "claude"),
+        "limit": int((body or {}).get("limit", 10)),
+    }
+    result = await _mimir_post("/v14/projection", payload)
+    if result is None:
+        return {"status": "error",
+                "error": "projection failed (bad tier or API down)"}
+    return result
+
+
+# ── v11: symbolic memory + code graph proxy ──────────────────────────────@app.post("/v11/symbolic/offload")
 async def v11_symbolic_offload(body: dict):
     """转发符号记忆卸载到 Mímir v11 API"""
     return await _mimir_post("/v11/symbolic/offload", dict(body))

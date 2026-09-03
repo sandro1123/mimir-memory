@@ -1,6 +1,6 @@
 # Mímir Architecture · 架构设计
 
-> 同步版本 · Synced version：v12.0.0 · Schema 18 · 代号 Codename Insight · 2026-08-14
+> 同步版本 · Synced version：v14.0.0 · Schema 20 · 代号 Codename Insight · 2026-09-03
 >
 > English · 中文双语
 
@@ -52,6 +52,11 @@ opinions → 生成 observation）。`run_governance_once` 在权限范围内处
 | `/v10/opinions/consolidate` | POST | `manage` |
 | `/v10/governance/run` | POST | `manage` |
 | `/v10/candidates/{id}/fast_track` | POST | `write` |
+| 黑板 Blackboard `/v13/blackboard/*` | POST/GET | `read`/`write` |
+| 时态图 TKG `/v13/graph/history` | GET | `read` |
+| 前置唤醒 `/v13/wake` | POST | `read` |
+| 技能 AutoSkill `/v14/skills/*` | POST/GET | read/write/manage |
+| 投影 Projection `/v14/projection` | POST | `read` |
 
 Headers 请求头：`Authorization: Bearer ***`，scope 来自 `TokenStore`。
 HTTP 401（缺失/无效 token）/ 403（权限不足）。
@@ -108,12 +113,16 @@ QueryRequest → RelevanceGate#should_search
 ## 6. Dashboard · 看板
 
 `~/mimir-dashboard`
-- ASP.NET 风格后端 FastAPI（8800）反向代理 Mímir HTTP 端点
-- 前端单页 index.html（Alpine.js + Chart.js），**9 个标签页**：overview / memory /
-  review / sources / agents / opinions / system / symbolic / codegraph
+- ASP.NET 风格后端 FastAPI（8800）反向代理 Mímir HTTP 端点 + 只读直查 canonical.db
+- 前端单页 index.html（Alpine.js + Chart.js），**13 个标签页**：overview / pipeline /
+  memory / review / sources / agents / opinions / skills / insight / system /
+  symbolic / codegraph / federation
 - **v11 改进**：Claude 风格重设计（暖奶油/炭灰主题、衬线标题、珊瑚强调色、明暗切换、
   移动端安全区底导航）；修复 opinions 标签转义引号渲染 bug；修复 `/api/source/add`
   重复函数；新增 v11 代理路由（`/v11/symbolic/*`, `/v11/code/*`）。
+- **v3 改进（适配 v13/v14）**：技能页（`/api/skills` — AutoSkill 候选/台账/已晋升 L3
+  技能 + 一键晋升）、联邦页（`/api/federation` — CRDT 事件账本与节点注册表只读普查）、
+  检索页新增跨模型投影预览（`/api/projection` — 三档注入块 + 预算条）。
 
 ---
 
@@ -178,3 +187,54 @@ schema 18  Multi-modal: fact_assets (图片/音频/文档/文件引用, 发布�
 - **Packaging 打包** — PyPI wheel+sdist 经 `pyproject.toml`（`mimir-server/worker/
   migrate/cli` 入口）；自包含 `Dockerfile`（ghcr 拉取），看板单独从
   `mimir-dashboard/` 发布。
+
+---
+
+## 10. v12.2 分层记忆与锚通道 (schema 19) · Tiered Memory & Anchor Channel
+
+```
+L0 原始痕迹 (traces/对话) → L1 事件与配置 → L2 pattern 模式 → L3 铁律/偏好/技能
+检索装配按 L3 全文 → L2 摘要 → L1 溯源行渐进展开 (progressive disclosure)
+```
+
+- **LAYER3_FACT_TYPES** — `(iron_rule, user_pref, skill)` 三类身份贯通分层装配、
+  锚通道、投影器（三处同一集合，改一处三处同步）。
+- **锚通道 Anchor Channel** — `use_anchor=True` 时 L3 铁律与核心偏好免被相似度
+  一票否决：相似度通道之外单独一条锚通道，保底挂载。
+- **统一 Profile 视图** — `/v12/profile`（owner-only）一次给出智能体的记忆画像。
+- **XTMEM 血缘最严继承** — 可见性继承 Fail-Closed 仲裁；disputed 投影同步闭环
+  （verify 误报清零）。
+
+---
+
+## 11. v13.0 协作三件 (schema 19 不变) · Collaboration Triplet
+
+- **共享工作黑板 blackboard** — `blackboards` / `blackboard_entries` 两表 +
+  `/v13/blackboard/*` 五端点（create 201 / post 201 / list / distill / destroy）。
+  多智能体在同一块黑板上追加条目（不可变 seq 流），主题收束后 `distill` 蒸馏为
+  正式 fact 落库，黑板状态翻 `distilled`。creator 必须 participants 成员，
+  否则回滚 422。
+- **时态知识图谱 TKG** — `relations` 增 `valid_during`（双时态区间），
+  `/v13/graph/history?entity_id&at_timestamp` 回放任一时点的邻域。
+- **主动意图前置唤醒 wake** — `relevance.py` 从近期检索/反馈预测下一步意图，
+  `/v13/wake` 提前把相关记忆装配进上下文（read scope，503 if not configured）。
+
+---
+
+## 12. v14.0 技能与联邦三件 (schema 20) · Skills & Federation Triplet
+
+- **AutoSkill 技能自动编译** — Traces (L0) → Mímir Wiki (L1/L2) → Hermes Skills
+  (L3) 三层演化链。`skill_topics` 台账记录每主题成功次数（幂等、不可变事件流）；
+  胜任门槛 = 同主题成功 ≥3 且成员零 negative feedback（Fail-Closed）；
+  `/v14/skills/record-success|candidates|promote` 三端点，promote 一键审批物化
+  `fact_type='skill'` 的 L3 fact，检索面自动全量挂载。
+- **跨节点去中心化联邦 federation/** — `federation_events`（追加式 CRDT 账本，
+  `(crdt_key, lamport, node_id)` 唯一身份，重投递幂等）+ `federation_peers`
+  节点注册表 + Fernet 信封加密。Lamport LWW 合并，无中心节点；节点对节点协议，
+  无 REST 面（看板直查两表做只读普查）。
+- **跨模型认知语义投影 projection.py** — 同一检索装配面按目标模型档位投影：
+  `MODEL_TIERS` 三档（claude 8k markdown / deepseek 3k structured /
+  local-small 1.2k compact）；L3 content 全保真永不裁剪（锚通道铁律穿越投影——
+  小模型越级能力爆发的全部来源），L2 按档降级，L1 只留类型+溯源行；
+  预算守卫从尾部先丢 L1 再丢 L2 永不丢 L3。`POST /v14/projection`
+  一次调用给出「这一问、这一档模型」的注入块。

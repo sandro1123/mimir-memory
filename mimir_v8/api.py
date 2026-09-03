@@ -1719,6 +1719,54 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         except AutoSkillError as exc:
             raise HTTPException(409, str(exc))
 
+    @app.post("/v14/projection")
+    def cross_model_projection(body: dict,
+                               identity: Principal = Depends(scoped("read"))):
+        """Project one retrieval onto a model tier's injection blocks.
+
+        Search → project in one call: the caller gets exactly the
+        blocks (L3 verbatim / L2 graded / L1 provenance-only) that a
+        given model tier would receive, without running the projector
+        client-side.
+        """
+        from .projection import MODEL_TIERS, ProjectionError, project_context
+        text = str((body or {}).get("text") or "").strip()
+        if not text:
+            raise HTTPException(422, "text is required")
+        tier = str((body or {}).get("tier") or "")
+        if tier not in MODEL_TIERS:
+            raise HTTPException(
+                422,
+                "tier must be one of " + str(tuple(MODEL_TIERS)),
+            )
+        try:
+            limit = int((body or {}).get("limit") or 10)
+        except (TypeError, ValueError):
+            raise HTTPException(422, "limit must be an integer")
+        if limit < 1:
+            raise HTTPException(422, "limit must be >= 1")
+        try:
+            result = context.query.search(QueryRequest(
+                text=text,
+                principal_id=identity.principal_id,
+                limit=limit,
+                roles=tuple(identity.roles),
+                is_admin=identity.is_admin,
+            ))
+            projection = project_context(result.get("results") or [], tier)
+        except ProjectionError as exc:
+            raise HTTPException(422, str(exc))
+        try:
+            context.store.write_audit(
+                identity.principal_id, "projection",
+                f"tier={tier} {text[:100]}",
+                payload={"tier": tier, "hits": len(projection["blocks"]),
+                        "estimated_tokens": projection["estimated_tokens"]},
+            )
+        except Exception:
+            pass
+        return {"status": "ok", **projection}
+
     # ── v12 Multi-modal assets (M4) ────────────────────────────────────
     @app.post("/v12/facts/{fact_id}/assets")
     def fact_asset_attach(fact_id: str, body: dict,

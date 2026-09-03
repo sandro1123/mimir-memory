@@ -1,7 +1,7 @@
 # Mímir Dashboard · 看板
 
-> A 9-tab web UI for Mímir — monitor memory, review candidates, manage opinions.
-> Mímir 的 9 标签页 Web 界面 —— 监控记忆、审核候选、管理意见。
+> A 13-tab web UI for Mímir — monitor memory, review candidates, manage skills, watch the CRDT federation.
+> Mímir 的 13 标签页 Web 界面 —— 监控记忆、审核候选、管理技能、观察 CRDT 联邦。
 > English · 中文双语
 
 ## What it is · 这是什么
@@ -12,8 +12,16 @@ renders a visual overview of the memory system.
 一个 FastAPI + Alpine.js 单页看板，代理 Mímir 的 HTTP API，以可视化方式呈现
 记忆系统的概览。
 
-**9 tabs · 9 个标签页**：overview / memory / review / sources / agents /
-opinions / system / symbolic / codegraph
+**13 tabs · 13 个标签页**：overview / pipeline / memory / review / sources /
+agents / opinions / skills / insight / system / symbolic / codegraph / federation
+
+**v3 (Mímir v14 适配) 新增 · New in v3**:
+- **技能 skills** — AutoSkill 候选主题（成功 ≥3 次且零负反馈）、主题台账、
+  已晋升 L3 技能列表，一键晋升审批 (`/api/skills`)
+- **联邦 federation** — 跨节点 CRDT 联邦只读普查：节点注册表、事件账本、
+  Lamport 水位 (`/api/federation`)
+- **检索页投影预览** — 同一检索词在 claude/deepseek/local-small 三档模型下的
+  注入块与预算占用对比 (`/api/projection`)
 
 ## Run · 运行
 

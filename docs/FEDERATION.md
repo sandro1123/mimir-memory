@@ -2,6 +2,25 @@
 
 > English · 中文双语
 
+This guide covers **two levels of federation** in Mímir:
+
+本指南覆盖 Mímir 的**两级联邦**：
+
+1. **Single-instance multi-agent federation 单实例多智能体联邦** (v10+) — multiple
+   agents share one Mímir instance with `owner_principal` isolation and ACLs.
+   多个智能体共享一个 Mímir 实例，`owner_principal` 隔离 + ACL。
+   → This is what the rest of this guide describes.
+   → 这正是本指南主体所描述的模式。
+2. **Cross-node CRDT federation 跨节点 CRDT 联邦** (v14) — multiple Mímir
+   *nodes* (separate instances/databases) replicate designated keys through an
+   append-only encrypted event ledger. See the last section.
+   多个 Mímir **节点**（独立实例/独立库）通过追加式加密事件账本复制指定键。
+   见末节。
+
+---
+
+## Part I · Single-Instance Federation 第一部分：单实例联邦
+
 This guide walks you through connecting **multiple AI agents** to one Mímir
 instance so they share memory deliberately — with per-agent isolation.
 
@@ -144,3 +163,65 @@ subscribed to the matching domain.
 - 单智能体快速上手 · single-agent quickstart: [examples/QUICKSTART.md](../examples/QUICKSTART.md)
 - 完整架构 · full architecture: [ARCHITECTURE.md](../ARCHITECTURE.md)
 - 安全政策 · security policy: [SECURITY.md](../SECURITY.md)
+
+---
+
+# Part II · Cross-Node CRDT Federation 第二部分：跨节点 CRDT 联邦 (v14)
+
+> Multiple Mímir **instances** replicating designated state without a center.
+> 多个 Mímir **实例**在无中心的前提下复制指定状态。
+
+## When to use which · 何时用哪一级
+
+| 场景 Scenario | 用哪一级 Level |
+|---|---|
+| 多个智能体，一个服务器，要 ACL 隔离 · many agents, one server, ACL isolation | Part I 单实例联邦 |
+| 多台机器各跑一个 Mímir，要跨机器同步 · several machines each running Mímir, cross-machine sync | Part II 跨节点 CRDT |
+| 两者都有 · both | 叠加使用 · combine both |
+
+## Design · 设计
+
+```
+federation_events (追加式账本 · append-only ledger)
+  (crdt_key, lamport, node_id) 唯一身份 → 重投递幂等 · re-delivery is a no-op
+  op ∈ {'set','delete'} · value 经 Fernet 信封加密 · value inside a Fernet envelope
+
+federation_peers (节点注册表 · peer registry)
+  node_id → public_key 指纹 · fingerprint
+```
+
+- **Lamport LWW** — 冲突以 `(lamport, node_id)` 定序，Last-Writer-Wins；
+  无需中心仲裁，账本可回放。
+- **Fernet 信封** — 事件 value 加密后出节点，节点间以密钥指纹互认
+  （`encrypt_envelope` / `ingest_envelope`）。
+- **无 REST 面** — 这是节点对节点协议（`FederationService` 库接口：
+  `append_event` / `export_events` / `ingest_envelope` / `crdt_state`），不暴露
+  HTTP；运维侧用 dashboard 联邦页做只读普查。
+
+## Wire-up · 接线
+
+```python
+from mimir_v8.federation import FederationService, encrypt_envelope
+
+svc = FederationService(store, node_id="node-a")   # 首跑自动建两张表
+svc.register_peer("node-b", peer_public_key)         # 注册对端指纹
+
+# 发布 · publish: 追加一条事件进账本 ((crdt_key, lamport, node_id) 幂等)
+event = {
+    "event_id": ..., "crdt_key": "shared/skill/k8s-drain",
+    "lamport": next_lamport, "node_id": "node-a", "op": "set",
+    "value": encrypt_envelope(payload, key), "recorded_at": now,
+}
+svc.append_event(event)
+
+# 同步 · sync: 导出自某水位以来的事件（给对端），对端回灌 (Lamport LWW)
+bundle = svc.export_events(since=last_seq, to_peer="node-b")
+# 对端执行: svc.ingest_envelope(bundle)  — 重投递 no-op
+
+# 读取收敛态 · read converged state
+svc.crdt_state("shared/skill/k8s-drain")
+```
+
+监控 · observe: dashboard → 联邦页（节点注册表 / 事件操作分布 / 最近事件 /
+Lamport 水位）。
+

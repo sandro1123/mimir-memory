@@ -4,7 +4,7 @@
 > 让多个 AI 智能体「一起」记忆——并智能地遗忘。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Schema Version](https://img.shields.io/badge/schema-18-blue.svg)](#)
+[![Schema Version](https://img.shields.io/badge/schema-20-blue.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.11+-3776AB.svg)](#)
 [![CI](https://github.com/sandro1123/mimir-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/sandro1123/mimir-memory/actions)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -196,19 +196,27 @@ cd mimir-memory
 | **多智能体联邦记忆 + ACL 隔离** | ✅ |
 | 跨智能体感知广播 | ✅ |
 | 联邦跨主体搜索 | ✅ |
+| **跨节点 CRDT 联邦（Lamport LWW + Fernet 信封）** | ✅ |
 | 事件溯源（不可变事件）| ✅ |
 | 治理管线（LLM 评估器）| ✅ |
 | 向量 + 全文 + 图融合（RRF）| ✅ |
 | 本地 CPU 嵌入与重排 | ✅ |
 | 检索反馈自我演化 | ✅ |
 | 艾宾浩斯衰减 + Chronos 双时间轴 | ✅ |
+| L0~L3 分层记忆与渐进展开 | ✅ |
+| 锚通道（铁律与核心偏好免被相似度否决）| ✅ |
+| 共享工作黑板（蒸馏成事实）| ✅ |
+| 时态知识图谱（valid_during 历史）| ✅ |
+| 主动意图前置唤醒 | ✅ |
 | 冲突消解（标记争议，永不删除）| ✅ |
 | 技能结晶 | ✅ |
+| **AutoSkill：痕迹 → Wiki → L3 技能自动编译** | ✅ |
+| **跨模型投影（档位感知注入块）** | ✅ |
 | 多模态事实资产 | ✅ |
 | Obsidian wikilink 双向链接 | ✅ |
 | MCP 服务（27 工具）| ✅ |
 | Hermes MemoryProvider 插件 | ✅ |
-| Dashboard（9 标签页 Web 界面）| ✅ |
+| Dashboard（13 标签页 Web 界面）| ✅ |
 | PyPI + Docker 打包 | ✅ |
 
 ---
@@ -220,7 +228,10 @@ cd mimir-memory
 | v10.0 | 包内治理、Opinion/Observation 置信度层 | ✅ 已发布 |
 | v11.0 | 符号短时记忆 + CodeGraph + reflect/federation API | ✅ 已发布 |
 | v12.0 | Insight：艾宾浩斯衰减、Chronos、EvolveMem、召回漏斗、冲突消解、技能结晶、MCP、多模态、PyPI/Docker | ✅ 已发布 |
-| v12+ | Hermes MemoryProvider 集成、检索评测基线 | 🔵 进行中 |
+| v12.2 | L0~L3 分层记忆、统一 Profile API、XTMEM 血缘、锚通道 | ✅ 已发布 |
+| v13.0 | 多智能体共享黑板、时态知识图谱、主动意图唤醒 | ✅ 已发布 |
+| v14.0 | AutoSkill 流水线、跨节点 CRDT 联邦、跨模型投影 | ✅ 已发布 |
+| v14+ | 检索评测基线夯实、联邦运维工具 | 🔵 进行中 |
 
 ---
 

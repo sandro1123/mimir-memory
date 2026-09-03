@@ -750,6 +750,90 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
 </div>
 
 <!-- 符号化短期记忆页 (v11) -->
+<div class="tab-content" :class="{'active':activeTab==='skills'}">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <div style="min-width:0">
+      <h1 style="font-size:1.35rem">技能编译</h1>
+      <div style="font-size:.7rem;color:var(--muted);margin-top:4px">Traces (L0) → Mímir Wiki (L1/L2) → Hermes Skills (L3) · v14 AutoSkill 流水线</div>
+    </div>
+    <button class="btn btn-outline btn-sm" @click="loadSkills()">刷新</button>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px">
+    <div class="card card-hover stat-card"><div class="stat-value" style="color:var(--green)" x-text="(skillsData.candidates||[]).length"></div><div class="stat-label">胜任候选主题</div></div>
+    <div class="card card-hover stat-card"><div class="stat-value" x-text="(skillsData.promoted||[]).length"></div><div class="stat-label">已晋升技能</div></div>
+    <div class="card card-hover stat-card"><div class="stat-value" x-text="(skillsData.ledger||[]).length"></div><div class="stat-label">主题台账</div></div>
+  </div>
+
+  <div x-show="skillsMsg" style="font-size:.74rem;color:var(--green);margin-bottom:8px" x-text="skillsMsg"></div>
+  <div x-show="skillsErr" style="font-size:.74rem;color:var(--red);margin-bottom:8px" x-text="skillsErr"></div>
+
+  <!-- 胜任候选：成功≥3次且零 negative feedback，一键晋升 -->
+  <div class="card" style="margin-bottom:12px;padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div style="font-size:.85rem;font-weight:600">胜任候选（成功 ≥3 次 · 零负反馈）</div>
+      <span style="font-size:.7rem;color:var(--muted)">一键审批 → 物化为 L3 skill fact</span>
+    </div>
+    <div x-show="!(skillsData.candidates||[]).length"><div class="empty">暂无胜任候选</div></div>
+    <template x-for="c in skillsData.candidates||[]" :key="c.topic">
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+        <div style="min-width:0;flex:1">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span class="badge badge-green" x-text="'×' + c.success_count"></span>
+            <span style="font-weight:600;font-size:.85rem" x-text="c.topic"></span>
+          </div>
+          <div style="font-size:.74rem;color:var(--muted);margin-top:6px;word-break:break-all" x-text="c.content"></div>
+        </div>
+        <div style="flex-shrink:0">
+          <button class="btn btn-primary btn-sm" :disabled="skillsBusy===c.topic"
+                  @click="promoteSkill(c.topic)" x-text="skillsBusy===c.topic?'晋升中...':'晋升为技能'"></button>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- 主题台账：全部 skill_topics -->
+  <div class="card" style="margin-bottom:12px;padding:0;overflow-x:auto">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">主题台账</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>主题</th><th>成功次数</th><th>最近成功</th><th>状态</th></tr></thead>
+      <tbody>
+        <template x-for="l in skillsData.ledger||[]" :key="l.topic">
+          <tr>
+            <td style="font-size:.78rem;font-weight:600" x-text="l.topic"></td>
+            <td><span class="badge" :class="l.success_count>=3?'badge-green':'badge-gray'" x-text="'×' + l.success_count"></span></td>
+            <td style="color:var(--muted);font-size:.72rem" x-text="formatTime(l.last_success_at)"></td>
+            <td>
+              <span class="badge badge-blue" x-show="l.skill_fact_id">已晋升</span>
+              <span class="badge badge-gray" x-show="!l.skill_fact_id && l.success_count>=3">候选中</span>
+              <span class="badge badge-yellow" x-show="!l.skill_fact_id && l.success_count<3">积累中</span>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="!(skillsData.ledger||[]).length"><td colspan="4"><div class="empty">暂无主题台账</div></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <!-- 已晋升技能：fact_type='skill' 的 L3 事实 -->
+  <div class="card" style="margin-bottom:12px;padding:0;overflow-x:auto">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">已晋升技能（L3 · 检索面全量挂载）</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>内容</th><th>归属</th><th>创建</th></tr></thead>
+      <tbody>
+        <template x-for="p in skillsData.promoted||[]" :key="p.fact_id">
+          <tr>
+            <td style="font-size:.78rem;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="p.content"></td>
+            <td style="font-size:.72rem;color:var(--muted)" x-text="p.owner_principal"></td>
+            <td style="color:var(--muted);font-size:.72rem" x-text="formatTime(p.created_at)"></td>
+          </tr>
+        </template>
+        <tr x-show="!(skillsData.promoted||[]).length"><td colspan="3"><div class="empty">暂无已晋升技能</div></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
 <div class="tab-content" :class="{'active':activeTab==='insight'}">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:8px">
     <div style="min-width:0">
@@ -817,6 +901,51 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
         </template>
       </div>
     </div>
+  </div>
+
+  <!-- 跨模型投影预览 -->
+  <div class="card" style="margin-bottom:12px;padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div style="font-size:.85rem;font-weight:600">跨模型投影预览</div>
+      <span style="font-size:.7rem;color:var(--muted)">同一检索 → 不同模型档位的注入块 · v14 Projection</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <input x-model="projQuery" placeholder="输入检索词，预览各档位注入块..." style="flex:1;min-width:220px" @keyup.enter="runProjection()">
+      <select x-model="projTier" style="width:150px">
+        <option value="claude">claude · 8k · markdown</option>
+        <option value="deepseek">deepseek · 3k · structured</option>
+        <option value="local-small">local-small · 1.2k · compact</option>
+      </select>
+      <button class="btn btn-primary btn-sm" @click="runProjection()" :disabled="projBusy" x-text="projBusy?'投影中...':'投影'"></button>
+    </div>
+    <div x-show="projErr" style="font-size:.75rem;color:var(--red);margin-bottom:8px" x-text="projErr"></div>
+
+    <div x-show="projData.blocks" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.75rem;align-items:center">
+        <span class="badge badge-blue" x-text="(projData.tier||'') + ' · ' + (projData.dialect||'')"></span>
+        <span style="color:var(--muted)">
+          预算 <span style="font-family:monospace" x-text="projData.estimated_tokens"></span> / <span x-text="projData.budget"></span> tokens
+        </span>
+        <div style="flex:1;min-width:120px;height:6px;background:var(--card2);border-radius:3px;overflow:hidden">
+          <div style="height:100%;border-radius:3px;background:var(--green)" :style="'width:' + projBudgetPct() + '%'"></div>
+        </div>
+        <span class="badge badge-gray" x-text="(projData.blocks||[]).length + ' 块'"></span>
+      </div>
+      <template x-for="b in projData.blocks||[]" :key="b.fact_id">
+        <div style="border:1px solid var(--border);border-radius:8px;padding:8px 12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+            <div style="display:flex;gap:6px;align-items:center">
+              <span class="badge" :class="b.layer===3?'badge-green':b.layer===2?'badge-blue':'badge-gray'" x-text="'L' + b.layer"></span>
+              <span class="badge badge-purple" x-text="b.fact_type"></span>
+            </div>
+            <span style="font-family:monospace;font-size:.66rem;color:var(--muted)" x-text="b.fact_id"></span>
+          </div>
+          <pre style="margin:0;font-size:.74rem;white-space:pre-wrap;word-break:break-all" x-text="b.text"></pre>
+        </div>
+      </template>
+      <div class="empty" x-show="projData.blocks && projData.blocks.length===0">该检索无命中：各档位注入块为空</div>
+    </div>
+    <div class="empty" x-show="!projData.blocks && !projErr">输入检索词并选择档位，查看 L3 全保真 / L2 降级 / L1 溯源行 的分层投影</div>
   </div>
 
   <!-- 技能结晶 -->
@@ -1046,6 +1175,79 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
   </div>
 </div>
 
+<div class="tab-content" :class="{'active':activeTab==='federation'}">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <div style="min-width:0">
+      <h1 style="font-size:1.35rem">跨节点联邦</h1>
+      <div style="font-size:.7rem;color:var(--muted);margin-top:4px">v14 CRDT 事件账本 + 节点注册表 · Lamport LWW · Fernet 信封加密</div>
+    </div>
+    <button class="btn btn-outline btn-sm" @click="loadFederation()">刷新</button>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px">
+    <div class="card card-hover stat-card"><div class="stat-value" x-text="(federationData.peers||[]).length"></div><div class="stat-label">注册节点</div></div>
+    <div class="card card-hover stat-card"><div class="stat-value" style="color:var(--green)" x-text="federationData.events_total||0"></div><div class="stat-label">事件总数</div></div>
+    <div class="card card-hover stat-card"><div class="stat-value" x-text="federationData.lamport_max||0"></div><div class="stat-label">Lamport 水位</div></div>
+    <div class="card card-hover stat-card"><div class="stat-value" x-text="federationData.configured ? '已接入' : '未接入'"></div><div class="stat-label">联邦状态</div></div>
+  </div>
+
+  <!-- 节点注册表 -->
+  <div class="card" style="margin-bottom:12px;padding:0;overflow-x:auto">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">节点注册表（federation_peers）</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>节点 ID</th><th>公钥指纹</th><th>注册时间</th></tr></thead>
+      <tbody>
+        <template x-for="p in federationData.peers||[]" :key="p.node_id">
+          <tr>
+            <td style="font-family:monospace;font-size:.76rem;font-weight:600" x-text="p.node_id"></td>
+            <td style="font-family:monospace;font-size:.7rem;color:var(--muted)" x-text="p.fingerprint"></td>
+            <td style="color:var(--muted);font-size:.72rem" x-text="formatTime(p.registered_at)"></td>
+          </tr>
+        </template>
+        <tr x-show="!(federationData.peers||[]).length"><td colspan="3"><div class="empty">暂无注册节点（单节点运行或未启用联邦）</div></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <!-- 事件操作分布 -->
+  <div class="card" style="margin-bottom:12px;padding:16px" x-show="(federationData.events_by_op||[]).length">
+    <div style="font-size:.85rem;font-weight:600;margin-bottom:10px">事件操作分布</div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem">
+      <template x-for="o in federationData.events_by_op||[]" :key="o.op">
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="badge" :class="o.op==='set'?'badge-green':'badge-red'" x-text="o.op"></span>
+          <span style="font-weight:600" x-text="o.count"></span>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- 最近事件流 -->
+  <div class="card" style="margin-bottom:12px;padding:0;overflow-x:auto">
+    <div style="font-size:.8rem;font-weight:600;padding:14px 16px;border-bottom:1px solid var(--border)">最近事件（federation_events 账本）</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>seq</th><th>CRDT 键</th><th>Lamport</th><th>节点</th><th>操作</th><th>时间</th></tr></thead>
+      <tbody>
+        <template x-for="e in federationData.recent_events||[]" :key="e.seq">
+          <tr>
+            <td style="font-family:monospace;font-size:.72rem;color:var(--muted)" x-text="e.seq"></td>
+            <td style="font-family:monospace;font-size:.72rem;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="e.crdt_key"></td>
+            <td style="font-family:monospace;font-size:.72rem" x-text="e.lamport"></td>
+            <td style="font-family:monospace;font-size:.72rem" x-text="e.node_id"></td>
+            <td><span class="badge" :class="e.op==='set'?'badge-green':'badge-red'" x-text="e.op"></span></td>
+            <td style="color:var(--muted);font-size:.72rem" x-text="formatTime(e.recorded_at)"></td>
+          </tr>
+        </template>
+        <tr x-show="!(federationData.recent_events||[]).length"><td colspan="6"><div class="empty">暂无联邦事件</div></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="card" style="padding:12px 16px;font-size:.72rem;color:var(--muted)">
+    联邦是节点对节点协议（无 REST 面）：各节点持 Fernet 密钥对，事件以 (crdt_key, lamport, node_id) 唯一身份追加进账本，Lamport LWW 合并，重投递幂等。此页为只读普查视图。
+  </div>
+</div>
+
 </div>
 </main>
 
@@ -1075,10 +1277,12 @@ function dashboard() {
       {id:'sources',label:'来源',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'},
       {id:'agents',label:'活动',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'},
       {id:'opinions',label:'意见',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10a9 9 0 0 1-9 9 9 9 0 1 1 0-18 9 9 0 0 1 9 9z"/><path d="M12 14h.01"/><path d="M9 10h.01M15 10h.01"/></svg>'},
+      {id:'skills',label:'技能',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>'},
       {id:'insight',label:'检索',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>'},
       {id:'system',label:'系统',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>'},
       {id:'symbolic',label:'符号',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>'},
       {id:'codegraph',label:'代码',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>'},
+      {id:'federation',label:'联邦',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><line x1="12" y1="7.5" x2="12" y2="14"/><line x1="12" y1="14" x2="5.8" y2="17.2"/><line x1="12" y1="14" x2="18.2" y2="17.2"/></svg>'},
     ],
 
     ov: {status:'',version:'',schema_version:'',total_facts:0,event_head:0,candidates:{review_required:0,committed:0,rejected:0},projectors:[],knowledge:{items:{},layers:[]},memory:{total_gb:0,used_gb:0},facts_by_domain:{},dead_letters:0,governance:{provisional:0,human_review:0,auto_rejected:0},alerts:[]},
@@ -1115,6 +1319,16 @@ function dashboard() {
     codeQuery: '',
     codeSymbols: [],
     codeImpactData: {symbol:null,callers:[],callees:[]},
+    skillsData: {candidates:[],promoted:[],ledger:[]},
+    skillsBusy: '',
+    skillsMsg: '',
+    skillsErr: '',
+    federationData: {peers:[],events_total:0,events_by_op:[],lamport_max:0,recent_events:[],configured:false},
+    projQuery: '',
+    projTier: 'claude',
+    projBusy: false,
+    projErr: '',
+    projData: {},
     traceQuery: '',
     traceThreshold: '0.8',
     traceBusy: false,
@@ -1221,15 +1435,58 @@ function dashboard() {
       else if (id === 'pipeline') await this.loadPipeline();
       else if (id === 'agents') await this.loadAgents();
       else if (id === 'opinions') await this.loadOpinions();
+      else if (id === 'skills') await this.loadSkills();
       else if (id === 'system') await this.loadSystem();
       else if (id === 'insight') { await this.loadQuality(); await this.loadCrystals(); await this.loadConflicts(); }
       else if (id === 'symbolic') await this.loadSymbolic();
       else if (id === 'codegraph') await this.searchCode();
+      else if (id === 'federation') await this.loadFederation();
       this.$nextTick(() => this.renderCharts());
     },
 
     async loadQuality() {
       this.qualityData = await this.fetchJSON('/api/quality');
+    },
+
+    async loadSkills() {
+      this.skillsData = await this.fetchJSON('/api/skills') || {candidates:[],promoted:[],ledger:[]};
+      this.skillsErr = (this.skillsData||{}).status==='error' ? (this.skillsData||{}).error : '';
+    },
+
+    async promoteSkill(topic) {
+      if (!confirm('确认将主题「' + topic + '」晋升为 L3 技能？')) return;
+      this.skillsBusy = topic; this.skillsErr = ''; this.skillsMsg = '';
+      const d = await this.fetchJSON('/api/skills/promote', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({topic}),
+      });
+      this.skillsBusy = '';
+      if (d.status === 'error') this.skillsErr = d.error || '晋升失败';
+      else { this.skillsMsg = '已晋升：' + (d.topic||topic) + ' → skill fact'; await this.loadSkills(); }
+    },
+
+    async loadFederation() {
+      this.federationData = await this.fetchJSON('/api/federation') || this.federationData;
+    },
+
+    async runProjection() {
+      if (!this.projQuery.trim()) { this.projErr = '请输入检索词'; return; }
+      this.projBusy = true; this.projErr = '';
+      try {
+        const d = await this.fetchJSON('/api/projection', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({text: this.projQuery.trim(), tier: this.projTier, limit: 10}),
+        });
+        if (d && d.status === 'error') this.projErr = d.error || '投影失败';
+        else this.projData = d || {};
+      } catch(e) { this.projErr = String(e); }
+      this.projBusy = false;
+    },
+
+    projBudgetPct() {
+      const p = this.projData || {};
+      if (!p.budget) return 0;
+      return Math.min(100, Math.round((p.estimated_tokens||0) / p.budget * 100));
     },
 
     async loadConflicts() {

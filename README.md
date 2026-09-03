@@ -5,7 +5,7 @@
 > and forget intelligently.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Schema Version](https://img.shields.io/badge/schema-18-blue.svg)](#)
+[![Schema Version](https://img.shields.io/badge/schema-20-blue.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.11+-3776AB.svg)](#)
 [![CI](https://github.com/sandro1123/mimir-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/sandro1123/mimir-memory/actions)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -166,19 +166,27 @@ Then hit `curl http://127.0.0.1:8456/health` to confirm.
 | **Multi-agent federated memory + ACL isolation** | ✅ |
 | Cross-agent awareness broadcast | ✅ |
 | Federated cross-principal search | ✅ |
+| **Cross-node CRDT federation (Lamport LWW + Fernet envelopes)** | ✅ |
 | Event sourcing (immutable events) | ✅ |
 | Governance pipeline (LLM assessor) | ✅ |
 | Vector + FTS + graph fusion (RRF) | ✅ |
 | Local CPU embeddings & rerank | ✅ |
 | Search-feedback self-evolution | ✅ |
 | Ebbinghaus decay + Chronos validity | ✅ |
+| L0–L3 tiered memory with progressive disclosure | ✅ |
+| Anchor channel (iron rules / core prefs never voted out) | ✅ |
+| Shared agent blackboards (distill to facts) | ✅ |
+| Temporal knowledge graph (valid_during history) | ✅ |
+| Proactive intent-based wake | ✅ |
 | Conflict resolution (disputed, never deleted) | ✅ |
 | Skill crystallization | ✅ |
+| **AutoSkill: traces → wiki → L3 skills (auto-compiled)** | ✅ |
+| **Cross-model projection (tier-aware injection blocks)** | ✅ |
 | Multi-modal fact assets | ✅ |
 | Obsidian wikilink bidirectional linking | ✅ |
 | MCP server (27 tools) | ✅ |
 | Hermes MemoryProvider plugin | ✅ |
-| Dashboard (9-tab web UI) | ✅ |
+| Dashboard (13-tab web UI) | ✅ |
 | PyPI + Docker packaging | ✅ |
 
 ---
@@ -190,7 +198,10 @@ Then hit `curl http://127.0.0.1:8456/health` to confirm.
 | v10.0 | In-package governance, Opinion/Observation confidence layer | ✅ shipped |
 | v11.0 | Symbolic short-term memory + CodeGraph + reflect/federation API | ✅ shipped |
 | v12.0 | Insight: Ebbinghaus decay, Chronos, EvolveMem, recall funnel, conflict resolution, crystallization, MCP, multimodal, PyPI/Docker | ✅ shipped |
-| v12+ | Hermes MemoryProvider live integration, retrieval eval baseline | 🔵 in progress |
+| v12.2 | L0–L3 tiered memory, unified Profile API, XTMEM lineage, anchor channel, /v12/profile | ✅ shipped |
+| v13.0 | Multi-agent shared blackboards, temporal knowledge graph, proactive intent wake | ✅ shipped |
+| v14.0 | AutoSkill pipeline, cross-node CRDT federation, cross-model projection | ✅ shipped |
+| v14+ | Retrieval eval baseline hardening, federation ops tooling | 🔵 in progress |
 
 ---
 
