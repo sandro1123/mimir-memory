@@ -23,6 +23,35 @@ agents / opinions / skills / insight / system / symbolic / codegraph / federatio
 - **检索页投影预览** — 同一检索词在 claude/deepseek/local-small 三档模型下的
   注入块与预算占用对比 (`/api/projection`)
 
+**v3.0.1 稳定性修刀 · Stability fixes in v3.0.1 (2026-09-04)**:
+- 「活动」tab 之后 7 面板被吞 — 相邻两行完全相同的 grid 开标签，
+  活动面板永不闭合
+- 60s 周期性 Chart.js 崩溃（fullSize/RangeError）根治 — Chart 实例存
+  Alpine reactive 状态会被深层 Proxy 化，打断 Chart.js 内部以 raw 实例
+  为键的插件查找；实例搬至组件状态外 + upsert 复用。**框架级教训：
+  重型第三方实例勿入 Alpine/Vue reactive 状态。**
+- 黑板页改直查 v13 `blackboard.db`（此前 `/api/blackboard` 404）
+
+## Production form · 生产部署形态
+
+生产以 systemd 常驻（推荐）· production runs under systemd:
+
+```ini
+# /etc/systemd/system/mimir-dashboard.service
+[Service]
+WorkingDirectory=/home/<user>/mimir-dashboard
+ExecStart=<venv>/bin/python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8800
+Restart=always
+RestartSec=10
+```
+
+> 若需局域网访问，`--host` 用 `0.0.0.0`（`127.0.0.1` 只听本机回环），
+> 并在防火墙放行 8800（建议仅对内网段）。手工 `manage.sh`/nohup 启动的
+> 进程不进 systemd——两套并存会在端口上 crash-loop，二选一。
+> For LAN access bind `0.0.0.0` and open the firewall for 8800 (LAN
+> segment only recommended). Do not run a manual nohup process alongside
+> systemd — they crash-loop on the port. Pick one supervisor.
+
 ## Run · 运行
 
 ```bash

@@ -123,6 +123,15 @@ QueryRequest → RelevanceGate#should_search
 - **v3 改进（适配 v13/v14）**：技能页（`/api/skills` — AutoSkill 候选/台账/已晋升 L3
   技能 + 一键晋升）、联邦页（`/api/federation` — CRDT 事件账本与节点注册表只读普查）、
   检索页新增跨模型投影预览（`/api/projection` — 三档注入块 + 预算条）。
+- **v3.0.1 稳定性修刀（2026-09-04，ce4a0a5）**：①「活动」tab 后 7 面板被吞
+  （grid 重复开标签）；②60s 周期性 Chart.js 崩溃根治——Chart 实例存 Alpine reactive
+  状态会被深层 Proxy 化、打断 Chart.js 内部以 raw 实例为键的插件查找，实例搬至
+  组件状态外顶层 `const` + upsert 复用（不再每周期重建）。**框架级教训：重型第三方
+  实例勿入 reactive 状态。**
+- **生产部署形态（2026-09-04 定型）**：systemd `mimir-dashboard.service`
+  （`--host 0.0.0.0 --port 8800`，`Restart=always`）正式接管——此前手工 nohup
+  进程不进 pidfile、systemd 副本绑 127.0.0.1 在后台每 10s crash-loop 的双进程
+  隐患清除。对外访问=局域网直连（防火墙仅对内网段放行 8800）。
 
 ---
 
@@ -151,14 +160,23 @@ QueryRequest → RelevanceGate#should_search
 
 ## 8. Timer cron jobs (systemd) · 定时任务
 
+生产实测面（2026-09-04）：
+
 ```
-mimir-v9.2-cdc 每 5min (via worker hermes-cdc)
-mimir-v9.2-governance 每 15min
-mimir-v9.2-review-reminder 每日 daily
-mimir-v9.2-daily-report 每日 daily
-mimir-v9.2-decay-scan 每 24h
-mimir-v9.2-collect-all 每 30min
-mimir-v9.2-trust-update 每 1h
+mimir.service                     常驻 API (8456, v14.0.0 venv)
+mimir-dashboard.service           常驻看板 (8800, systemd 正式接管)
+mimir-v9.2-cdc.timer              每 5min   CDC 采集（global state.db）
+mimir-cdc-{jarvis,mentor,quantmaster}.timer 每 5min  分 agent CDC
+mimir-v12-extract.timer           每 5min   候选提取
+mimir-v9.2-governance.timer       每 15min  治理评估
+mimir-v9.2-collect-all.timer      每 30min  全源采集
+mimir-v9.2-trust-update.timer     每 1h     信任度更新
+mimir-v9.2-review-reminder.timer  每日      审核提醒
+mimir-v12-evolve.timer            每 6h     EvolveMem 反馈聚合
+mimir-v12-crystallize.timer       每日 00:30 结晶扫描
+mimir-v9.2-decay.timer            每 24h    衰减扫描
+mimir-v12-conflict.timer          每 24h    冲突检测
+mimir-v12-retention.timer         每 24h    保留/清理
 ```
 
 ---
@@ -238,3 +256,23 @@ L0 原始痕迹 (traces/对话) → L1 事件与配置 → L2 pattern 模式 →
   小模型越级能力爆发的全部来源），L2 按档降级，L1 只留类型+溯源行；
   预算守卫从尾部先丢 L1 再丢 L2 永不丢 L3。`POST /v14/projection`
   一次调用给出「这一问、这一档模型」的注入块。
+
+---
+
+## 13. Mímir-Eval 标准评测 (v12.1+) · Benchmark Suite
+
+- **指标层（纯函数，离线零依赖）** — `hit_rate@K`（query 级 any-hit 语义）、
+  `mrr`（首个命中排名倒数）、抽取 precision/recall/F1（集合语义）、
+  `acl_leak_rate`（越权读到行占比——生产地板 0.0，任何非零值是安全回归
+  而非质量取舍）。`STANDARD_TOP_K=(1,3,5,10)` spec 钉死。
+- **合成基准（离线可复现）** — 固定 seed 逐位复现；双语语料（CJK+latin）
+  走与生产相同的 trigram FTS / 嵌入现实。合成数标记
+  `provenance="synthetic"`，永不冒充生产质量。
+- **在线金标（生产真值）** — `GoldenSetBenchmark` 打实弹 `/v8/query`：
+  金标 fact_id 排名 + marker 子串抗 churn 兜底；回归地板沿 2026-08-16
+  r9 基线（hit@3=0.750 / hit@10=0.875）；低于地板 exit≠0（失败必须响，
+  不许静默绿）。CLI：`python -m mimir_v8.eval_suite --synthetic|--golden`。
+- **2026-09-04 生产复测读数（v14.0.0/Schema 20）** — `failed_floors=[]`；
+  hit_rate@10 **1.000**（脱地板），hit@3 维持 0.750。@3 零裕度定位为
+  金标事实老化（unreviewed/零置信/L4 衰减档被新事实挤位）——v14.1.0
+  金标治理项：金标集扩容 + 老金标人审升档。

@@ -6,6 +6,15 @@
 
 ---
 
+## Unreleased (post v14.0.0) — 生产上线与运维修刀 (Production Rollout & Hardening)
+
+> v14.0.0 后的部署与稳定性系列，均为生产部署树/服务配置层修复，无核心代码迁移。
+
+- **v14 生产迁移收官（2026-09-03）** — 生产 API v12.1.4 → v14.0.0 + Schema 19 → 20（relations 时态列，483 行零丢失）；v14 三件（AutoSkill/联邦/投影）全部在生产通电验收；三笔运行时修复：wake 接线（f2fb822，503 gap）、graph 传参（5921bbc，503 gap）、旧库 graph_edges 守卫式 ALTER（7f44a28，500 gap）——「建了没通电」三连修。
+- **Dashboard v3.0.1（2026-09-03~04）** — 技能/联邦/投影三新页接通生产；三稳定性修刀：①活动 tab 后 7 面板被吞（grid 双开标签）②60s 周期性 Chart.js 崩溃（Alpine 深层代理打断 Chart.js 内部 Map 的 raw 实例键——chartInstances 搬出 reactive 状态，ce4a0a5）③黑板页直查 v13 blackboard.db（4584db9）。
+- **生产部署面三修（2026-09-04）** — ①dashboard systemd unit `--host 127.0.0.1 → 0.0.0.0`（重启后 LAN 访问复断的地雷）②ufw 放行 8800 仅限 `192.168.5.0/24`（default deny 下从未放行——LAN 不通的真凶）③退役手工启动进程，systemd `Restart=always` 正式接管 8800（消除双进程 crash-loop）。
+- **Mímir-Eval 生产金标复测（2026-09-04）** — 生产 v14.0.0/Schema 20 实跑：`failed_floors=[]`，hit_rate@10 0.875（贴地板）→ **1.000（脱地板）**，hit_rate@3 维持 0.750 地板——分层装配+锚通道对召回无退化且 @10 改善；@3 零裕度根因定位为金标事实老化（unreviewed/零置信/L4 衰减档），v14.1.0 治理项。
+
 ## v14.0.0 — 2026-09-03 · WikiSkill 技能流水线 + 加密联邦 + 跨模型投影 (AutoSkill · Encrypted Federation · Cross-Model Projection)
 
 > 三件功能 + 升版收尾，全零迁移（无 DDL 变更），SCHEMA_VERSION 维持 20。

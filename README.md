@@ -179,6 +179,7 @@ Then hit `curl http://127.0.0.1:8456/health` to confirm.
 | Temporal knowledge graph (valid_during history) | ✅ |
 | Proactive intent-based wake | ✅ |
 | Conflict resolution (disputed, never deleted) | ✅ |
+| **Mímir-Eval: standard benchmark suite (HitRate@K · MRR · ACL-leak, golden-set floors)** | ✅ |
 | Skill crystallization | ✅ |
 | **AutoSkill: traces → wiki → L3 skills (auto-compiled)** | ✅ |
 | **Cross-model projection (tier-aware injection blocks)** | ✅ |
@@ -198,10 +199,11 @@ Then hit `curl http://127.0.0.1:8456/health` to confirm.
 | v10.0 | In-package governance, Opinion/Observation confidence layer | ✅ shipped |
 | v11.0 | Symbolic short-term memory + CodeGraph + reflect/federation API | ✅ shipped |
 | v12.0 | Insight: Ebbinghaus decay, Chronos, EvolveMem, recall funnel, conflict resolution, crystallization, MCP, multimodal, PyPI/Docker | ✅ shipped |
+| v12.1 | Mímir-Eval benchmark suite (HitRate@K/MRR/ACL-leak, golden-set floors), full-source ingestion, dynamic agent/domain registry | ✅ shipped |
 | v12.2 | L0–L3 tiered memory, unified Profile API, XTMEM lineage, anchor channel, /v12/profile | ✅ shipped |
 | v13.0 | Multi-agent shared blackboards, temporal knowledge graph, proactive intent wake | ✅ shipped |
-| v14.0 | AutoSkill pipeline, cross-node CRDT federation, cross-model projection | ✅ shipped |
-| v14+ | Retrieval eval baseline hardening, federation ops tooling | 🔵 in progress |
+| v14.0 | AutoSkill pipeline, cross-node CRDT federation, cross-model projection | ✅ shipped · **in production since 2026-09-03** |
+| v14.1 | Quality & resilience: golden-set stewardship, first production skill crystallization, resilience gears, honest telemetry | 🔵 in progress |
 
 ---
 

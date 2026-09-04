@@ -34,6 +34,17 @@ Mímir 深度融合业界 6 大标杆记忆系统的核心工程精髓（详见 
 │ • 动态 Agent/Domain 注册 │     │ • 主动预测性记忆唤醒    │     │ • 跨模型认知语义投影    │
 │ • L0~L3 记忆分层与画像   │     │                         │     │                         │
 └─────────────────────────┘     └─────────────────────────┘     └─────────────────────────┘
+                                        │
+                                        ▼
+                        ┌─────────────────────────┐
+                        │  v14.1: 质量与韧性 (当前) │
+                        │ (Quality & Resilience)  │
+                        ├─────────────────────────┤
+                        │ • 金标治理与人审升档      │
+                        │ • 韧性挡位 + 诚实遥测    │
+                        │ • AutoSOP 首次生产结晶   │
+                        │ • 反馈燃料与知识层通电   │
+                        └─────────────────────────┘
 ```
 
 ---
@@ -91,6 +102,24 @@ Mímir 深度融合业界 6 大标杆记忆系统的核心工程精髓（详见 
   - 采用 CRDT（无冲突复制数据类型）或去中心化事件日志机制，保障离线容灾与最终一致性——append-only federation_events 事件流：lamport 时钟 LWW 全序合并（lamport 高者胜、同刻比 node_id，无分叉）；离线各自写入重连按 since 游标增量重放，合并可交换最终一致；Fernet 加密信封 Fail-Closed（未注册 sender 密文无法解密、篡改拒收）；`(crdt_key, lamport, node_id)` UNIQUE 重投递 no-op。
 - [x] **跨模型认知语义投影 (Cross-Model Cognitive Alignment)**（cd5055d ✅ 2026-09-03 收官）：
   - 适配不同基础模型（Claude / DeepSeek / Gemini / 本地小模型）的记忆上下文注入格式，实现记忆形态的自适应压缩与重构——`projection.py`：MODEL_TIERS 三档（claude 8k markdown / deepseek 3k structured / local-small 1.2k compact）；L3（铁律/偏好/技能）全保真永不裁剪（锚通道保证穿越投影存活——小模型挂载优质技能后越级能力爆发的全部来源）；L2 按档降级（全文→摘要→硬截断）；L1 只留类型+溯源行；预算守卫先丢 L1 再丢 L2，永不丢 L3。
+
+---
+
+### 4. v14.1 系列：质量与韧性 (Quality & Resilience) — 2026-09 起进行中
+
+**目标**：v14 三大件已在生产运行（2026-09-03 迁移收官，金标复测无退化），本系列不再堆新大件——**把已建成的机制跑起来、把地板下的隐患治掉**。生产金标复测（09-04）暴露三件「建好了没跑起来」的面：金标事实老化无人审、AutoSOP 生产零结晶、反馈燃料近零。
+
+- [ ] **P0 金标治理（Golden-Set Stewardship）**：
+  - 金标集扩容（现 8 条太瘦——每条都顶 12.5% 权重）；老金标事实人审升档（unreviewed → reviewed，置信度落值、衰减档 L4 → 更高）——治 hit_rate@3 贴地板零裕度的根因：金标 7 月底入库至今 unreviewed/零置信/L4 最弱衰减档，被新 user_pref 挤位是事实层自然结果，非排序病。
+  - 金标健康度哨兵：金标 fact 状态/置信/衰减档巡检入 `verify` 门禁，老化即报。
+- [ ] **P1 韧性挡位（Resilience Gears）**：
+  - 借鉴 aduMEI v20.2 自动挡位引擎：三态断路器 + 请求内降挡 + pending 债务账本 + half-open 真实流量探测——治 2026-08-17 生产路由事故类的「下游抖动放大成全站失败」。
+  - 诚实遥测：检索三态（found / not_found / degraded）明示降档，永不把 degraded 冒充 found。
+- [ ] **P2 AutoSOP 首结晶（First Production Crystallization）**：
+  - 生产 `fact_type='skill'` 至今 0 条——AutoSOP 建成但从未真跑。喂第一单真实数据验证全链（record_success → compile → promote），打通「多 Agent 协作经验 → L3 技能」的闭环。
+- [ ] **P3 反馈燃料与知识层通电**：
+  - search_feedback 仅 3 行 = EvolveMem/结晶阈值的数据病根：接检索侧真实反馈回流，让自进化机制有燃料。
+  - 知识层五段流水线通电（采集→消化→沉淀→唤醒→应用），Mímir 从「记忆」升「知识沉淀」双体系。
 
 ---
 

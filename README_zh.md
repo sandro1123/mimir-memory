@@ -209,6 +209,7 @@ cd mimir-memory
 | 时态知识图谱（valid_during 历史）| ✅ |
 | 主动意图前置唤醒 | ✅ |
 | 冲突消解（标记争议，永不删除）| ✅ |
+| **Mímir-Eval：标准化基准套件（HitRate@K · MRR · ACL 泄漏率、金标地板）** | ✅ |
 | 技能结晶 | ✅ |
 | **AutoSkill：痕迹 → Wiki → L3 技能自动编译** | ✅ |
 | **跨模型投影（档位感知注入块）** | ✅ |
@@ -228,10 +229,11 @@ cd mimir-memory
 | v10.0 | 包内治理、Opinion/Observation 置信度层 | ✅ 已发布 |
 | v11.0 | 符号短时记忆 + CodeGraph + reflect/federation API | ✅ 已发布 |
 | v12.0 | Insight：艾宾浩斯衰减、Chronos、EvolveMem、召回漏斗、冲突消解、技能结晶、MCP、多模态、PyPI/Docker | ✅ 已发布 |
+| v12.1 | Mímir-Eval 基准套件（HitRate@K/MRR/ACL 泄漏率、金标地板）+ 全源采集 + 动态注册表 | ✅ 已发布 |
 | v12.2 | L0~L3 分层记忆、统一 Profile API、XTMEM 血缘、锚通道 | ✅ 已发布 |
 | v13.0 | 多智能体共享黑板、时态知识图谱、主动意图唤醒 | ✅ 已发布 |
-| v14.0 | AutoSkill 流水线、跨节点 CRDT 联邦、跨模型投影 | ✅ 已发布 |
-| v14+ | 检索评测基线夯实、联邦运维工具 | 🔵 进行中 |
+| v14.0 | AutoSkill 流水线、跨节点 CRDT 联邦、跨模型投影 | ✅ 已发布 · **2026-09-03 起在生产运行** |
+| v14.1 | 质量与韧性：金标治理、首次生产技能结晶、韧性挡位、诚实遥测 | 🔵 进行中 |
 
 ---
 
