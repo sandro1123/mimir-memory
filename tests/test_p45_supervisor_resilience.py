@@ -66,3 +66,27 @@ class TestSupervisorResilience:
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+def test_build_runtime_wires_error_hook(tmp_path):
+    """审计 2026-09-07 P1-8：P45 加了 error_hook 参数，但 build_runtime 从未传入——
+    投影线程异常被接住却零日志，「静默死亡」变成「静默降级」。"""
+    import hashlib
+    import json
+
+    from mimir_v8.runtime import build_runtime
+
+    token = "hook-token"
+    token_path = tmp_path / "tokens.json"
+    token_path.write_text(json.dumps({"principals": [{
+        "id": "mentor",
+        "token_sha256": hashlib.sha256(token.encode()).hexdigest(),
+        "scopes": ["read"], "roles": [], "admin": False,
+    }]}), encoding="utf-8")
+    _app, components = build_runtime(
+        tmp_path / "data", token_path, vector_enabled=False, start_supervisor=False,
+    )
+    supervisor = components.supervisor
+    assert supervisor.error_hook is not None
+    # the hook must log, never raise
+    supervisor.error_hook("fts", RuntimeError("boom"))

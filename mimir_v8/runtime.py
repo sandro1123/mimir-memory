@@ -26,6 +26,9 @@ from .blackboard import BlackboardService
 from .relevance import ProactiveWake
 from .store import CanonicalStore
 from .vector_projector import VectorProjectionError, VectorProjector, validate_vector_collection_name
+import logging
+
+logger = logging.getLogger("mimir_v8.runtime")
 
 
 class RuntimeConfigurationError(RuntimeError):
@@ -160,6 +163,10 @@ def normalize_knowledge_layers(layers: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(layer for layer in ("memory", "learning", "wiki") if layer in normalized)
 
 
+def _log_projector_error(name: str, exc: BaseException) -> None:
+    logger.error("projector %s raised %s: %s", name, type(exc).__name__, exc)
+
+
 def build_runtime(
     data_dir: str | Path,
     token_file: str | Path,
@@ -188,7 +195,9 @@ def build_runtime(
     if vector_projector is not None:
         projectors.insert(0, vector_projector)
     runners = tuple(ProjectorRunner(store, projector) for projector in projectors)
-    supervisor = ProjectorSupervisor(runners)
+    # audit 2026-09-07 P1-8: P45 added error_hook but never passed it here, so
+    # projector exceptions were caught and silently dropped. Log them.
+    supervisor = ProjectorSupervisor(runners, error_hook=_log_projector_error)
     query = QueryKernel(
         store, vector=vector_collection, fts=fts, graph=graph, embedder=embedder
     )
