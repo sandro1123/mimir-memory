@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -10,6 +11,55 @@ from .store import CanonicalStore
 from .relevance import RelevanceGate
 from .schema import DECAY_HALF_LIFE
 from .dedup import jaccard_similarity
+
+
+class CircuitBreaker:
+    """P46 (v14.1.0) 检索通道三态断路器（借自 aduMEI v20.2 自动挡位引擎）。
+
+    CLOSED（健康）→ 连续 FAILURE_THRESHOLD 次失败 → OPEN（跳过通道调用，
+    不再撞死马）→ 冷却 COOLDOWN_SECONDS 到期 → HALF_OPEN（放一次真实
+    探测）→ 成功回 CLOSED / 失败回 OPEN 重新计冷却。单通道故障被隔离在
+    通道内：检索面永不因某后端 500，其余通道与锚通道照常服务。
+
+    生产判例（P45 同族）：投影器线程一次 sqlite 锁异常即静默死亡 4 天；
+    同理，vector(chroma)/fts 任一后端抖动不该有能力塌掉整个检索面。
+    """
+
+    def __init__(self, *, failure_threshold: int = 3, cooldown_seconds: float = 60.0):
+        self.failure_threshold = failure_threshold
+        self.cooldown_seconds = cooldown_seconds
+        self.state = "closed"
+        self._failures = 0
+        self._opened_at: float | None = None
+
+    def allow_call(self, *, now: float | None = None) -> bool:
+        """CLOSED/HALF_OPEN 放行调用；OPEN 时冷却到期则转 HALF_OPEN 放一次探测。"""
+        if self.state == "closed":
+            return True
+        if self.state == "half_open":
+            return True  # 单次探测已在飞；后续调用仍走 OPEN 语义由 on_failure/on_success 定
+        # state == "open"
+        current = time.monotonic() if now is None else now
+        if self._opened_at is not None and (current - self._opened_at) >= self.cooldown_seconds:
+            self.state = "half_open"
+            return True
+        return False
+
+    def on_success(self) -> None:
+        self.state = "closed"
+        self._failures = 0
+        self._opened_at = None
+
+    def on_failure(self, *, now: float | None = None) -> None:
+        self._failures += 1
+        if self.state == "half_open":
+            # 探测失败：回 OPEN 重新计冷却（不放行潮水流量）。
+            self.state = "open"
+            self._opened_at = time.monotonic() if now is None else now
+            return
+        if self._failures >= self.failure_threshold:
+            self.state = "open"
+            self._opened_at = time.monotonic() if now is None else now
 
 
 @dataclass(frozen=True)
@@ -72,6 +122,12 @@ class QueryKernel:
     #: for crystallized patterns, bounded crowding.
     LAYER2_BUDGET = 10
     DEPTHS = ("standard", "deep")
+    #: P46 韧性挡位：断路器跳闸阈值与冷却窗。连续 FAILURE_THRESHOLD 次
+    #: 通道异常 → OPEN 跳过该通道调用（省资源+止损），COOLDOWN_SECONDS
+    #: 后 HALF_OPEN 放一次真实探测，成功回 CLOSED。锚通道不走断路器
+    #: （锚通道直查 canonical，不依赖相似度后端——全后端炸时的安全底线）。
+    FAILURE_THRESHOLD = 3
+    COOLDOWN_SECONDS = 60.0
 
     def __init__(self, store: CanonicalStore, *, vector=None, fts=None, graph=None,
                  embedder=None, rrf_k: int = 60):
@@ -81,6 +137,58 @@ class QueryKernel:
         self.graph = graph
         self.embedder = embedder
         self.rrf_k = rrf_k
+        # P46: 每个相似度通道一个独立断路器；self.breakers 是公开观测面
+        # （/ready 健康巡检与 ops health 可直读跳闸状态）。
+        self.breakers = {
+            "vector": CircuitBreaker(failure_threshold=self.FAILURE_THRESHOLD,
+                                     cooldown_seconds=self.COOLDOWN_SECONDS),
+            "fts": CircuitBreaker(failure_threshold=self.FAILURE_THRESHOLD,
+                                  cooldown_seconds=self.COOLDOWN_SECONDS),
+            "graph": CircuitBreaker(failure_threshold=self.FAILURE_THRESHOLD,
+                                    cooldown_seconds=self.COOLDOWN_SECONDS),
+        }
+
+    # ── P46 韧性挡位：通道调用统一过断路器 ─────────────────────
+    def _query_vector(self, query: str, candidate_limit: int) -> tuple[list[str], list[float]]:
+        """vector 通道单次调用（embedder 编码 + chroma 查询都在断路器保护链内）。"""
+        embedding = self.embedder(query)
+        if hasattr(embedding, "tolist"):
+            embedding = embedding.tolist()
+        raw = self.vector.query(
+            query_embeddings=[embedding], n_results=candidate_limit,
+            include=["distances"],
+        )
+        ids = (raw.get("ids") or [[]])[0]
+        distances = (raw.get("distances") or [[]])[0]
+        return list(ids), list(distances)
+
+    def _run_channel(self, name: str, call) -> tuple[list[str], str]:
+        """执行一个相似度通道调用，返回 (ids, channel_state)。
+
+        - 断路器 OPEN 且未到冷却：跳过调用，直接 (ids=[], state="open")
+        - 调用异常：记失败（断路器计数/可能跳闸），(ids=[], state="degraded")
+        - 调用成功：断路器 on_success 复位，state="closed"
+        锚通道不走此路径（直查 canonical，不依赖相似度后端）。
+        """
+        breaker = self.breakers.get(name)
+        if breaker is not None and not breaker.allow_call():
+            return [], "open"
+        try:
+            ids = call()
+        except Exception:
+            if breaker is not None:
+                breaker.on_failure()
+            return [], "degraded"
+        if breaker is not None:
+            breaker.on_success()
+        return list(ids or []), "closed"
+
+    def _channel_states(self, states: dict[str, str], *, anchor: str, layer: bool) -> dict[str, str]:
+        """响应 channels 三态视图（closed/degraded/open）+ 锚/装配层态。"""
+        channels = dict(states)
+        channels["anchor"] = anchor
+        channels["layer"] = "closed" if layer else "off"
+        return channels
 
     def search(self, request: QueryRequest) -> dict:
         query = request.text.strip()
@@ -108,29 +216,37 @@ class QueryKernel:
             raise ValueError(f"depth must be one of {self.DEPTHS}")
         candidate_limit = max(request.limit, min(request.candidate_limit, 500))
         ranked: dict[str, dict] = {}
+        channel_states: dict[str, str] = {}
 
         if request.use_vector and self.vector is not None and self.embedder is not None:
-            embedding = self.embedder(query)
-            if hasattr(embedding, "tolist"):
-                embedding = embedding.tolist()
-            raw = self.vector.query(
-                query_embeddings=[embedding], n_results=candidate_limit,
-                include=["distances"],
-            )
-            ids = (raw.get("ids") or [[]])[0]
-            distances = (raw.get("distances") or [[]])[0]
-            self._add_ranked(ranked, "vector", ids, distances)
+            pair = self._run_channel("vector", lambda: self._query_vector(query, candidate_limit))
+            channel_states["vector"] = pair[1]
+            if pair[0]:
+                ids, distances = pair[0]
+                self._add_ranked(ranked, "vector", ids, distances)
+        else:
+            channel_states["vector"] = "off"
 
         if request.use_fts and self.fts is not None:
-            ids = self.fts.search_ids(query, limit=candidate_limit)
-            self._add_ranked(ranked, "fts", ids)
+            ids, state = self._run_channel("fts", lambda: self.fts.search_ids(query, limit=candidate_limit))
+            channel_states["fts"] = state
+            if ids:
+                self._add_ranked(ranked, "fts", ids)
+        else:
+            channel_states["fts"] = "off"
 
         if request.use_graph and self.graph is not None:
             seeds = [fact_id for fact_id, _ in sorted(
                 ranked.items(), key=lambda item: (-item[1]["rrf"], item[0])
             )[: min(10, candidate_limit)]]
-            graph_ids = self._graph_neighbors(seeds, candidate_limit)
-            self._add_ranked(ranked, "graph", graph_ids)
+            graph_ids, state = self._run_channel(
+                "graph", lambda: self._graph_neighbors(seeds, candidate_limit)
+            )
+            channel_states["graph"] = state
+            if graph_ids:
+                self._add_ranked(ranked, "graph", graph_ids)
+        else:
+            channel_states["graph"] = "off"
 
         anchor_injected = 0
         if request.use_anchor:
@@ -230,6 +346,15 @@ class QueryKernel:
         for r in results:
             r["opinions"] = opinions_map.get(r["fact_id"], [])
 
+        # P46 诚实遥测：channels 三态（closed/degraded/open/off），顶层
+        # degraded 在任一相似度通道异常或跳闸时为真——消费者可感知降级
+        # 而非被 500 打脸；全健康时恒 False（防假阳性）。
+        channels = self._channel_states(
+            channel_states,
+            anchor="closed" if request.use_anchor else "off",
+            layer=bool(sweep_types),
+        )
+        degraded = any(s == "degraded" or s == "open" for s in channels.values())
         return {
             "query": query,
             "principal_id": request.principal_id,
@@ -243,13 +368,8 @@ class QueryKernel:
                 "include_provisional": request.include_provisional,
                 "depth": request.depth,
             },
-            "channels": {
-                "vector": request.use_vector and self.vector is not None and self.embedder is not None,
-                "fts": request.use_fts and self.fts is not None,
-                "graph": request.use_graph and self.graph is not None,
-                "anchor": request.use_anchor,
-                "layer": bool(sweep_types),
-            },
+            "channels": channels,
+            "degraded": degraded,
             "anchor": {"injected": anchor_injected},
             "layers": {"injected": sweep_injected,
                        "l1_dropped": filtered["layer"],
@@ -291,28 +411,37 @@ class QueryKernel:
             return {"query": query, "skipped": True, "reason": gate_reason, "stages": stages}
 
         # ── Stage 2: candidate pool (vector+fts+graph) ───────────
+        # P46: 与 search() 同语义——三通道过断路器，单通道异常只降级该通道。
         candidate_limit = max(request.limit, min(request.candidate_limit, 500))
         ranked: dict[str, dict] = {}
+        channel_states: dict[str, str] = {}
         if request.use_vector and self.vector is not None and self.embedder is not None:
-            embedding = self.embedder(query)
-            if hasattr(embedding, "tolist"):
-                embedding = embedding.tolist()
-            raw = self.vector.query(
-                query_embeddings=[embedding], n_results=candidate_limit,
-                include=["distances"],
-            )
-            ids = (raw.get("ids") or [[]])[0]
-            distances = (raw.get("distances") or [[]])[0]
-            self._add_ranked(ranked, "vector", ids, distances)
+            pair = self._run_channel("vector", lambda: self._query_vector(query, candidate_limit))
+            channel_states["vector"] = pair[1]
+            if pair[0]:
+                ids, distances = pair[0]
+                self._add_ranked(ranked, "vector", ids, distances)
+        else:
+            channel_states["vector"] = "off"
         if request.use_fts and self.fts is not None:
-            ids = self.fts.search_ids(query, limit=candidate_limit)
-            self._add_ranked(ranked, "fts", ids)
+            ids, state = self._run_channel("fts", lambda: self.fts.search_ids(query, limit=candidate_limit))
+            channel_states["fts"] = state
+            if ids:
+                self._add_ranked(ranked, "fts", ids)
+        else:
+            channel_states["fts"] = "off"
         if request.use_graph and self.graph is not None:
             seeds = [fact_id for fact_id, _ in sorted(
                 ranked.items(), key=lambda item: (-item[1]["rrf"], item[0])
             )[: min(10, candidate_limit)]]
-            graph_ids = self._graph_neighbors(seeds, candidate_limit)
-            self._add_ranked(ranked, "graph", graph_ids)
+            graph_ids, state = self._run_channel(
+                "graph", lambda: self._graph_neighbors(seeds, candidate_limit)
+            )
+            channel_states["graph"] = state
+            if graph_ids:
+                self._add_ranked(ranked, "graph", graph_ids)
+        else:
+            channel_states["graph"] = "off"
         anchor_injected = 0
         if request.use_anchor:
             anchor_ids = self._anchor_fact_ids(request, ranked)
@@ -326,11 +455,8 @@ class QueryKernel:
             sweep_injected = len(sweep_ids)
             self._add_ranked(ranked, "layer", sweep_ids)
         stage("CandidatePool", total=len(ranked), keep=len(ranked),
-              extra={"channels": {name: c for name, c in (
-                  ("vector", self.vector is not None and self.embedder is not None and request.use_vector),
-                  ("fts", self.fts is not None and request.use_fts),
-                  ("graph", self.graph is not None and request.use_graph),
-              ) if c}})
+              extra={"channels": {name: s for name, s in channel_states.items()
+                                  if s != "off"}})
         stage("AnchorChannel", total=anchor_injected, keep=anchor_injected,
               extra={"injected": anchor_injected,
                      "fact_types": list(self.ANCHOR_FACT_TYPES),
@@ -422,6 +548,12 @@ class QueryKernel:
         stage("TopK", total=len(results), keep=len(top),
               extra={"limit": request.limit, "k": len(top)})
 
+        # P46 诚实遥测：trace 与 search 两口径不分叉——channels 三态+顶层 degraded。
+        channels = self._channel_states(
+            channel_states,
+            anchor="closed" if request.use_anchor else "off",
+            layer=bool(sweep_types),
+        )
         return {
             "query": query,
             "skipped": False,
@@ -429,6 +561,8 @@ class QueryKernel:
             "results": top,
             "total_candidates": len(pool),
             "total_results": len(results),
+            "channels": channels,
+            "degraded": any(s == "degraded" or s == "open" for s in channels.values()),
         }
 
     def _layer_sweep_spec(self, request: QueryRequest) -> tuple[tuple[str, ...], int]:

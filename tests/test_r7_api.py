@@ -576,7 +576,9 @@ class TestR7V122APITransparency(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         data = r.json()
         self.assertEqual(data["filters"]["depth"], "deep")
-        self.assertFalse(data["channels"]["anchor"])
+        # P46: channels 布尔 → 三态字符串（closed/degraded/open/off）；
+        # use_anchor=False 现为 "off"。
+        self.assertEqual(data["channels"]["anchor"], "off")
 
     def test_query_invalid_depth_rejected_with_422(self):
         r = self.fixture.client.post(
