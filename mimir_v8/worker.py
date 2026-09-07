@@ -531,6 +531,19 @@ def collect_all(
                     vault_root=root,
                     exclude_dirs=DEFAULT_EXCLUDE_DIRS | exclude,
                 )
+                # Dual routing (v12.2, #41-A): knowledge_doc notes feed
+                # the wiki knowledge layer (KnowledgeService.create_item
+                # via the SourceRouter knowledge_doc->wiki route) AND keep
+                # their conversation-side archival row. Before this the
+                # 413 harvested notes were stored but invisible to every
+                # retrieval surface — /v8/query serves facts, the wiki
+                # search serves knowledge_items, and nothing fed the
+                # latter.
+                from .knowledge import CreateKnowledgeItem, KnowledgeService
+                from .schema import get_registered_domains
+
+                knowledge = KnowledgeService(store)
+                wiki_ingested = 0
                 for r in collector.collect():
                     key = collector.idempotency_key(r.source_id)
                     items = [{"title": r.title, "url": "", "content": r.content}]
@@ -538,13 +551,46 @@ def collect_all(
                         learning, items, "vault", actor_principal,
                         key_fn=lambda item, k=key: k,
                     )
+                    wiki_errors = []
+                    if r.content.strip():
+                        try:
+                            result = knowledge.create_item(
+                                CreateKnowledgeItem(
+                                    connector_type="vault",
+                                    layer="wiki",
+                                    title=r.title,
+                                    content=r.content,
+                                    owner_principal="mentor",
+                                    domain=(
+                                        source.get("domain")
+                                        if source.get("domain") in get_registered_domains()
+                                        else "knowledge"
+                                    ),
+                                    source_hash=sha256_text(key),
+                                    idempotency_key=f"{key}:wiki",
+                                    source_uri=r.source_id,
+                                    stable_path=r.source_id,
+                                ),
+                                # The collector is a trusted service process acting
+                                # for the knowledge owner, exactly like the CDC
+                                # worker writing conversations on behalf of agents —
+                                # not a user-level principal. status stays "review",
+                                # so activation still requires governance.
+                                actor_principal,
+                                is_admin=True,
+                            )
+                            if not result.get("idempotent_replay") and not result.get("content_deduplicated"):
+                                wiki_ingested += 1
+                        except Exception as e:
+                            wiki_errors = [f"wiki:{type(e).__name__}"]
                     results["vault"].append({
                         "source": source_name,
                         "title": r.title,
                         "path": r.source_id,
                         "items": r.items_collected,
                         "ingested": ingested,
-                        "errors": errors,
+                        "wiki_ingested": wiki_ingested,
+                        "errors": errors + wiki_errors,
                     })
         except Exception as e:
             results["errors"].append(f"{source_name}: {type(e).__name__}: {e}")
