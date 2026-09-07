@@ -104,6 +104,30 @@ class SymbolicBlock:
 class SymbolicMemoryService:
     def __init__(self, store: CanonicalStore):
         self.store = store
+        self._ensure_schema()
+
+    def _ensure_schema(self) -> None:
+        """Self-heal the symbolic tables (fresh DB has none; legacy DB lacks owner_principal).
+
+        2026-09-07 audit-remediation smoke test: POST /v11/symbolic/offload returned
+        500 in production — ``table symbolic_blocks has no column named
+        owner_principal``. The v8-era tables predate the owner column and
+        ``V14_ADDITIVE_STATEMENTS`` was only reachable through the never-wired
+        ``migrate_schema_v14``. Same class as graph_edges valid_from/valid_until
+        (v20): CREATE TABLE IF NOT EXISTS is a no-op on a legacy table, so add
+        missing columns with a guarded ALTER before creating indexes on them.
+        """
+        creates = [s for s in V14_ADDITIVE_STATEMENTS if s.lstrip().upper().startswith("CREATE TABLE")]
+        others = [s for s in V14_ADDITIVE_STATEMENTS if s not in creates]
+        with self.store.transaction() as conn:
+            for statement in creates:
+                conn.execute(statement)
+            for table in ("symbolic_blocks", "symbolic_canvases"):
+                existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+                if "owner_principal" not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN owner_principal TEXT NOT NULL DEFAULT ''")
+            for statement in others:
+                conn.execute(statement)
 
     def offload_block(self, session_key: str, raw_text: str,
                       owner_principal: str = "",
