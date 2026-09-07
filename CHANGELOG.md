@@ -18,6 +18,7 @@
 - **Dashboard 4.1.0** — 目录改为 `dashboard/backend/main.py` 与部署树一致（Docker/compose/manage.sh/README 从此可用，`FRONTEND_DIR` 默认值随之正确）；`/v11/symbolic/offload` 装饰器修复注册；删除误装饰到 helper 的 `/v10/opinions|observations` 假路由；review 端点仅 POST；所有写端点 `_invalidate_all()`；无密码配置时会话密钥用进程随机值；`_mimir_get/_post/_db_query` 记日志；前端 fetchJSON 出错显示角标；删除死副本 `dashboard/governance.py`。
 - **交付面** — `scripts/init.sh` 生成独立 `admin.token`（agent 仅 read/write），config 模板改为代码真正读取的 `federation.*`/`collector.*`；QUICKSTART 改用 `MIMIR_V8_*` 变量并带 Bearer；Docker 镜像 `--bind 0.0.0.0 --port 8456` + `MIMIR_ALLOW_NONLOOPBACK=1`；SECURITY 支持矩阵更新；ROADMAP P1 勾选；`pyyaml` 显式声明。
 - **随包** — #41-A vault 笔记双路由进 wiki 知识层；金标健康哨兵 `mimir_v8.eval_suite --golden-health` + `UpdateFact.decay_tier`。
+- **部署后热修（2026-09-08，发布树同步）** — `SymbolicMemoryService` 构造时自愈建表并守卫式补 `owner_principal`：生产 `symbolic_blocks/symbolic_canvases` 是 v8 老形态，`V14_ADDITIVE_STATEMENTS` 只被从未接线的 `migrate_schema_v14` 引用，`/v11/symbolic/offload` 在生产 500（看板路由修好后首次暴露）。
 
 ## Unreleased (post v14.0.0) — 生产上线与运维修刀 (Production Rollout & Hardening)
 
