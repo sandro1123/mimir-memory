@@ -1,7 +1,7 @@
 # Mímir Dashboard · 看板
 
-> A 13-tab web UI for Mímir — monitor memory, review candidates, manage skills, watch the CRDT federation.
-> Mímir 的 13 标签页 Web 界面 —— 监控记忆、审核候选、管理技能、观察 CRDT 联邦。
+> A dual-view web UI for Mímir — a 3-tab customer view (今天/记忆库/设置) by default, with all 13 admin tabs behind a dev-mode toggle.
+> Mímir 的双视图 Web 界面 —— 默认 3 标签客户视图（今天/记忆库/设置），开发者模式一键还原全部 13 个管理面板。
 > English · 中文双语
 
 ## What it is · 这是什么
@@ -22,6 +22,19 @@ agents / opinions / skills / insight / system / symbolic / codegraph / federatio
   Lamport 水位 (`/api/federation`)
 - **检索页投影预览** — 同一检索词在 claude/deepseek/local-small 三档模型下的
   注入块与预算占用对比 (`/api/projection`)
+
+**v4 客户视角重构 · Customer-view redesign in v4 (2026-09-07)**:
+- **13 tab → 3 tab 客户视图**（今天 / 记忆库 / 设置）+ 开发者模式开关
+  （设置页或 localStorage `devMode`），旧 13 个管理面板零丢失、一键还原
+- **今天页**：「问我的助手」搜索框（复用 `/api/search/trace` 通道）、
+  今天学到的 / 等我确认的（内联 ✓是这样 ✗纠正它）/ 快要淡忘的时间线、
+  诚实空态与降级提示条
+- **记忆库页**：卡片流 + 全部/等我确认/有分歧三筛选 + 分页 + 待审角标
+- **三端聚合后端**：`/api/dashboard/today`、`/api/dashboard/library`、
+  `/api/dashboard/health-light`（partial 降级不塌骨架、空态≠降级）
+- **健康灯**：绿/黄/红/灰四态常驻侧栏（红=API 不可达、黄=死信/投影器异常/
+  待审堆积>30），点开看原因清单
+- **客户模式轻载**：60s 周期刷新只拉健康灯+今天页，不打 4 个重型端点
 
 **v3.0.1 稳定性修刀 · Stability fixes in v3.0.1 (2026-09-04)**:
 - 「活动」tab 之后 7 面板被吞 — 相邻两行完全相同的 grid 开标签，

@@ -47,7 +47,7 @@ HUMAN_REVIEW_WARN = int(os.environ.get("HUMAN_REVIEW_WARN", "50"))
 PENDING_OUTBOX_WARN = int(os.environ.get("PENDING_OUTBOX_WARN", "100"))
 # ──────────────────────────────────────────────────────
 
-app = FastAPI(title="Mímir Dashboard", version="3.0.1")
+app = FastAPI(title="Mímir Dashboard", version="4.0.0")
 
 # ── Auth middleware ────────────────────────────────────
 DASHBOARD_TOKEN = os.environ.get("DASHBOARD_TOKEN") or ""
