@@ -95,16 +95,21 @@ class FTSProjector:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 existing = connection.execute(
-                    "SELECT version, content_hash FROM projected_facts WHERE fact_id=?",
+                    "SELECT version, content_hash, status FROM projected_facts WHERE fact_id=?",
                     (fact["fact_id"],),
                 ).fetchone()
                 if existing and existing["version"] > fact["current_version"]:
                     connection.rollback()
                     return
+                # audit 2026-09-07 P1-1: a status-only change (fact.conflict_lost →
+                # disputed, same version/hash) used to hit this no-op guard, so
+                # three disputed facts stayed 'active' in FTS for weeks. Compare
+                # status too.
                 if (
                     existing
                     and existing["version"] == fact["current_version"]
                     and existing["content_hash"] == fact["content_hash"]
+                    and existing["status"] == fact["status"]
                 ):
                     connection.rollback()
                     return

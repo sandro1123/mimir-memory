@@ -235,3 +235,36 @@ def rebuild_sqlite_projections(
     if not consistent:
         raise OperationsError(f"projection rebuild consistency gate failed: {report}")
     return report
+
+
+def reproject_facts(store: CanonicalStore, projectors: list, fact_ids: list[str]) -> dict:
+    """Re-apply each fact's current canonical row to the given projectors.
+
+    Repairs drift left by older projector code (2026-09-07 audit P1-1: three
+    facts marked disputed on 08-22/08-25 stayed 'active' in fts/graph/vector).
+    Uses each projector's own ``apply()`` with the fact's latest memory_event,
+    so no projection logic is duplicated here and nothing is written to the
+    canonical store. Safe to run while the API is stopped; run it with the
+    API stopped when the vector projector is included (chroma is single-writer).
+    """
+    report: dict = {"reprojected": [], "missing": [], "skipped_no_event": []}
+    for fact_id in fact_ids:
+        try:
+            fact = store.get_fact(fact_id)
+        except Exception:  # noqa: BLE001 - reported per id below
+            report["missing"].append(fact_id)
+            continue
+        with contextlib.closing(store.connect()) as connection:
+            event = connection.execute(
+                """SELECT * FROM memory_events WHERE aggregate_type='fact' AND aggregate_id=?
+                ORDER BY event_seq DESC LIMIT 1""",
+                (fact_id,),
+            ).fetchone()
+        if event is None:
+            report["skipped_no_event"].append(fact_id)
+            continue
+        for projector in projectors:
+            projector.apply(event, fact)
+        report["reprojected"].append(fact_id)
+    return report
+

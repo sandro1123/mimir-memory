@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from pathlib import Path
 
 from .migration import migrate_schema, migrate_schema_v13, restore_schema_backup
 
@@ -19,7 +21,43 @@ def build_parser() -> argparse.ArgumentParser:
     restore = sub.add_parser("restore-isolated", help="restore a backup to a new isolated path")
     restore.add_argument("--backup", required=True)
     restore.add_argument("--destination", required=True)
+    # audit 2026-09-07 P1-1: offline repair of projection drift (status-only
+    # changes skipped by the old FTS guard). Run with the API stopped.
+    reproject = sub.add_parser("reproject", help="re-apply facts' canonical state to fts/graph(/vector) projections")
+    reproject.add_argument("--data-dir", required=True, help="directory holding canonical.db, fts.db, graph.db, chroma/")
+    reproject.add_argument("--fact-ids", required=True, help="comma-separated fact ids")
+    reproject.add_argument("--with-vector", action="store_true", help="also repair the chroma vector projection")
+    reproject.add_argument("--collection", default=os.environ.get("MIMIR_V8_COLLECTION", ""),
+                           help="chroma collection name (required with --with-vector)")
     return parser
+
+
+def _no_embed(_text: str):
+    raise RuntimeError("reproject refuses to embed; only status/deletion repairs are supported offline")
+
+
+def _reproject(args) -> tuple[dict, int]:
+    from .graph_projector import GraphProjector
+    from .operations import reproject_facts
+    from .projector import FTSProjector
+    from .store import CanonicalStore
+
+    root = Path(args.data_dir)
+    store = CanonicalStore(root / "canonical.db")
+    projectors: list = [FTSProjector(root / "fts.db"), GraphProjector(store, root / "graph.db")]
+    if args.with_vector:
+        if not args.collection:
+            raise SystemExit("--collection (or MIMIR_V8_COLLECTION) is required with --with-vector")
+        import chromadb
+        from chromadb.config import Settings
+        from .vector_projector import VectorProjector
+        client = chromadb.PersistentClient(path=str(root / "chroma"), settings=Settings(anonymized_telemetry=False))
+        collection = client.get_collection(args.collection)
+        projectors.append(VectorProjector(collection, _no_embed, collection_name=args.collection))
+    fact_ids = [f.strip() for f in args.fact_ids.split(",") if f.strip()]
+    report = reproject_facts(store, projectors, fact_ids)
+    report["projectors"] = [getattr(p, "name", type(p).__name__) for p in projectors]
+    return report, (1 if report["missing"] else 0)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -33,6 +71,10 @@ def main(argv: list[str] | None = None) -> int:
             result = migrate_schema_v13(args.database, args.backup).as_dict()
         else:
             result = migrate_schema(args.database, args.backup).as_dict()
+    elif args.command == "reproject":
+        result, code = _reproject(args)
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        return code
     else:
         result = restore_schema_backup(args.backup, args.destination)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
