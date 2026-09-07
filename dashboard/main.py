@@ -655,8 +655,10 @@ async def api_review_candidate(candidate_id: str, action: str = Query(...), reas
                     )
                     if commit_resp.status_code != 200:
                         result["commit_error"] = commit_resp.text[:300]
-                # 清除缓存
-                _invalidate("candidates", "overview")
+                # 清除缓存（v4 客户视图端点也吃同一审批结果——dash_today
+                # 待审列表/dash_library 待审角标/dash_light 待审计数；
+                # 漏失效曾致「点完确认无反应」：60s TTL 窗口内重拉命中旧缓存）
+                _invalidate("candidates", "overview", "dash_today", "dash_library", "dash_light")
                 return result
             return {"error": resp.text}
     except Exception as e:
@@ -678,7 +680,8 @@ async def api_commit_candidate(candidate_id: str):
                 headers=headers,
                 json={"candidate_id": candidate_id, "idempotency_key": ik},
             )
-            _invalidate("candidates", "overview")
+            # 同 review 路径：v4 dash_* 缓存键也须一并失效
+            _invalidate("candidates", "overview", "dash_today", "dash_library", "dash_light")
             if resp.status_code == 200:
                 return resp.json()
             return JSONResponse({"error": resp.text[:300]}, status_code=resp.status_code)

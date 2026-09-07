@@ -255,10 +255,11 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
               <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
                 <span style="font-size:.7rem;color:var(--muted)" x-text="'来自 ' + c.source_name + ' · 建议置信 ' + c.confidence_label"></span>
                 <span style="display:flex;gap:6px">
-                  <button class="btn btn-sm" style="padding:4px 12px;background:#22c55e22;border-color:#22c55e66" @click="reviewPending(c,'approve')">✓ 是这样</button>
-                  <button class="btn btn-outline btn-sm" style="padding:4px 12px" @click="reviewPending(c,'reject')">✗ 纠正它</button>
+                  <button class="btn btn-sm" style="padding:4px 12px;background:#22c55e22;border-color:#22c55e66" @click="reviewPending(c,'approve')" :disabled="customerView.reviewBusy === c.candidate_id" x-text="customerView.reviewBusy === c.candidate_id ? '处理中…' : '✓ 是这样'"></button>
+                  <button class="btn btn-outline btn-sm" style="padding:4px 12px" @click="reviewPending(c,'reject')" :disabled="customerView.reviewBusy === c.candidate_id" x-text="customerView.reviewBusy === c.candidate_id ? '处理中…' : '✗ 纠正它'"></button>
                 </span>
               </div>
+              <div x-show="customerView.reviewErr" style="color:var(--red);font-size:.72rem;margin-top:6px" x-text="customerView.reviewErr"></div>
             </div>
           </template>
         </div>
@@ -1550,6 +1551,7 @@ function dashboard() {
       libFilter: 'all', libOffset: 0, libLoading: false,
       search: '', searchResults: null, searchBusy: false, searchErr: '',
       lightOpen: false,
+      reviewBusy: '', reviewErr: '',
     },
 
     ov: {status:'',version:'',schema_version:'',total_facts:0,event_head:0,candidates:{review_required:0,committed:0,rejected:0},projectors:[],knowledge:{items:{},layers:[]},memory:{total_gb:0,used_gb:0},facts_by_domain:{},dead_letters:0,governance:{provisional:0,human_review:0,auto_rejected:0},alerts:[]},
@@ -1750,8 +1752,20 @@ function dashboard() {
     },
 
     async reviewPending(c, action) {
-      // 复用既有审批通道（reviewAction 同端点）；完成后刷新今天页
-      await this.fetchJSON(`/api/candidates/${c.candidate_id}/review?action=${action}&reason=dashboard-v4`, {method:'POST'});
+      // 复用既有审批通道（reviewAction 同端点）；完成后刷新今天页。
+      // 修复（2026-09-07）：此前无任何反馈——POST 失败被 fetchJSON 静默吞、
+      // 成功又被 60s today 缓存吃掉（后端失效名单已补 dash_*），双静默
+      // 叠出「点完没反应」。现在按钮有进行态，失败有提示，不再无声。
+      if (this.customerView.reviewBusy === c.candidate_id) return;
+      this.customerView.reviewBusy = c.candidate_id;
+      this.customerView.reviewErr = '';
+      const d = await this.fetchJSON(`/api/candidates/${c.candidate_id}/review?action=${action}&reason=dashboard-v4`, {method:'POST'});
+      this.customerView.reviewBusy = '';
+      if (!d || d.error) {
+        this.customerView.reviewErr = '操作没成功，请再试一次';
+        return;
+      }
+      this.customerView.reviewErr = '';
       await this.loadToday();
     },
 
