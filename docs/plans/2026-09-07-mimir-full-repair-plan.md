@@ -1,5 +1,7 @@
 # Mímir v14.1.0 Full Repair Implementation Plan
 
+> **Status 2026-09-08:** executed end-to-end in one session; production on `v14.1.0-20260907`, device regression 490 passed / 3 pre-existing errors. See CHANGELOG v14.1.0 and the audit report §9 for outcomes.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (inline, this session — Mímir work is never delegated to other sessions). Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remediate every P0/P1 finding of the 2026-09-07 audit (report: `C:\Users\sandr\mimir_audit_20260907\Mimir-全面审计-2026-09-07.md`, vault `分层讨论/Mímir-全面审计-2026-09-07.md`) and ship it as v14.1.0 to the production device n100-ai, plus the safe P2/P3 hygiene items.
@@ -25,11 +27,11 @@
 
 **Files:** `mimir_v8/worker.py`, `tests/test_p23_vault_knowledge_routing.py` (item A); `mimir_v8/api.py`, `mimir_v8/schema.py`, `mimir_v8/store.py`, `mimir_v8/eval_suite.py`, `tests/test_p36_golden_stewardship.py` (item B).
 
-- [ ] **Step 1:** `cd C:\mimir-work\mimir && git checkout -b v14.1.0`
-- [ ] **Step 2:** Run `python -m pytest tests/test_p23_vault_knowledge_routing.py tests/test_p36_golden_stewardship.py tests/test_p19_ingestion_pipeline.py tests/test_r9_eval.py -q -p no:cacheprovider` → expect all pass (20 + 17 + r9).
-- [ ] **Step 3:** `git add mimir_v8/worker.py tests/test_p23_vault_knowledge_routing.py && git commit -m "feat(collector): #41-A vault notes dual-route into wiki knowledge layer"`
-- [ ] **Step 4:** `git add mimir_v8/api.py mimir_v8/schema.py mimir_v8/store.py mimir_v8/eval_suite.py tests/test_p36_golden_stewardship.py && git commit -m "feat(eval): golden-set health sentinel (--golden-health) + UpdateFact.decay_tier"`
-- [ ] **Step 5:** `git status --short` → only `docs/plans/2026-09-07-mimir-full-repair-plan.md` untracked; commit it: `git add docs/plans/2026-09-07-mimir-full-repair-plan.md && git commit -m "docs(plans): v14.1.0 full repair plan"`.
+- [x] **Step 1:** `cd C:\mimir-work\mimir && git checkout -b v14.1.0`
+- [x] **Step 2:** Run `python -m pytest tests/test_p23_vault_knowledge_routing.py tests/test_p36_golden_stewardship.py tests/test_p19_ingestion_pipeline.py tests/test_r9_eval.py -q -p no:cacheprovider` → expect all pass (20 + 17 + r9).
+- [x] **Step 3:** `git add mimir_v8/worker.py tests/test_p23_vault_knowledge_routing.py && git commit -m "feat(collector): #41-A vault notes dual-route into wiki knowledge layer"`
+- [x] **Step 4:** `git add mimir_v8/api.py mimir_v8/schema.py mimir_v8/store.py mimir_v8/eval_suite.py tests/test_p36_golden_stewardship.py && git commit -m "feat(eval): golden-set health sentinel (--golden-health) + UpdateFact.decay_tier"`
+- [x] **Step 5:** `git status --short` → only `docs/plans/2026-09-07-mimir-full-repair-plan.md` untracked; commit it: `git add docs/plans/2026-09-07-mimir-full-repair-plan.md && git commit -m "docs(plans): v14.1.0 full repair plan"`.
 
 ### Task 1: Governance — env fallback, honest LLM errors, requeue cap, worker exit codes
 
@@ -38,7 +40,7 @@
 **Interfaces:**
 - Produces `governance.router_config() -> dict(url, api_key, primary_model, fallback_model)`; `governance._call_llm(prompt, model) -> tuple[dict|None, str|None]`; `worker.review_requeue(..., max_failed_24h: int = 3)`; `worker._exit_code(result) -> int`; governance command result gains `llm_failures: int`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/test_p47_governance_resilience.py
@@ -161,8 +163,8 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2:** Run `python -m pytest tests/test_p47_governance_resilience.py -q -p no:cacheprovider` → expect FAIL (`router_config` missing, `_call_llm` returns single value, `_exit_code` missing, requeue count 3 not 2).
-- [ ] **Step 3: Implement in `mimir_v8/governance.py`**
+- [x] **Step 2:** Run `python -m pytest tests/test_p47_governance_resilience.py -q -p no:cacheprovider` → expect FAIL (`router_config` missing, `_call_llm` returns single value, `_exit_code` missing, requeue count 3 not 2).
+- [x] **Step 3: Implement in `mimir_v8/governance.py`**
 
 ```python
 import logging
@@ -232,7 +234,7 @@ In `assess_candidate`:
         result.risk = "medium"
         return result
 ```
-- [ ] **Step 4: Implement in `mimir_v8/worker.py`**
+- [x] **Step 4: Implement in `mimir_v8/worker.py`**
   - Add `import logging` and `logger = logging.getLogger("mimir_v8.worker")` at module top (after existing imports).
   - Both yaml `except Exception:` blocks (`_load_config_feeds`, `load_source_registry`) become `except Exception as exc: logger.warning("mimir_config.yaml unreadable at %s: %s", config_path, exc); return []`.
   - `review_requeue(store, actor_principal, *, dry_run=False, only_unassessed=False, max_failed_24h: int = 3)`; when `only_unassessed`, build:
@@ -265,14 +267,14 @@ def _exit_code(result) -> int:
     return 0
 ```
     and change the final `return 0` in `main()` to `return _exit_code(result)`.
-- [ ] **Step 5:** Run the new test file + `tests/test_p22_collector_wiring.py tests/test_p19_ingestion_pipeline.py` and any existing test that imports governance (`grep -l "governance" tests/*.py`) → all pass.
-- [ ] **Step 6:** `git add mimir_v8/governance.py mimir_v8/worker.py tests/test_p47_governance_resilience.py && git commit -m "fix(governance): P47 env fallback to MIMIR_EVALUATOR_*, honest LLM error causes, requeue cap, worker exit codes"`
+- [x] **Step 5:** Run the new test file + `tests/test_p22_collector_wiring.py tests/test_p19_ingestion_pipeline.py` and any existing test that imports governance (`grep -l "governance" tests/*.py`) → all pass.
+- [x] **Step 6:** `git add mimir_v8/governance.py mimir_v8/worker.py tests/test_p47_governance_resilience.py && git commit -m "fix(governance): P47 env fallback to MIMIR_EVALUATOR_*, honest LLM error causes, requeue cap, worker exit codes"`
 
 ### Task 2: Wire the P45 `error_hook`
 
 **Files:** Modify `mimir_v8/runtime.py:191`; Test: append to `tests/test_p45_supervisor_resilience.py`.
 
-- [ ] **Step 1: Failing test** (append this pytest-style function to the file):
+- [x] **Step 1: Failing test** (append this pytest-style function to the file):
 ```python
 def test_build_runtime_wires_error_hook(tmp_path):
     """审计 2026-09-07 P1-8：P45 加了 error_hook 参数，但 build_runtime 从未传入。"""
@@ -290,22 +292,22 @@ def test_build_runtime_wires_error_hook(tmp_path):
     supervisor.error_hook("fts", RuntimeError("boom"))
 ```
   If `components` has no `supervisor` key, inspect `runtime.py` `components = {...}` and add `"supervisor": supervisor` to it.
-- [ ] **Step 2:** Run → FAIL (`error_hook is None`).
-- [ ] **Step 3:** In `runtime.py` add `import logging` + `logger = logging.getLogger("mimir_v8.runtime")` and:
+- [x] **Step 2:** Run → FAIL (`error_hook is None`).
+- [x] **Step 3:** In `runtime.py` add `import logging` + `logger = logging.getLogger("mimir_v8.runtime")` and:
 ```python
 def _log_projector_error(name: str, exc: BaseException) -> None:
     logger.error("projector %s raised %s: %s", name, type(exc).__name__, exc)
 
     supervisor = ProjectorSupervisor(runners, error_hook=_log_projector_error)
 ```
-- [ ] **Step 4:** Run `tests/test_p45_supervisor_resilience.py tests/test_p31*.py` → pass.
-- [ ] **Step 5:** `git commit -am "fix(runtime): wire P45 error_hook so projector failures are logged (audit P1-8)"`
+- [x] **Step 4:** Run `tests/test_p45_supervisor_resilience.py tests/test_p31*.py` → pass.
+- [x] **Step 5:** `git commit -am "fix(runtime): wire P45 error_hook so projector failures are logged (audit P1-8)"`
 
 ### Task 3: Human approvals produce `human_status=confirmed`
 
 **Files:** Modify `mimir_v8/candidates.py:288-300`; Test: `tests/test_p47_review_semantics.py` (new).
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 ```python
 # tests/test_p47_review_semantics.py
 """审计 2026-09-07 P1-3：候选 approve 落库后事实仍 unreviewed（389/410）。
@@ -342,8 +344,8 @@ class TestApproveSetsHumanStatus(unittest.TestCase):
     def test_service_reviewer_stays_unreviewed(self):
         self.assertEqual(self._commit("service:governance")["human_status"], "unreviewed")
 ```
-- [ ] **Step 2:** Run → FAIL (`confirmed != unreviewed`). If `review_candidate` requires the candidate in a specific status, adjust the inserted status to what `candidates.py:228` accepts (`review_required` is in the list).
-- [ ] **Step 3:** In `commit_approved`, before `CreateFact(...)`:
+- [x] **Step 2:** Run → FAIL (`confirmed != unreviewed`). If `review_candidate` requires the candidate in a specific status, adjust the inserted status to what `candidates.py:228` accepts (`review_required` is in the list).
+- [x] **Step 3:** In `commit_approved`, before `CreateFact(...)`:
 ```python
         reviewer = str(candidate["reviewed_by"] or "")
         # audit 2026-09-07 P1-3: a human approval is the human review; only
@@ -351,15 +353,15 @@ class TestApproveSetsHumanStatus(unittest.TestCase):
         human_status = "confirmed" if reviewer and not reviewer.startswith("service:") else "unreviewed"
 ```
   and add `human_status=human_status,` to the `CreateFact(...)` kwargs.
-- [ ] **Step 4:** Run new test + `tests/test_r7_api.py tests/test_v10*.py` (whatever exists that covers candidates) → pass.
-- [ ] **Step 5:** `git add -A mimir_v8/candidates.py tests/test_p47_review_semantics.py && git commit -m "fix(candidates): human approval commits facts as human_status=confirmed (audit P1-3)"`
+- [x] **Step 4:** Run new test + `tests/test_r7_api.py tests/test_v10*.py` (whatever exists that covers candidates) → pass.
+- [x] **Step 5:** `git add -A mimir_v8/candidates.py tests/test_p47_review_semantics.py && git commit -m "fix(candidates): human approval commits facts as human_status=confirmed (audit P1-3)"`
 
 ### Task 4: Hermes plugin — sync from production, per-agent token, honest errors, deterministic idempotency, reflect body
 
 **Files:** Overwrite `hermes-plugin/mimir_memory_provider/__init__.py` and `tools.py` from device `~/.hermes/plugins/mimir_memory_provider/` (production is newer); then modify `tools.py`; `plugin.yaml` version → 14.1.0; Test: `tests/test_p47_plugin_tools.py` (new, imports tools.py via importlib — no Hermes dependency).
 
-- [ ] **Step 1:** `scp mimir-n100:~/.hermes/plugins/mimir_memory_provider/{__init__.py,tools.py} C:/mimir-work/mimir/hermes-plugin/mimir_memory_provider/` then `git diff --stat` (expect ~90 changed lines, LF preserved: `file hermes-plugin/mimir_memory_provider/tools.py` shows no CRLF).
-- [ ] **Step 2: Failing tests**
+- [x] **Step 1:** `scp mimir-n100:~/.hermes/plugins/mimir_memory_provider/{__init__.py,tools.py} C:/mimir-work/mimir/hermes-plugin/mimir_memory_provider/` then `git diff --stat` (expect ~90 changed lines, LF preserved: `file hermes-plugin/mimir_memory_provider/tools.py` shows no CRLF).
+- [x] **Step 2: Failing tests**
 ```python
 # tests/test_p47_plugin_tools.py
 """审计 2026-09-07 P1-2/P1-10：插件读路径全 admin.token；remember 失败返 {}；幂等键 hash() 随机；reflect 发 query 而非 text。"""
@@ -416,8 +418,8 @@ class TestPluginTools(unittest.TestCase):
                  mock.patch.object(t, "_owner", return_value="jarvis"):
                 self.assertEqual(t._token(), "ADMIN")  # explicit file wins
 ```
-- [ ] **Step 3:** Run → FAIL.
-- [ ] **Step 4: Implement in `tools.py`**
+- [x] **Step 3:** Run → FAIL.
+- [x] **Step 4: Implement in `tools.py`**
 ```python
 import hashlib, logging
 logger = logging.getLogger("mimir_memory_provider")
@@ -494,15 +496,15 @@ def mimir_reflect(topic="", **kwargs):
     return result if _ok(result) else None
 ```
   `mimir_feedback` unchanged. Update `__all__`. In `__init__.py`, `handle_tool_call` for `mimir_remember` already serializes the dict — verify it does not assume `{}` means success (read lines ~185-215; if it prints "stored", switch the message to reflect `out.get("ok")`).
-- [ ] **Step 5:** `plugin.yaml` → `version: 14.1.0`, description mentions ACL-scoped tokens. Run tests → pass.
-- [ ] **Step 6:** `git add hermes-plugin/mimir_memory_provider tests/test_p47_plugin_tools.py && git commit -m "fix(plugin): sync prod provider, per-agent tokens, honest errors, deterministic idempotency, reflect uses text (audit P1-2/P1-10)"`
+- [x] **Step 5:** `plugin.yaml` → `version: 14.1.0`, description mentions ACL-scoped tokens. Run tests → pass.
+- [x] **Step 6:** `git add hermes-plugin/mimir_memory_provider tests/test_p47_plugin_tools.py && git commit -m "fix(plugin): sync prod provider, per-agent tokens, honest errors, deterministic idempotency, reflect uses text (audit P1-2/P1-10)"`
 
 ### Task 5: Dashboard — move to `backend/`, fix routes, invalidate-all, session secret, error visibility
 
 **Files:** `git mv dashboard/main.py dashboard/backend/main.py`, `git mv dashboard/requirements.txt dashboard/backend/requirements.txt`, `git rm dashboard/governance.py`; add `dashboard/backend/__init__.py` (empty); Modify `dashboard/backend/main.py` (cache `_invalidate_all`, review route, v10 decorators, v11 route, session secret, logging in `_mimir_get/_post/_db_query`); Modify `dashboard/frontend/index.html` (`fetchJSON` + `netErr` banner); Modify `tests/test_p41_dashboard_aggregates.py:19` path; Test: `tests/test_p47_dashboard_routes.py` (new).
 
-- [ ] **Step 1:** `git mv` the three files; create empty `dashboard/backend/__init__.py`; `git rm dashboard/governance.py`; update `tests/test_p41_dashboard_aggregates.py:19` to `parents[1] / "dashboard" / "backend" / "main.py"`. Run `python -m pytest tests/test_p41_dashboard_aggregates.py -q -p no:cacheprovider` → pass (8).
-- [ ] **Step 2: Failing tests**
+- [x] **Step 1:** `git mv` the three files; create empty `dashboard/backend/__init__.py`; `git rm dashboard/governance.py`; update `tests/test_p41_dashboard_aggregates.py:19` to `parents[1] / "dashboard" / "backend" / "main.py"`. Run `python -m pytest tests/test_p41_dashboard_aggregates.py -q -p no:cacheprovider` → pass (8).
+- [x] **Step 2: Failing tests**
 ```python
 # tests/test_p47_dashboard_routes.py
 """审计 2026-09-07 P1-9/P1-12：看板路由与缓存/会话密钥缺陷。"""
@@ -574,8 +576,8 @@ class TestFrontendErrorVisibility(unittest.TestCase):
         self.assertIn("netErr", html)
         self.assertNotIn("if (!r.ok) return {};", html)
 ```
-- [ ] **Step 3:** Run → FAIL (route missing, GET allowed, `_invalidate_all` missing, forged token accepted, html unchanged).
-- [ ] **Step 4: Implement in `dashboard/backend/main.py`**
+- [x] **Step 3:** Run → FAIL (route missing, GET allowed, `_invalidate_all` missing, forged token accepted, html unchanged).
+- [x] **Step 4: Implement in `dashboard/backend/main.py`**
   - After `_invalidate`: 
 ```python
 def _invalidate_all():
@@ -617,8 +619,8 @@ def _session_secret() -> bytes:
 ```
     add `netErr: '',` next to `conflictErr: '',` in the state block, and insert right after the `<body ...>` line:
     `<div x-show="netErr" x-text="netErr" x-cloak style="position:fixed;bottom:10px;right:10px;z-index:9999;background:#b91c1c;color:#fff;padding:6px 10px;border-radius:6px;font-size:12px;max-width:60vw"></div>`
-- [ ] **Step 5:** Run `tests/test_p47_dashboard_routes.py tests/test_p41_dashboard_aggregates.py` → pass. `git diff --numstat dashboard/frontend/index.html` shows only ~8 changed lines (no CRLF rewrite).
-- [ ] **Step 6:** Update `dashboard/README.md:15` "13 tabs" line → "**3 tabs · 客户视图**（今天 / 记忆库 / 设置）+ 开发者模式 14 面板"; `README.md:190` → `| Dashboard (3-tab customer view + 14-panel dev mode) | ✅ |`; `ARCHITECTURE.md:117` → "默认 3 个客户标签页（今天/记忆库/设置）+ 开发者模式 14 面板". Commit: `git add -A dashboard tests/test_p47_dashboard_routes.py tests/test_p41_dashboard_aggregates.py README.md ARCHITECTURE.md && git commit -m "fix(dashboard): backend/ layout matches deployment, v11 route, POST-only review, invalidate-all, random session secret, visible fetch errors (audit P1-7/P1-9/P1-12)"`
+- [x] **Step 5:** Run `tests/test_p47_dashboard_routes.py tests/test_p41_dashboard_aggregates.py` → pass. `git diff --numstat dashboard/frontend/index.html` shows only ~8 changed lines (no CRLF rewrite).
+- [x] **Step 6:** Update `dashboard/README.md:15` "13 tabs" line → "**3 tabs · 客户视图**（今天 / 记忆库 / 设置）+ 开发者模式 14 面板"; `README.md:190` → `| Dashboard (3-tab customer view + 14-panel dev mode) | ✅ |`; `ARCHITECTURE.md:117` → "默认 3 个客户标签页（今天/记忆库/设置）+ 开发者模式 14 面板". Commit: `git add -A dashboard tests/test_p47_dashboard_routes.py tests/test_p41_dashboard_aggregates.py README.md ARCHITECTURE.md && git commit -m "fix(dashboard): backend/ layout matches deployment, v11 route, POST-only review, invalidate-all, random session secret, visible fetch errors (audit P1-7/P1-9/P1-12)"`
 
 ### Task 6: Projection drift repair — status-aware guard + `reproject` CLI
 
@@ -626,7 +628,7 @@ def _session_secret() -> bytes:
 
 **Interfaces:** `operations.reproject_facts(store, projectors: list, fact_ids: list[str]) -> dict(reprojected: list[str], missing: list[str], skipped_no_event: list[str])`. CLI: `python -m mimir_v8.migrate_cli reproject --data-dir <dir> --fact-ids a,b,c [--with-vector --collection NAME]`.
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 ```python
 # tests/test_p47_reproject.py
 """审计 2026-09-07 P1-1：3 条 08 月 fact.conflict_lost 事实在投影里仍 active。
@@ -661,8 +663,8 @@ class TestReproject(unittest.TestCase):
                 self.assertIsNone(c.execute("SELECT fact_id FROM fact_nodes WHERE fact_id=?", (fid,)).fetchone())
 ```
   If `store.create_fact` needs different kwargs (check `CreateFact` in `schema.py:250-270` — `source_kind/source_uri` may be required), adapt to the minimal valid set used in `tests/test_p22_collector_wiring.py`.
-- [ ] **Step 2:** Run → FAIL (`reproject_facts` missing; after adding it, status stays `active` because of the guard).
-- [ ] **Step 3:** `projector.py` guard: extend the no-op condition with `and existing["status"] == fact["status"]` (add `status` to the `SELECT version, content_hash` query). Then in `operations.py`:
+- [x] **Step 2:** Run → FAIL (`reproject_facts` missing; after adding it, status stays `active` because of the guard).
+- [x] **Step 3:** `projector.py` guard: extend the no-op condition with `and existing["status"] == fact["status"]` (add `status` to the `SELECT version, content_hash` query). Then in `operations.py`:
 ```python
 def reproject_facts(store: CanonicalStore, projectors: list, fact_ids: list[str]) -> dict:
     """Re-apply each fact's current canonical row to the given projectors.
@@ -690,22 +692,22 @@ def reproject_facts(store: CanonicalStore, projectors: list, fact_ids: list[str]
     return report
 ```
   `migrate_cli.py`: add subparser `reproject` with `--data-dir` (required), `--fact-ids` (comma list, required), `--with-vector` flag, `--collection` (default env `MIMIR_V8_COLLECTION`). Build `store = CanonicalStore(root/"canonical.db")`, projectors `[FTSProjector(root/"fts.db"), GraphProjector(store, root/"graph.db"), CoreMemoryProjector(store, root/"core_memory.db")]`; if `--with-vector`: `import chromadb; client = chromadb.PersistentClient(path=str(root/"chroma"), settings=Settings(anonymized_telemetry=False)); collection = client.get_collection(name)`; `VectorProjector(collection, embedder=_no_embed, collection_name=name)` where `def _no_embed(text): raise RuntimeError("reproject refuses to embed; only status/deletion repairs are supported offline")`. Print JSON report; exit 1 if `missing`.
-- [ ] **Step 4:** Run `tests/test_p47_reproject.py tests/test_r*.py -k "projector or fts or graph"` (plus the full suite quickly minus r8) → pass.
-- [ ] **Step 5:** `git add -A mimir_v8/projector.py mimir_v8/operations.py mimir_v8/migrate_cli.py tests/test_p47_reproject.py && git commit -m "fix(projection): status-aware FTS guard + reproject CLI to repair disputed-fact drift (audit P1-1)"`
+- [x] **Step 4:** Run `tests/test_p47_reproject.py tests/test_r*.py -k "projector or fts or graph"` (plus the full suite quickly minus r8) → pass.
+- [x] **Step 5:** `git add -A mimir_v8/projector.py mimir_v8/operations.py mimir_v8/migrate_cli.py tests/test_p47_reproject.py && git commit -m "fix(projection): status-aware FTS guard + reproject CLI to repair disputed-fact drift (audit P1-1)"`
 
 ### Task 7: Version 14.1.0, CHANGELOG, docs & packaging fixes
 
 **Files:** `mimir_v8/schema.py:8`, `pyproject.toml:7,19-29`, `tests/test_r8_release.py:79`, `CHANGELOG.md` (CRLF!), `SECURITY.md:5-10`, `docs/ROADMAP.md:115`, `scripts/init.sh` (admin token + config template), `examples/QUICKSTART.md:20-48`, `Dockerfile:44` + `mimir_v8/server.py:65`, `hermes-plugin/mimir_memory_provider/plugin.yaml` (done in Task 4).
 
-- [ ] **Step 1:** `schema.py` `MIMIR_VERSION = "14.1.0"`; `pyproject.toml` `version = "14.1.0"` and add `"pyyaml>=6.0"` to `dependencies`; `test_r8_release.py` `assertEqual(MIMIR_VERSION, "14.1.0")`.
-- [ ] **Step 2:** `server.py`: replace the loopback check with
+- [x] **Step 1:** `schema.py` `MIMIR_VERSION = "14.1.0"`; `pyproject.toml` `version = "14.1.0"` and add `"pyyaml>=6.0"` to `dependencies`; `test_r8_release.py` `assertEqual(MIMIR_VERSION, "14.1.0")`.
+- [x] **Step 2:** `server.py`: replace the loopback check with
 ```python
     loopback = {"127.0.0.1", "::1", "localhost"}
     if args.bind not in loopback and os.environ.get("MIMIR_ALLOW_NONLOOPBACK") != "1":
         raise SystemExit("Mímir v9 server may only bind to loopback (set MIMIR_ALLOW_NONLOOPBACK=1 inside a container network namespace)")
 ```
   `Dockerfile`: add `MIMIR_ALLOW_NONLOOPBACK=1 \` to the ENV block and `ENTRYPOINT ["mimir-server", "--bind", "0.0.0.0", "--port", "8456"]`. Same ENTRYPOINT change in `Dockerfile.lean` if it has one.
-- [ ] **Step 3:** `scripts/init.sh`: generate a dedicated `admin` principal — in the Python heredoc, after the agents loop, append an `admin` entry with `scopes ["read","write","delete","ingest","review","manage","admin"]`, `admin: True`, write `clients/admin.token`; set agents to `["read","write"]` only (drop the `i == 0` admin promotion). Replace the config heredoc with:
+- [x] **Step 3:** `scripts/init.sh`: generate a dedicated `admin` principal — in the Python heredoc, after the agents loop, append an `admin` entry with `scopes ["read","write","delete","ingest","review","manage","admin"]`, `admin: True`, write `clients/admin.token`; set agents to `["read","write"]` only (drop the `i == 0` admin promotion). Replace the config heredoc with:
 ```yaml
 # Mímir config — only these sections are read by the code (audit 2026-09-07):
 #   federation.agents / federation.domains  → dynamic principal & domain registry (config.py)
@@ -721,35 +723,35 @@ collector:
   # - {name: vault, type: vault, vault_root: /home/me/obsidian, exclude_dirs: [private], category: knowledge_doc}
   # - {name: blog, type: web, url: https://example.com/post}
 ```
-- [ ] **Step 4:** `examples/QUICKSTART.md`: exports become `export MIMIR_V8_DATA_DIR=~/.hermes/mimir/data` and `export MIMIR_V8_TOKEN_FILE=~/.hermes/mimir/secrets/api_tokens.json` (after `scripts/init.sh`); every curl gains `-H "Authorization: Bearer $(cat ~/.hermes/mimir/secrets/clients/admin.token)"`. `SECURITY.md` table → `| 14.1.x | 20 | ✅ |`, `| 12.1 – 14.0 | 19–20 | ⚠️ upgrade |`, `| < 12.1 | < 19 | ❌ |`. `docs/ROADMAP.md:115` `[ ] **P1 韧性挡位` → `[x]` with note "(shipped cd9cf41, v14.1.0)".
-- [ ] **Step 5:** `CHANGELOG.md` (keep CRLF — edit with a Python script that reads bytes, inserts the block after the `---` following the header with `\r\n` endings): new section `## v14.1.0 — 2026-09-07 · 全面审计修复 (Audit Remediation)` listing: P0 governance env fallback + honest errors + requeue cap + worker exit codes; error_hook wired; human approvals → confirmed; plugin per-agent tokens/idempotency/reflect/errors; dashboard backend/ layout + v11 route + POST review + invalidate-all + random session secret + netErr banner; projection status guard + `reproject` CLI; init.sh admin token + config template; Docker bind/port; QUICKSTART/SECURITY/ROADMAP/README doc fixes; #41-A vault→wiki; golden-health sentinel; pyyaml declared.
-- [ ] **Step 6:** Local run `python -m pytest tests -q -p no:cacheprovider --ignore=tests/test_r8_release.py -x --deselect tests/test_v12_insight.py::TestM1dHermesPluginContract` (indicative; platform debts are ~21 known failures — compare against the pre-existing list, only new failures matter). Commit: `git add -A && git commit -m "chore(release): v14.1.0 — audit remediation; docs/packaging/init fixes"`.
+- [x] **Step 4:** `examples/QUICKSTART.md`: exports become `export MIMIR_V8_DATA_DIR=~/.hermes/mimir/data` and `export MIMIR_V8_TOKEN_FILE=~/.hermes/mimir/secrets/api_tokens.json` (after `scripts/init.sh`); every curl gains `-H "Authorization: Bearer $(cat ~/.hermes/mimir/secrets/clients/admin.token)"`. `SECURITY.md` table → `| 14.1.x | 20 | ✅ |`, `| 12.1 – 14.0 | 19–20 | ⚠️ upgrade |`, `| < 12.1 | < 19 | ❌ |`. `docs/ROADMAP.md:115` `[ ] **P1 韧性挡位` → `[x]` with note "(shipped cd9cf41, v14.1.0)".
+- [x] **Step 5:** `CHANGELOG.md` (keep CRLF — edit with a Python script that reads bytes, inserts the block after the `---` following the header with `\r\n` endings): new section `## v14.1.0 — 2026-09-07 · 全面审计修复 (Audit Remediation)` listing: P0 governance env fallback + honest errors + requeue cap + worker exit codes; error_hook wired; human approvals → confirmed; plugin per-agent tokens/idempotency/reflect/errors; dashboard backend/ layout + v11 route + POST review + invalidate-all + random session secret + netErr banner; projection status guard + `reproject` CLI; init.sh admin token + config template; Docker bind/port; QUICKSTART/SECURITY/ROADMAP/README doc fixes; #41-A vault→wiki; golden-health sentinel; pyyaml declared.
+- [x] **Step 6:** Local run `python -m pytest tests -q -p no:cacheprovider --ignore=tests/test_r8_release.py -x --deselect tests/test_v12_insight.py::TestM1dHermesPluginContract` (indicative; platform debts are ~21 known failures — compare against the pre-existing list, only new failures matter). Commit: `git add -A && git commit -m "chore(release): v14.1.0 — audit remediation; docs/packaging/init fixes"`.
 
 ### Task 8: Authoritative regression on the device
 
-- [ ] **Step 1:** `git push lan v14.1.0` (branch only). On device: `cd ~/mimir-open-source && git worktree add /tmp/mimir-v14.1.0 v14.1.0`.
-- [ ] **Step 2:** `cd /tmp/mimir-v14.1.0 && PYTHONPATH=$PWD ~/.hermes/mimir/venvs/v14.0.0-20260903/bin/python3 -m pytest tests -q --no-header -p no:cacheprovider 2>&1 | tail -15` → expect `N passed, 3 errors` with N ≥ 444 + new tests, the 3 errors being `TestM1dHermesPluginContract` only. Fix anything else before proceeding.
-- [ ] **Step 3:** `git worktree remove /tmp/mimir-v14.1.0` on device.
+- [x] **Step 1:** `git push lan v14.1.0` (branch only). On device: `cd ~/mimir-open-source && git worktree add /tmp/mimir-v14.1.0 v14.1.0`.
+- [x] **Step 2:** `cd /tmp/mimir-v14.1.0 && PYTHONPATH=$PWD ~/.hermes/mimir/venvs/v14.0.0-20260903/bin/python3 -m pytest tests -q --no-header -p no:cacheprovider 2>&1 | tail -15` → expect `N passed, 3 errors` with N ≥ 444 + new tests, the 3 errors being `TestM1dHermesPluginContract` only. Fix anything else before proceeding.
+- [x] **Step 3:** `git worktree remove /tmp/mimir-v14.1.0` on device.
 
 ### Task 9: Release v14.1.0 and deploy
 
-- [ ] **Step 1:** Local: `git checkout master && git merge --ff-only v14.1.0 && git push lan master` (device tree clean → updateInstead updates it). Device: `cd ~/mimir-open-source && git tag -a v14.1.0 -m "v14.1.0 audit remediation" && git push gitee master --tags && git push github master --tags` (remote names per `git remote -v` on device).
-- [ ] **Step 2:** Release tree: `cd ~/.hermes/mimir/releases && git -C ~/mimir-open-source archive --format=tar --prefix=v14.1.0-20260907/ v14.1.0 | tar -xf -` → verify `grep MIMIR_VERSION v14.1.0-20260907/mimir_v8/schema.py`.
-- [ ] **Step 3:** venv: `cp -a ~/.hermes/mimir/venvs/v14.0.0-20260903 ~/.hermes/mimir/venvs/v14.1.0-20260907`; `grep -rl "v14.0.0-20260903" ~/.hermes/mimir/venvs/v14.1.0-20260907/lib/python3.11/site-packages/__editable__* ~/.hermes/mimir/venvs/v14.1.0-20260907/lib/python3.11/site-packages/mimir_v8-*.dist-info/direct_url.json | xargs sed -i 's#v14.0.0-20260903#v14.1.0-20260907#g'`; verify `cd /tmp && ~/.hermes/mimir/venvs/v14.1.0-20260907/bin/python3 -c "import mimir_v8, mimir_v8.schema as s; print(mimir_v8.__file__, s.MIMIR_VERSION)"` → new path, 14.1.0.
-- [ ] **Step 4:** Units: `mkdir -p ~/.hermes/mimir/backups/units-pre-v14.1.0-20260907 && cp /etc/systemd/system/mimir*.service ~/.hermes/mimir/backups/units-pre-v14.1.0-20260907/`; `sudo sed -i 's#v14.0.0-20260903#v14.1.0-20260907#g' /etc/systemd/system/mimir*.service`; `sudo sed -i '/^ExecStart=/i EnvironmentFile=/home/sandro1123/.hermes/mimir/secrets/evaluator.env' /etc/systemd/system/mimir-v9.2-governance.service`; `sudo systemctl daemon-reload`; `grep -c v14.1.0 /etc/systemd/system/mimir*.service` all ≥1; `systemctl cat mimir-v9.2-governance.service | grep EnvironmentFile`.
-- [ ] **Step 5:** ops scripts: `cd ~/.hermes/mimir/ops && for f in mimir_v8_ops.py mimir_v8_cron_wrapper.py mimir_outlet_wrapper.py daily_report_feishu.sh; do cp $f $f.bak-pre-v14.1.0-20260907; sed -i 's#v14.0.0-20260903#v14.1.0-20260907#g' $f; done`; `ln -sfn v14.1.0-20260907 ~/.hermes/mimir/venvs/current`.
-- [ ] **Step 6:** Repair + restart: `sudo systemctl stop mimir.service`; `cd ~/.hermes/mimir/releases/v14.1.0-20260907 && PYTHONPATH=$PWD ~/.hermes/mimir/venvs/v14.1.0-20260907/bin/python3 -m mimir_v8.migrate_cli reproject --data-dir ~/.hermes/mimir/v9/production-v9.0-20260805_214614 --fact-ids 7bac0264-68e5-46d7-be08-f63a6f02dd36,104a19d1-<full>,1647cde7-<full> --with-vector --collection mimir_v9_prod_20260805_214614` (full ids from `SELECT fact_id FROM facts WHERE status='disputed'`); `sudo systemctl start mimir.service`; `sleep 30; curl -s 127.0.0.1:8456/health` → `14.1.0`; `/ready` 200.
-- [ ] **Step 7:** Verify drift gone: `~/.hermes/mimir/venvs/current/bin/python3 ~/.hermes/mimir/ops/mimir_v8_ops.py verify` → `"ok": true`.
-- [ ] **Step 8:** Governance live check: `sudo systemctl start mimir-v9.2-governance.service && journalctl -u mimir-v9.2-governance.service -n 3 -o cat | tail -c 600` → stats no longer all `human_review`; `sqlite3`-via-python: `SELECT success, model, COUNT(*) FROM candidate_review_assessments WHERE created_at >= <now-10min> GROUP BY 1,2` shows `success=1` rows with model set. `systemctl show -p Result mimir-v9.2-governance.service` = success.
-- [ ] **Step 9:** Dashboard: `cp ~/mimir-dashboard/backend/main.py ~/mimir-dashboard/backend/main.py.bak-v14.1.0-20260907; cp ~/mimir-dashboard/frontend/index.html ~/mimir-dashboard/frontend/index.html.bak-v14.1.0-20260907; cp ~/mimir-open-source/dashboard/backend/main.py ~/mimir-dashboard/backend/main.py; cp ~/mimir-open-source/dashboard/frontend/index.html ~/mimir-dashboard/frontend/index.html; sudo systemctl restart mimir-dashboard`; `curl -s -o /tmp/l.html http://127.0.0.1:8800/ && md5sum /tmp/l.html ~/mimir-open-source/dashboard/frontend/index.html` equal; `/api/dashboard/health-light` 200 with token.
-- [ ] **Step 10:** Plugin: `cp -a ~/.hermes/plugins/mimir_memory_provider ~/.hermes/plugins/mimir_memory_provider.bak-v14.1.0-20260907; cp ~/mimir-open-source/hermes-plugin/mimir_memory_provider/{__init__.py,tools.py,plugin.yaml} ~/.hermes/plugins/mimir_memory_provider/`; `python3 -c "import ast;ast.parse(open('/home/sandro1123/.hermes/plugins/mimir_memory_provider/tools.py').read())"`. Do NOT restart gateways.
-- [ ] **Step 11:** Production repo: `cd ~/.hermes/mimir && git rm --cached collect/rss_seen_urls.json && echo 'collect/rss_seen_urls.json' >> .gitignore && git add -A ops .gitignore && git commit -m "deploy: v14.1.0-20260907 — units/ops re-pointed, governance EnvironmentFile, runtime state untracked"`.
+- [x] **Step 1:** Local: `git checkout master && git merge --ff-only v14.1.0 && git push lan master` (device tree clean → updateInstead updates it). Device: `cd ~/mimir-open-source && git tag -a v14.1.0 -m "v14.1.0 audit remediation" && git push gitee master --tags && git push github master --tags` (remote names per `git remote -v` on device).
+- [x] **Step 2:** Release tree: `cd ~/.hermes/mimir/releases && git -C ~/mimir-open-source archive --format=tar --prefix=v14.1.0-20260907/ v14.1.0 | tar -xf -` → verify `grep MIMIR_VERSION v14.1.0-20260907/mimir_v8/schema.py`.
+- [x] **Step 3:** venv: `cp -a ~/.hermes/mimir/venvs/v14.0.0-20260903 ~/.hermes/mimir/venvs/v14.1.0-20260907`; `grep -rl "v14.0.0-20260903" ~/.hermes/mimir/venvs/v14.1.0-20260907/lib/python3.11/site-packages/__editable__* ~/.hermes/mimir/venvs/v14.1.0-20260907/lib/python3.11/site-packages/mimir_v8-*.dist-info/direct_url.json | xargs sed -i 's#v14.0.0-20260903#v14.1.0-20260907#g'`; verify `cd /tmp && ~/.hermes/mimir/venvs/v14.1.0-20260907/bin/python3 -c "import mimir_v8, mimir_v8.schema as s; print(mimir_v8.__file__, s.MIMIR_VERSION)"` → new path, 14.1.0.
+- [x] **Step 4:** Units: `mkdir -p ~/.hermes/mimir/backups/units-pre-v14.1.0-20260907 && cp /etc/systemd/system/mimir*.service ~/.hermes/mimir/backups/units-pre-v14.1.0-20260907/`; `sudo sed -i 's#v14.0.0-20260903#v14.1.0-20260907#g' /etc/systemd/system/mimir*.service`; `sudo sed -i '/^ExecStart=/i EnvironmentFile=/home/sandro1123/.hermes/mimir/secrets/evaluator.env' /etc/systemd/system/mimir-v9.2-governance.service`; `sudo systemctl daemon-reload`; `grep -c v14.1.0 /etc/systemd/system/mimir*.service` all ≥1; `systemctl cat mimir-v9.2-governance.service | grep EnvironmentFile`.
+- [x] **Step 5:** ops scripts: `cd ~/.hermes/mimir/ops && for f in mimir_v8_ops.py mimir_v8_cron_wrapper.py mimir_outlet_wrapper.py daily_report_feishu.sh; do cp $f $f.bak-pre-v14.1.0-20260907; sed -i 's#v14.0.0-20260903#v14.1.0-20260907#g' $f; done`; `ln -sfn v14.1.0-20260907 ~/.hermes/mimir/venvs/current`.
+- [x] **Step 6:** Repair + restart: `sudo systemctl stop mimir.service`; `cd ~/.hermes/mimir/releases/v14.1.0-20260907 && PYTHONPATH=$PWD ~/.hermes/mimir/venvs/v14.1.0-20260907/bin/python3 -m mimir_v8.migrate_cli reproject --data-dir ~/.hermes/mimir/v9/production-v9.0-20260805_214614 --fact-ids 7bac0264-68e5-46d7-be08-f63a6f02dd36,104a19d1-<full>,1647cde7-<full> --with-vector --collection mimir_v9_prod_20260805_214614` (full ids from `SELECT fact_id FROM facts WHERE status='disputed'`); `sudo systemctl start mimir.service`; `sleep 30; curl -s 127.0.0.1:8456/health` → `14.1.0`; `/ready` 200.
+- [x] **Step 7:** Verify drift gone: `~/.hermes/mimir/venvs/current/bin/python3 ~/.hermes/mimir/ops/mimir_v8_ops.py verify` → `"ok": true`.
+- [x] **Step 8:** Governance live check: `sudo systemctl start mimir-v9.2-governance.service && journalctl -u mimir-v9.2-governance.service -n 3 -o cat | tail -c 600` → stats no longer all `human_review`; `sqlite3`-via-python: `SELECT success, model, COUNT(*) FROM candidate_review_assessments WHERE created_at >= <now-10min> GROUP BY 1,2` shows `success=1` rows with model set. `systemctl show -p Result mimir-v9.2-governance.service` = success.
+- [x] **Step 9:** Dashboard: `cp ~/mimir-dashboard/backend/main.py ~/mimir-dashboard/backend/main.py.bak-v14.1.0-20260907; cp ~/mimir-dashboard/frontend/index.html ~/mimir-dashboard/frontend/index.html.bak-v14.1.0-20260907; cp ~/mimir-open-source/dashboard/backend/main.py ~/mimir-dashboard/backend/main.py; cp ~/mimir-open-source/dashboard/frontend/index.html ~/mimir-dashboard/frontend/index.html; sudo systemctl restart mimir-dashboard`; `curl -s -o /tmp/l.html http://127.0.0.1:8800/ && md5sum /tmp/l.html ~/mimir-open-source/dashboard/frontend/index.html` equal; `/api/dashboard/health-light` 200 with token.
+- [x] **Step 10:** Plugin: `cp -a ~/.hermes/plugins/mimir_memory_provider ~/.hermes/plugins/mimir_memory_provider.bak-v14.1.0-20260907; cp ~/mimir-open-source/hermes-plugin/mimir_memory_provider/{__init__.py,tools.py,plugin.yaml} ~/.hermes/plugins/mimir_memory_provider/`; `python3 -c "import ast;ast.parse(open('/home/sandro1123/.hermes/plugins/mimir_memory_provider/tools.py').read())"`. Do NOT restart gateways.
+- [x] **Step 11:** Production repo: `cd ~/.hermes/mimir && git rm --cached collect/rss_seen_urls.json && echo 'collect/rss_seen_urls.json' >> .gitignore && git add -A ops .gitignore && git commit -m "deploy: v14.1.0-20260907 — units/ops re-pointed, governance EnvironmentFile, runtime state untracked"`.
 
 ### Task 10: Ops health checks (production repo)
 
 **Files:** `~/.hermes/mimir/ops/mimir_v8_ops.py` `cmd_health` pipeline block (after `review_backlog`).
 
-- [ ] **Step 1:** Insert (inside the same `try:` using `cur`):
+- [x] **Step 1:** Insert (inside the same `try:` using `cur`):
 ```python
         # 治理 LLM 成功率（审计 2026-09-07 P0-1：零成功持续 6 天而 health 恒 ok）
         since_2h = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
@@ -779,31 +781,31 @@ collector:
             report["offsite_backup_age_hours"] = None
 ```
   (add `timedelta` to the datetime import.)
-- [ ] **Step 2:** Run `~/.hermes/mimir/venvs/current/bin/python3 ~/.hermes/mimir/ops/mimir_v8_ops.py health --allow-lag` → `ok: true`, report has the new keys. Commit in prod repo.
+- [x] **Step 2:** Run `~/.hermes/mimir/venvs/current/bin/python3 ~/.hermes/mimir/ops/mimir_v8_ops.py health --allow-lag` → `ok: true`, report has the new keys. Commit in prod repo.
 
 ### Task 11: Mímir offsite backup (production)
 
 **Files:** Create `~/.hermes/mimir/ops/mimir_offsite_backup.sh`; create `~/.config/systemd/user/mimir-offsite-backup.{service,timer}`; modify laptop `C:\Users\sandr\hermes-offsite\prune.ps1` to also keep 7 `mimir-critical-*`.
 
-- [ ] **Step 1:** Script (same recipient/key/hosts as `~/.hermes/bin/offsite_backup.sh`): stage newest `~/.hermes/mimir/v8/backups/canonical-*.db` (gzip), `secrets/` (0600 preserved), `mimir_config.yaml`, `ops/*.py *.sh` (no .bak), `/etc/systemd/system/mimir*.service|timer` (sudo -n cp), `core_memory/*.json`, MANIFEST.txt; `tar -czf - | gpg --encrypt --recipient hermes-backup@n100.local` → `/tmp/mimir-critical-<stamp>.tar.gz.gpg`; size gate ≥ 1MB; scp to `sandr@192.168.5.11:hermes-offsite/` (fallback 100.124.229.77); on success `touch ~/.hermes/mimir/backups/.last-offsite-success`; then `ssh ... powershell -NoProfile -File C:\Users\sandr\hermes-offsite\prune.ps1`.
-- [ ] **Step 2:** `prune.ps1`: add a second block for `mimir-critical-*.tar.gz.gpg` with `$KeepMimir = 7`, output `PRUNE_OK kept=… mimir_kept=…`.
-- [ ] **Step 3:** Timer `OnCalendar=*-*-* 03:50:00`, `Persistent=true`; `systemctl --user daemon-reload && systemctl --user enable --now mimir-offsite-backup.timer`; run once: `systemctl --user start mimir-offsite-backup.service; journalctl --user -u mimir-offsite-backup.service -n 5 -o cat` → `OK via=…`; laptop `ls C:\Users\sandr\hermes-offsite\mimir-critical-*` exists; marker file exists. Commit script in prod repo.
+- [x] **Step 1:** Script (same recipient/key/hosts as `~/.hermes/bin/offsite_backup.sh`): stage newest `~/.hermes/mimir/v8/backups/canonical-*.db` (gzip), `secrets/` (0600 preserved), `mimir_config.yaml`, `ops/*.py *.sh` (no .bak), `/etc/systemd/system/mimir*.service|timer` (sudo -n cp), `core_memory/*.json`, MANIFEST.txt; `tar -czf - | gpg --encrypt --recipient hermes-backup@n100.local` → `/tmp/mimir-critical-<stamp>.tar.gz.gpg`; size gate ≥ 1MB; scp to `sandr@192.168.5.11:hermes-offsite/` (fallback 100.124.229.77); on success `touch ~/.hermes/mimir/backups/.last-offsite-success`; then `ssh ... powershell -NoProfile -File C:\Users\sandr\hermes-offsite\prune.ps1`.
+- [x] **Step 2:** `prune.ps1`: add a second block for `mimir-critical-*.tar.gz.gpg` with `$KeepMimir = 7`, output `PRUNE_OK kept=… mimir_kept=…`.
+- [x] **Step 3:** Timer `OnCalendar=*-*-* 03:50:00`, `Persistent=true`; `systemctl --user daemon-reload && systemctl --user enable --now mimir-offsite-backup.timer`; run once: `systemctl --user start mimir-offsite-backup.service; journalctl --user -u mimir-offsite-backup.service -n 5 -o cat` → `OK via=…`; laptop `ls C:\Users\sandr\hermes-offsite\mimir-critical-*` exists; marker file exists. Commit script in prod repo.
 
 ### Task 12: Backfill human-approved facts to `confirmed` (via API, event-sourced)
 
-- [ ] **Step 1:** Dry-run count on device (ro): `SELECT COUNT(*) FROM facts f JOIN candidate_facts c ON c.committed_fact_id=f.fact_id WHERE f.human_status='unreviewed' AND c.status='committed' AND c.reviewed_by IS NOT NULL AND c.reviewed_by NOT LIKE 'service:%'` → expect ≈128.
-- [ ] **Step 2:** Script: for each fact_id `PATCH /v8/facts/{id}` with `{"human_status": "confirmed"}` using `admin.token`; count 200s; re-run the SELECT → 0. Sample one fact's events → `fact.updated` with `human_status` change recorded.
+- [x] **Step 1:** Dry-run count on device (ro): `SELECT COUNT(*) FROM facts f JOIN candidate_facts c ON c.committed_fact_id=f.fact_id WHERE f.human_status='unreviewed' AND c.status='committed' AND c.reviewed_by IS NOT NULL AND c.reviewed_by NOT LIKE 'service:%'` → expect ≈128.
+- [x] **Step 2:** Script: for each fact_id `PATCH /v8/facts/{id}` with `{"human_status": "confirmed"}` using `admin.token`; count 200s; re-run the SELECT → 0. Sample one fact's events → `fact.updated` with `human_status` change recorded.
 
 ### Task 13: Device hygiene (P3)
 
-- [ ] `sudo rm /etc/systemd/system/multi-user.target.wants/mimir-v8.1-staging.service && sudo systemctl daemon-reload` → `systemctl list-units --all | grep staging` empty.
-- [ ] `sudo mkdir -p ~/.hermes/mimir/backups/units-bak-archive-20260907 && sudo mv /etc/systemd/system/mimir*.bak-* ~/.hermes/mimir/backups/units-bak-archive-20260907/ && sudo mv /etc/systemd/system/mimir-v9.2-daily-report.* /etc/systemd/system/mimir-weekly-reflect.* ~/.hermes/mimir/backups/units-bak-archive-20260907/ && sudo chown -R sandro1123: ~/.hermes/mimir/backups/units-bak-archive-20260907 && sudo systemctl daemon-reload`.
-- [ ] `rm -rf ~/mimir-open-source/tmp_sync` (both files verified identical to HEAD).
-- [ ] `mkdir -p ~/.hermes/mimir/archive/decoys-20260907 && mv ~/.hermes/mimir/mimir.db ~/.hermes/mimir/data/canonical.db* ~/.hermes/mimir/core/fts5_index.db ~/.hermes/mimir/archive/decoys-20260907/` and write `~/.hermes/mimir/archive/decoys-20260907/README.txt` explaining the true DB path.
-- [ ] `mkdir -p ~/.hermes/mimir/backups/ops-bak-archive-20260907 && mv ~/.hermes/mimir/ops/*.bak-* ~/.hermes/mimir/backups/ops-bak-archive-20260907/` (after Task 9 step 5 created new .bak files — keep those new ones: move only files not matching `*pre-v14.1.0*`).
-- [ ] `rm ~/mimir-dashboard/dashboard.pid; mv ~/mimir-dashboard/dashboard.log ~/mimir-dashboard/dashboard.log.pre-systemd-20260904` and archive the 19 `*.bak-*` files in `~/mimir-dashboard/{backend,frontend}` into `~/mimir-dashboard/bak-archive-20260907/` (keep the v14.1.0 ones).
+- [x] `sudo rm /etc/systemd/system/multi-user.target.wants/mimir-v8.1-staging.service && sudo systemctl daemon-reload` → `systemctl list-units --all | grep staging` empty.
+- [x] `sudo mkdir -p ~/.hermes/mimir/backups/units-bak-archive-20260907 && sudo mv /etc/systemd/system/mimir*.bak-* ~/.hermes/mimir/backups/units-bak-archive-20260907/ && sudo mv /etc/systemd/system/mimir-v9.2-daily-report.* /etc/systemd/system/mimir-weekly-reflect.* ~/.hermes/mimir/backups/units-bak-archive-20260907/ && sudo chown -R sandro1123: ~/.hermes/mimir/backups/units-bak-archive-20260907 && sudo systemctl daemon-reload`.
+- [x] `rm -rf ~/mimir-open-source/tmp_sync` (both files verified identical to HEAD).
+- [x] `mkdir -p ~/.hermes/mimir/archive/decoys-20260907 && mv ~/.hermes/mimir/mimir.db ~/.hermes/mimir/data/canonical.db* ~/.hermes/mimir/core/fts5_index.db ~/.hermes/mimir/archive/decoys-20260907/` and write `~/.hermes/mimir/archive/decoys-20260907/README.txt` explaining the true DB path.
+- [x] `mkdir -p ~/.hermes/mimir/backups/ops-bak-archive-20260907 && mv ~/.hermes/mimir/ops/*.bak-* ~/.hermes/mimir/backups/ops-bak-archive-20260907/` (after Task 9 step 5 created new .bak files — keep those new ones: move only files not matching `*pre-v14.1.0*`).
+- [x] `rm ~/mimir-dashboard/dashboard.pid; mv ~/mimir-dashboard/dashboard.log ~/mimir-dashboard/dashboard.log.pre-systemd-20260904` and archive the 19 `*.bak-*` files in `~/mimir-dashboard/{backend,frontend}` into `~/mimir-dashboard/bak-archive-20260907/` (keep the v14.1.0 ones).
 
 ### Task 14: Final verification and records
 
-- [ ] `health --allow-lag` ok with new keys; `verify` ok; `/health` 14.1.0; `/ready` 200; dashboard md5 match; governance unit `Result=success` and `success=1` assessments present; `systemctl --failed` empty; offsite marker fresh; `git status` clean in both repos; local `git log --oneline -12`.
-- [ ] Update memory file `mimir-full-audit-20260907.md` with a "修复收官" section (commits, release dir, what remains: gateway restart pending, P2 items deferred) and the MEMORY.md hook; append a §9 "处置结果" to the audit report (local + vault).
+- [x] `health --allow-lag` ok with new keys; `verify` ok; `/health` 14.1.0; `/ready` 200; dashboard md5 match; governance unit `Result=success` and `success=1` assessments present; `systemctl --failed` empty; offsite marker fresh; `git status` clean in both repos; local `git log --oneline -12`.
+- [x] Update memory file `mimir-full-audit-20260907.md` with a "修复收官" section (commits, release dir, what remains: gateway restart pending, P2 items deferred) and the MEMORY.md hook; append a §9 "处置结果" to the audit report (local + vault).
