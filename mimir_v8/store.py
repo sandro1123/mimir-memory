@@ -539,6 +539,52 @@ CREATE TABLE IF NOT EXISTS quality_metrics (
 CREATE INDEX IF NOT EXISTS idx_quality_metrics_date
 ON quality_metrics(date);
 
+-- v10 governance audit trail. These two tables existed only in the production
+-- database (created ad hoc by the retired dashboard/governance.py); a fresh
+-- install had no DDL for them, so governance INSERTs failed inside a broad
+-- except and vanished (audit 2026-09-07). DDL mirrors production verbatim
+-- (non-STRICT, defaults included) so IF NOT EXISTS is a no-op there.
+CREATE TABLE IF NOT EXISTS candidate_review_assessments (
+    assessment_id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL,
+    reviewer_type TEXT NOT NULL DEFAULT 'rule',
+    provider TEXT,
+    model TEXT,
+    recommendation TEXT,
+    risk TEXT,
+    confidence REAL,
+    is_valuable INTEGER,
+    is_noise INTEGER,
+    domain TEXT,
+    fact_type TEXT,
+    summary TEXT,
+    reasoning TEXT,
+    raw_output_hash TEXT,
+    success INTEGER NOT NULL DEFAULT 1,
+    error_code TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_assessments_candidate
+ON candidate_review_assessments(candidate_id);
+
+CREATE TABLE IF NOT EXISTS governance_decisions (
+    decision_id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL,
+    policy_version TEXT NOT NULL DEFAULT 'v9.1-r1',
+    assessment_id TEXT,
+    decision TEXT NOT NULL,
+    reason TEXT,
+    automatic INTEGER NOT NULL DEFAULT 1,
+    actor_principal TEXT NOT NULL DEFAULT 'service:governance',
+    previous_status TEXT,
+    new_status TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_decisions_candidate
+ON governance_decisions(candidate_id);
+
 CREATE TABLE IF NOT EXISTS conflict_resolutions (
     conflict_id TEXT PRIMARY KEY,
     fact_id_a TEXT NOT NULL REFERENCES facts(fact_id),

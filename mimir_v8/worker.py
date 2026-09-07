@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import logging
 import os
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -24,6 +25,8 @@ from .retention import RetentionService
 from .trust import TrustManager, TrustScore, SIGNAL_WEIGHTS
 from .store import CanonicalStore, new_id, sha256_text, utc_now
 from .evolve import EvolveMemService
+
+logger = logging.getLogger("mimir_v8.worker")
 
 
 TZ = timezone(timedelta(hours=8))
@@ -360,7 +363,8 @@ def _load_config_feeds(config_path: str | Path | None = None) -> list[dict]:
         with open(config_path) as f:
             config = yaml.safe_load(f)
         return config.get("collector", {}).get("rss_feeds", [])
-    except Exception:
+    except Exception as exc:
+        logger.warning("mimir_config.yaml unreadable at %s: %s", config_path, exc)
         return []
 
 
@@ -387,7 +391,8 @@ def load_source_registry(config_path: str | Path | None = None) -> list[dict]:
 
         with open(config_path) as f:
             config = yaml.safe_load(f) or {}
-    except Exception:
+    except Exception as exc:
+        logger.warning("mimir_config.yaml unreadable at %s: %s", config_path, exc)
         return []
     sources = (config.get("collector", {}) or {}).get("sources", [])
     if not isinstance(sources, list):
@@ -655,7 +660,8 @@ def decay_scan(store: CanonicalStore, actor_principal: str = "service:decay_work
     return {"marked": marked, "skipped": skipped, "errors": errors, "total_processed": marked + skipped + len(errors)}
 
 
-def review_requeue(store: CanonicalStore, actor_principal: str, *, dry_run: bool = False, only_unassessed: bool = False) -> dict:
+def review_requeue(store: CanonicalStore, actor_principal: str, *, dry_run: bool = False,
+                   only_unassessed: bool = False, max_failed_24h: int = 3) -> dict:
     """P0-1 fix: requeue stuck human_review candidates back to review_required.
 
     governance routes candidates into human_review, but no consumer accepts that
@@ -669,16 +675,29 @@ def review_requeue(store: CanonicalStore, actor_principal: str, *, dry_run: bool
     never silently UPDATE history).
     """
     sql = "SELECT candidate_id FROM candidate_facts WHERE status='human_review'"
+    params: tuple = ()
     if only_unassessed:
         # P0-2 loop closure: only retry candidates that never got a successful
         # governance assessment (e.g. LLM unreachable under the old AF_UNIX-only
         # sandbox). Candidates with a successful assessment are genuinely waiting
         # for a human and must not bounce.
+        #
+        # P47 cap (audit 2026-09-07 P0-1): while the router was down this loop
+        # bounced 18 candidates every 15 minutes for six days (7836 requeue
+        # events, 8045 failed assessments). A candidate that already failed
+        # ``max_failed_24h`` LLM assessments in the last 24h stays in
+        # human_review — a human can still act — instead of burning three
+        # tables per cycle. It becomes eligible again once the window rolls.
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         sql += (" AND NOT EXISTS (SELECT 1 FROM candidate_review_assessments a"
-                " WHERE a.candidate_id=candidate_facts.candidate_id AND a.success=1)")
+                " WHERE a.candidate_id=candidate_facts.candidate_id AND a.success=1)"
+                " AND (SELECT COUNT(*) FROM candidate_review_assessments f"
+                " WHERE f.candidate_id=candidate_facts.candidate_id AND f.success=0"
+                " AND f.created_at >= ?) < ?")
+        params = (cutoff, max_failed_24h)
     sql += " ORDER BY created_at"
     with contextlib.closing(store.connect()) as connection:
-        rows = [dict(r) for r in connection.execute(sql).fetchall()]
+        rows = [dict(r) for r in connection.execute(sql, params).fetchall()]
     if dry_run:
         return {"command": "review-requeue", "dry_run": True, "requeued": 0, "pending": len(rows)}
     requeued = 0
@@ -715,6 +734,24 @@ def review_requeue(store: CanonicalStore, actor_principal: str, *, dry_run: bool
             )
         requeued += 1
     return {"command": "review-requeue", "dry_run": False, "requeued": requeued, "pending": len(rows)}
+
+
+def _exit_code(result) -> int:
+    """Map a worker result to a process exit code.
+
+    audit 2026-09-07 P1-11: ``main()`` returned 0 unconditionally, so systemd
+    timers stayed green through source errors, failed extractions and six days
+    of governance LLM failures. Any recorded error now exits 1.
+    """
+    if not isinstance(result, dict):
+        return 0
+    if result.get("errors") or result.get("failed") or result.get("fast_track_errors"):
+        return 1
+    if result.get("llm_failures"):
+        return 1
+    if result.get("status") == "error":
+        return 1
+    return 0
 
 
 def main(argv=None) -> int:
@@ -766,6 +803,12 @@ def main(argv=None) -> int:
         )
         result = run_governance_once(store, svc, dry_run=args.dry_run, actor=args.actor)
         result["requeued_unassessed"] = requeue_result.get("requeued", 0)
+        # audit 2026-09-07 P0-1: surface LLM outages as a counted failure so the
+        # unit exits non-zero and health checks can see it (journal used to be silent).
+        result["llm_failures"] = sum(
+            1 for entry in result.get("results", [])
+            if not entry["assessment"]["success"] and str(entry["decision"]["reason"]).startswith("LLM")
+        )
         if not args.dry_run:
             ft = fast_track_commit_all(store, svc, actor=args.actor)
             result["fast_track_committed"] = ft.get("committed", 0)
@@ -800,7 +843,7 @@ def main(argv=None) -> int:
     else:
         result = extract_once(store, args.actor, limit=20)
     print(json.dumps(result, ensure_ascii=False, default=str))
-    return 0
+    return _exit_code(result)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ and event sourcing are preserved.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import urllib.request
@@ -22,11 +23,40 @@ from .candidates import CandidateService, ReviewCandidate
 from .schema import MIMIR_VERSION
 
 
+logger = logging.getLogger("mimir_v8.governance")
+
+
 # ── Config ──────────────────────────────────────────────
-ROUTER_URL = os.environ.get("MIMIR_ROUTER_URL", "http://127.0.0.1:20128/v1")
-ROUTER_API_KEY = os.environ.get("MIMIR_ROUTER_API_KEY", "")
-PRIMARY_MODEL = os.environ.get("MIMIR_GOVERNANCE_MODEL", "default-model")
-FALLBACK_MODEL = os.environ.get("MIMIR_GOVERNANCE_FALLBACK_MODEL", "fallback-model")
+def _env_first(*names: str, default: str = "") -> str:
+    for name in names:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return default
+
+
+def router_config() -> dict:
+    """LLM router config resolved at call time (not import time).
+
+    2026-09-07 audit P0-1: the governance systemd unit only ever carried the
+    evaluator's ``MIMIR_EVALUATOR_*`` variables; the ``MIMIR_ROUTER_*`` names
+    were never configured in production. The v10 release tree compensated with
+    hard-coded defaults; once the open-source release sanitized them and the
+    v12.1.1 tree went live (2026-09-01) governance ran keyless for six days,
+    requeueing the same 18 candidates every 15 minutes. Fall back to the
+    evaluator variables so one env file serves both workers.
+    """
+    primary = _env_first("MIMIR_GOVERNANCE_MODEL", "MIMIR_EVALUATOR_MODEL", default="default-model")
+    return {
+        "url": _env_first(
+            "MIMIR_ROUTER_URL", "MIMIR_EVALUATOR_API_URL", default="http://127.0.0.1:20128/v1"
+        ).rstrip("/"),
+        "api_key": _env_first("MIMIR_ROUTER_API_KEY", "MIMIR_EVALUATOR_API_KEY"),
+        "primary_model": primary,
+        "fallback_model": _env_first("MIMIR_GOVERNANCE_FALLBACK_MODEL", default=primary),
+    }
+
+
 GOVERNANCE_AUTO_APPROVE = os.environ.get("MIMIR_GOVERNANCE_AUTO_APPROVE", "1") == "1"
 GOVERNANCE_FAST_TRACK_THRESHOLD = float(os.environ.get("MIMIR_FAST_TRACK_THRESHOLD", "0.8"))
 
@@ -92,20 +122,31 @@ class AssessmentResult:
     error: str = ""
 
 
-def _call_llm(prompt: str, model: str) -> dict | None:
-    api_key = ROUTER_API_KEY
-    if not api_key:
-        return None
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+def _call_llm(prompt: str, model: str) -> tuple[dict | None, str | None]:
+    """Return ``(parsed_json, error_cause)``; the cause is never None on failure.
+
+    Failures are logged at WARNING — the previous ``except Exception: return None``
+    hid six days of keyless operation behind a bare "LLM 不可用".
+    """
+    cfg = router_config()
+    if not cfg["api_key"]:
+        cause = "api_key missing (set MIMIR_ROUTER_API_KEY or MIMIR_EVALUATOR_API_KEY)"
+        logger.warning("governance LLM skipped: %s", cause)
+        return None, cause
+    headers = {"Authorization": f"Bearer {cfg['api_key']}", "Content-Type": "application/json"}
     payload = {"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 1024}
     try:
-        req = urllib.request.Request(f"{ROUTER_URL}/chat/completions", data=json.dumps(payload).encode(), headers=headers, method="POST")
+        req = urllib.request.Request(f"{cfg['url']}/chat/completions", data=json.dumps(payload).encode(), headers=headers, method="POST")
         with urllib.request.urlopen(req, timeout=30) as resp:
             content = json.loads(resp.read())["choices"][0]["message"]["content"]
-            match = re.search(r"\{.*\}", content, re.DOTALL)
-            return json.loads(match.group()) if match else None
-    except Exception:
-        return None
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        if not match:
+            return None, "no JSON object in model output"
+        return json.loads(match.group()), None
+    except Exception as exc:  # noqa: BLE001 - cause is surfaced to the caller and the log
+        cause = f"{type(exc).__name__}: {exc}"[:200]
+        logger.warning("governance LLM call failed model=%s: %s", model, cause)
+        return None, cause
 
 
 def deterministic_check(content: str) -> dict:
@@ -139,13 +180,16 @@ def assess_candidate(content: str, candidate_id: str) -> AssessmentResult:
         result.success = True
         return result
     prompt = EVALUATION_PROMPT.format(content=content[:2000])
-    llm_result = _call_llm(prompt, PRIMARY_MODEL)
-    model_used = PRIMARY_MODEL
+    cfg = router_config()
+    llm_result, cause = _call_llm(prompt, cfg["primary_model"])
+    model_used = cfg["primary_model"]
+    if llm_result is None and cfg["fallback_model"] != cfg["primary_model"]:
+        llm_result, fallback_cause = _call_llm(prompt, cfg["fallback_model"])
+        model_used = cfg["fallback_model"]
+        if fallback_cause:
+            cause = f"{cause}; fallback: {fallback_cause}"
     if llm_result is None:
-        llm_result = _call_llm(prompt, FALLBACK_MODEL)
-        model_used = FALLBACK_MODEL
-    if llm_result is None:
-        result.error = "LLM 不可用"
+        result.error = f"LLM 不可用: {cause}"[:240]
         result.risk = "medium"
         return result
     result.model_used = model_used
