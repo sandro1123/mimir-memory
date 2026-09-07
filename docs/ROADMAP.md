@@ -112,7 +112,7 @@ Mímir 深度融合业界 6 大标杆记忆系统的核心工程精髓（详见 
 - [ ] **P0 金标治理（Golden-Set Stewardship）**：
   - 金标集扩容（现 8 条太瘦——每条都顶 12.5% 权重）；老金标事实人审升档（unreviewed → reviewed，置信度落值、衰减档 L4 → 更高）——治 hit_rate@3 贴地板零裕度的根因：金标 7 月底入库至今 unreviewed/零置信/L4 最弱衰减档，被新 user_pref 挤位是事实层自然结果，非排序病。
   - 金标健康度哨兵：金标 fact 状态/置信/衰减档巡检入 `verify` 门禁，老化即报。
-- [ ] **P1 韧性挡位（Resilience Gears）**：
+- [x] **P1 韧性挡位（Resilience Gears）**（shipped cd9cf41 三态断路器 + 诚实遥测，v14.1.0）：
   - 借鉴 aduMEI v20.2 自动挡位引擎：三态断路器 + 请求内降挡 + pending 债务账本 + half-open 真实流量探测——治 2026-08-17 生产路由事故类的「下游抖动放大成全站失败」。
   - 诚实遥测：检索三态（found / not_found / degraded）明示降档，永不把 degraded 冒充 found。
 - [ ] **P2 AutoSOP 首结晶（First Production Crystallization）**：

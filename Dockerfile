@@ -23,7 +23,8 @@ RUN python3 -m venv /opt/mimir && \
     rm -rf /root/.cache/pip
 
 # Env (override at runtime)
-ENV MIMIR_V8_DATA_DIR=/data/canonical.db \
+ENV MIMIR_ALLOW_NONLOOPBACK=1 \
+    MIMIR_V8_DATA_DIR=/data/canonical.db \
     MIMIR_V8_TOKEN_FILE=/data/api_tokens.json \
     MIMIR_V8_COLLECTION=mimir_v12_prod \
     MIMIR_V8_MODEL=BAAI/bge-m3 \
@@ -41,4 +42,4 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
 
 # Default: run the API server. Override command for workers/migration:
 #   docker run ... mimir-worker decay-scan
-ENTRYPOINT ["mimir-server"]
+ENTRYPOINT ["mimir-server", "--bind", "0.0.0.0", "--port", "8456"]

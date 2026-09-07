@@ -6,6 +6,19 @@
 
 ---
 
+## v14.1.0 — 2026-09-07 · 全面审计修复 (Audit Remediation)
+
+> 2026-09-07 全面审计（1 P0 + 12 P1）的修复包。Schema 保持 20、无迁移；生产以新发布树 `v14.1.0-20260907` 滚动上线。
+
+- **P0 治理 LLM 静默失效 6 天** — `governance.router_config()` 运行时解析并回退到 `MIMIR_EVALUATOR_*`（治理单元从未配 `MIMIR_ROUTER_*`；v10 硬编码 key 被开源脱敏后治理无 key 运行、18 条候选每 15 分钟 requeue 一轮）；`_call_llm` 返回 `(result, cause)` 并记 WARNING，`error_code` 带真实原因；`review_requeue` 24h 内失败 ≥3 次不再弹回；治理结果带 `llm_failures`；`worker.main()` 按结果返回非零退出码；新建库补 `candidate_review_assessments`/`governance_decisions` DDL（此前只存在于生产库）。
+- **投影漂移** — FTS 投影 no-op 守卫加 status 比对（同版本纯状态变更曾被跳过，3 条 disputed 事实在 FTS/graph/vector 里仍 active）；新增 `operations.reproject_facts` + `mimir-migrate reproject` 离线修复 CLI。
+- **人审语义** — `commit_approved` 按 `reviewed_by` 决定 `human_status`：人（非 `service:*`）批准 → `confirmed`，自动批准 → `unreviewed`。
+- **P45 收尾** — `build_runtime` 传入 `error_hook`，投影线程异常进日志（此前被接住却无声）。
+- **Hermes 插件** — 仓库副本同步生产版（`mimir_feedback` / 注入防护 / `_owner`）；读写路径改用 per-agent token（ACL 在召回面生效），`mimir_remember` 返回 `{ok, error}`，幂等键改 sha256，`mimir_reflect` 发 `text`；plugin.yaml 14.1.0。
+- **Dashboard 4.1.0** — 目录改为 `dashboard/backend/main.py` 与部署树一致（Docker/compose/manage.sh/README 从此可用，`FRONTEND_DIR` 默认值随之正确）；`/v11/symbolic/offload` 装饰器修复注册；删除误装饰到 helper 的 `/v10/opinions|observations` 假路由；review 端点仅 POST；所有写端点 `_invalidate_all()`；无密码配置时会话密钥用进程随机值；`_mimir_get/_post/_db_query` 记日志；前端 fetchJSON 出错显示角标；删除死副本 `dashboard/governance.py`。
+- **交付面** — `scripts/init.sh` 生成独立 `admin.token`（agent 仅 read/write），config 模板改为代码真正读取的 `federation.*`/`collector.*`；QUICKSTART 改用 `MIMIR_V8_*` 变量并带 Bearer；Docker 镜像 `--bind 0.0.0.0 --port 8456` + `MIMIR_ALLOW_NONLOOPBACK=1`；SECURITY 支持矩阵更新；ROADMAP P1 勾选；`pyyaml` 显式声明。
+- **随包** — #41-A vault 笔记双路由进 wiki 知识层；金标健康哨兵 `mimir_v8.eval_suite --golden-health` + `UpdateFact.decay_tier`。
+
 ## Unreleased (post v14.0.0) — 生产上线与运维修刀 (Production Rollout & Hardening)
 
 > v14.0.0 后的部署与稳定性系列，均为生产部署树/服务配置层修复，无核心代码迁移。

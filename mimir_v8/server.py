@@ -62,8 +62,13 @@ def main() -> None:
     )
     parser.add_argument("--disable-vector", action="store_true")
     args = parser.parse_args()
-    if args.bind not in {"127.0.0.1", "::1", "localhost"}:
-        raise SystemExit("Mímir v9 server may only bind to loopback")
+    if args.bind not in {"127.0.0.1", "::1", "localhost"} and os.environ.get("MIMIR_ALLOW_NONLOOPBACK") != "1":
+        # Containers need 0.0.0.0 inside their own network namespace; the
+        # Dockerfile sets MIMIR_ALLOW_NONLOOPBACK=1 explicitly (audit 2026-09-07 P1-7).
+        raise SystemExit(
+            "Mímir v9 server may only bind to loopback "
+            "(set MIMIR_ALLOW_NONLOOPBACK=1 only inside an isolated container network)"
+        )
     try:
         enabled_knowledge_layers = parse_knowledge_layers(args.knowledge_layers)
     except RuntimeConfigurationError as exc:

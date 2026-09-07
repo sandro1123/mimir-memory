@@ -16,12 +16,16 @@ through the core flow: **write a fact → query it → see it governed**.
 # 1. install the package and embedding extras / 安装包与嵌入依赖
 pip install -e ".[embeddings]"
 
-# 2. create a minimal config + secrets layout / 创建最小配置与密钥目录
-export MIMIR_HOME=~/.hermes/mimir
-export MIMIR_DATA_DIR=$MIMIR_HOME/data
-export MIMIR_SECRETS_DIR=$MIMIR_HOME/secrets
-export MIMIR_CONFIG_FILE=$MIMIR_HOME/mimir_config.yaml
-mkdir -p $MIMIR_DATA_DIR $MIMIR_SECRETS_DIR
+# 2. one-shot bootstrap: dirs + agent/admin tokens + minimal config
+#    一键初始化：目录 + agent/admin token + 最小 config
+scripts/init.sh
+
+# 3. the server reads THESE two variables (not MIMIR_HOME/MIMIR_DATA_DIR)
+#    服务端只读这两个变量
+export MIMIR_V8_DATA_DIR=~/.hermes/mimir/data
+export MIMIR_V8_TOKEN_FILE=~/.hermes/mimir/secrets/api_tokens.json
+# every request needs a Bearer token / 每个请求都要带 Bearer
+export TOKEN=$(cat ~/.hermes/mimir/secrets/clients/admin.token)
 ```
 
 > Mímir uses local CPU-only embeddings (bge-m3 via sentence-transformers) — no
@@ -41,6 +45,7 @@ mimir-server --bind 127.0.0.1 --port 8456
 
 ```bash
 curl -X POST http://127.0.0.1:8456/v8/facts \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "content": "Mímir treats every memory as an immutable, governed event.",
@@ -56,6 +61,7 @@ curl -X POST http://127.0.0.1:8456/v8/facts \
 
 ```bash
 curl -X POST http://127.0.0.1:8456/v8/query \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"text": "what is a memory in mimir?", "limit": 5}'
 ```

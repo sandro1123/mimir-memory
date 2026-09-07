@@ -57,20 +57,25 @@ token_json = sys.argv[2]
 clients_dir = sys.argv[3]
 
 principals = []
-for i, agent in enumerate(agents):
-    # 32 字节随机 → URL-safe base64
+
+
+def _mint(name):
+    # 32 字节随机 → URL-safe base64；明文写给 client，registry 只存 sha256
     token = secrets.token_urlsafe(32)
-    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    # 写明文 token 给 client 使用 / write plaintext for clients
-    with open(os.path.join(clients_dir, f"{agent}.token"), "w") as f:
+    with open(os.path.join(clients_dir, f"{name}.token"), "w") as f:
         f.write(token + "\n")
-    os.chmod(os.path.join(clients_dir, f"{agent}.token"), 0o600)
-    principals.append({
-        "id": agent,
-        "token_sha256": digest,
-        "scopes": ["read", "write"] + (["review", "delete", "ingest", "manage"] if i == 0 else []),
-        "admin": (i == 0),  # 第一个 agent 作为 admin / first agent is admin
-    })
+    os.chmod(os.path.join(clients_dir, f"{name}.token"), 0o600)
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+for agent in agents:
+    principals.append({"id": agent, "token_sha256": _mint(agent), "scopes": ["read", "write"], "admin": False})
+# 独立 admin 主体 / dedicated admin principal —— dashboard、Hermes 插件回退、运维脚本
+# 都读 clients/admin.token（audit 2026-09-07: 此前 init 从不生成它，三处消费者全部落空）。
+principals.append({
+    "id": "admin", "token_sha256": _mint("admin"),
+    "scopes": ["read", "write", "delete", "ingest", "review", "manage", "admin"], "admin": True,
+})
 
 registry = {"version": 1, "principals": principals}
 with open(token_json, "w") as f:
@@ -87,42 +92,20 @@ if [[ -f "$CONFIG_FILE" ]]; then
 else
   echo "==> 生成最小 config ..."
   cat > "$CONFIG_FILE" <<'YAML'
-version: 7.0.0
-schema_version: '7'
-agents:
-- id: heimdallr
-  name: Heimdallr-EX
-  role: 基础设施/综合助手
-  subscriptions:
-    domains: [infrastructure, system, personal, quant, knowledge]
-    types: [all]
-- id: quantmaster
-  name: QuantMaster
-  role: 量化投顾
-  subscriptions:
-    domains: [quant, system, knowledge]
-    types: [iron_rule, pattern, project_config]
-- id: jarvis
-  name: J.A.R.V.I.S.
-  role: 技术顾问
-  subscriptions:
-    domains: [system, tech_support, infrastructure, knowledge]
-    types: [project_config, pattern, iron_rule]
-- id: mentor
-  name: Mentor
-  role: 培训师/记忆守护者
-  maintainer: true
-  subscriptions:
-    domains: [system, knowledge, infrastructure, personal, quant]
-    types: [all]
-domains: [infrastructure, quant, tech_support, personal, system, knowledge]
-fact_types: [iron_rule, user_pref, project_config, event, pattern, ephemeral, learning, reference]
-visibility: [all, owner_only, shared]
-water_level:
-  per_agent_warn: 200
-  per_agent_force: 300
-  total_facts_warn: 500
-  total_facts_force: 800
+# Mímir config —— 只有下面两段会被代码读取 / only these sections are read by the code
+# (audit 2026-09-07: 旧模板的 agents/subscriptions/water_level 从未被任何代码消费)
+#   federation.agents / federation.domains  → 动态主体与领域注册表 (mimir_v8/config.py)
+#   collector.rss_feeds / collector.sources → 统一采集源注册表 (mimir_v8/worker.py)
+version: 14.1.0
+federation:
+  agents: [heimdallr, quantmaster, jarvis, mentor]
+  domains: [infrastructure, quant, tech_support, personal, system, knowledge]
+collector:
+  rss_feeds: []
+  sources: []
+  # 示例 / examples:
+  # - {name: vault, type: vault, vault_root: /home/me/obsidian, exclude_dirs: [private], category: knowledge_doc}
+  # - {name: blog, type: web, url: https://example.com/post}
 YAML
   echo "    已写入 / wrote $CONFIG_FILE"
 fi
