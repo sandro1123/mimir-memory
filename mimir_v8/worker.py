@@ -31,6 +31,13 @@ logger = logging.getLogger("mimir_v8.worker")
 
 TZ = timezone(timedelta(hours=8))
 
+# P48 抽取链 LLM 失败语义化（审计 09-07 P1-5 / 移交单 §2.2）：
+# 9router 抖动窗内 LLM 不可用 ≠ 对话无价值——failed(llm_unavailable)
+# 保留 ingestion=stored 供下轮重试；同 run 24h 内撞 LLM_BACKOFF_HITS 次后
+# 退避出队，不再每 30 分钟撞死马。
+LLM_BACKOFF_WINDOW_HOURS = 24
+LLM_BACKOFF_HITS = 3
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Mímir v8.2 governed worker")
@@ -210,8 +217,12 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
             FROM ingestion_runs r
             JOIN conversation_sources s ON s.source_id = r.source_id
             WHERE r.status = 'stored' AND s.source_category = 'conversation'
+              AND (SELECT COUNT(*) FROM extraction_runs e
+                   WHERE e.run_id = r.run_id
+                     AND e.error_code = 'llm_unavailable'
+                     AND e.started_at >= datetime('now', ?)) < ?
             ORDER BY r.started_at LIMIT ?""",
-            (limit,),
+            (f'-{LLM_BACKOFF_WINDOW_HOURS} hours', LLM_BACKOFF_HITS, limit),
         ).fetchall()]
     if not rows:
         return {"created": [], "skipped": [], "failed": [], "count": 0, "evaluator_mode": "no_data"}
@@ -219,6 +230,7 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
     evaluator = Evaluator()
     service = ExtractionService(store)
     created, skipped, failed = [], [], []
+    llm_unavailable_count = 0
     seen_runs: set[str] = set()
 
     for row in rows:
@@ -246,6 +258,20 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
 
         try:
             eval_result = evaluator.evaluate(combined)
+
+            if getattr(eval_result, "llm_unavailable", False):
+                # P48: LLM 不可用是基础设施故障，不是内容裁决。
+                # failed(llm_unavailable) + ingestion 保持 stored，
+                # 下轮（或退避后）重试；绝不冒充 discard 永久丢弃。
+                now = utc_now()
+                with store.transaction() as connection:
+                    connection.execute(
+                        "INSERT INTO extraction_runs(extraction_id,run_id,extractor_principal,policy_version,status,candidate_count,started_at,completed_at,error_code) VALUES(?,?,?,?,?,?,?,?,?)",
+                        (new_id(), run_id, actor_principal, eval_result.policy_version, "failed", 0, now, now, "llm_unavailable"),
+                    )
+                llm_unavailable_count += 1
+                continue
+
             decision = evaluator.decide(eval_result)
 
             if decision.action in ("discard", "reject"):
@@ -300,7 +326,8 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
             created.append({"candidate_id": result["candidate"]["candidate_id"], "salience": eval_result.salience, "risk": eval_result.risk})
         except Exception as exc:
             failed.append({"run_id": run_id, "error": type(exc).__name__})
-    return {"created": created, "skipped": skipped, "failed": failed, "count": len(created), "evaluator_mode": "llm"}
+    return {"created": created, "skipped": skipped, "failed": failed, "count": len(created),
+            "evaluator_mode": "llm", "llm_unavailable": llm_unavailable_count}
 
 
 def review_reminder(store: CanonicalStore, owner: str | None = None) -> dict:

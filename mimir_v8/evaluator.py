@@ -108,6 +108,9 @@ class EvaluationResult:
     model_used: str = ""
     raw_response: str = ""
     parse_error: str = ""
+    # P48: LLM 不可用（无响应/网络失败）显式标记——与「评估了但不值得记」
+    # 严格区分；parse_error 兼容面保留供旧消费方，抽取链看本标记分流。
+    llm_unavailable: bool = False
 
 
 @dataclass(frozen=True)
@@ -288,6 +291,7 @@ class Evaluator:
 
     def _parse_response(self, raw: str | None, content: str) -> EvaluationResult:
         if not raw:
+            # P48: _call_llm 失败/空响应——LLM 不可用，非内容无价值。
             return EvaluationResult(
                 content=content, salience=0.0, risk="low",
                 domain="knowledge", fact_type="reference",
@@ -295,6 +299,7 @@ class Evaluator:
                 is_valuable=False, raw_response="",
                 model_used=self.model,
                 parse_error="LLM returned empty response",
+                llm_unavailable=True,
             )
 
         # Must be a single complete JSON object with no surrounding text
