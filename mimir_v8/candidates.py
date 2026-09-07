@@ -285,6 +285,11 @@ class CandidateService:
                 }
             if candidate["status"] != "approved":
                 raise ConflictError("only approved candidates can be committed")
+        reviewer = str(candidate["reviewed_by"] or "")
+        # audit 2026-09-07 P1-3: a human approval *is* the human review — 262
+        # approved candidates used to land as unreviewed facts, losing the
+        # signal. Only automatic (service:*) approvals leave the fact unreviewed.
+        human_status = "confirmed" if reviewer and not reviewer.startswith("service:") else "unreviewed"
         result = self.store.create_fact(
             CreateFact(
                 content=candidate["content"], summary=candidate["summary"],
@@ -293,6 +298,7 @@ class CandidateService:
                 visibility=candidate["proposed_visibility"],
                 sensitivity=candidate["proposed_sensitivity"],
                 egress_policy=candidate["proposed_egress_policy"],
+                human_status=human_status,
                 confidence_score=candidate["confidence_score"],
                 source_kind="candidate", source_uri=f"mimir-v8://candidate/{candidate_id}",
                 source_hash=candidate["source_hash"], idempotency_key=idempotency_key,
