@@ -118,6 +118,7 @@ class UpdateFactBody(BaseModel):
     confidence_score: float | None = None
     valid_from: str | None = None
     valid_to: str | None = None
+    decay_tier: str | None = None
     change_reason: str = "canonical fact updated through REST API"
     idempotency_key: str | None = None
 

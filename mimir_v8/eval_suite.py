@@ -347,6 +347,82 @@ class GoldenSetBenchmark:
         }
 
 
+# ── Golden-set health sentinel (v14.1.0 P0) ──────────────────
+
+#: Health thresholds for golden facts. A golden fact anchors a floor,
+#: so every fact it pins must itself be trustworthy: human-confirmed,
+#: carrying explicit confidence, and on a durable decay tier. These
+#: thresholds mirror exactly what the 2026-09-04 production re-test
+#: diagnosed as the zero-headroom@3 root cause (unreviewed / NULL
+#: confidence / L4 weakest tier).
+GOLDEN_HEALTH_MIN_CONFIDENCE = 0.5
+GOLDEN_HEALTH_WEAK_TIERS = frozenset({"L4_temporary", "L5_ephemeral"})
+
+#: Decay tiers considered durable for a golden anchor. L0 never
+#: decays, L1 preferences half-life at a year, L2 config at 180 days.
+GOLDEN_HEALTH_DURABLE_TIERS = frozenset({"L0_never", "L1_preference", "L2_config"})
+
+
+def golden_health(connection: Any) -> dict[str, Any]:
+    """Stewardship sentinel for the golden set (pure read, no writes).
+
+    Walks ``GOLDEN_SET`` and reports, per case, whether the pinned
+    fact is a healthy benchmark anchor: present, active,
+    human-confirmed, carrying confidence ≥ the floor, and on a
+    durable decay tier. Aging anchors erode floors silently — the
+    marker-substring fallback keeps the benchmark green while the
+    fact itself decays — so the sentinel must be loud before the
+    floors move, not after.
+
+    ``connection`` is an open sqlite3 connection (row factory set).
+    """
+    rows = {
+        row["fact_id"]: row
+        for row in connection.execute(
+            """SELECT fact_id, status, human_status, confidence_score,
+            decay_tier FROM facts WHERE fact_id IN (
+            """ + ",".join("?" * len(GOLDEN_SET)) + ")",
+            tuple(golden_id for _q, golden_id, _m in GOLDEN_SET),
+        ).fetchall()
+    }
+    cases = []
+    for question, golden_id, marker in GOLDEN_SET:
+        row = rows.get(golden_id)
+        if row is None:
+            cases.append({
+                "question": question, "fact_id": golden_id,
+                "marker": marker, "flags": ["missing"],
+            })
+            continue
+        flags: list[str] = []
+        if row["status"] != "active":
+            flags.append("inactive")
+        if row["human_status"] not in ("confirmed",):
+            flags.append("unconfirmed")
+        confidence = row["confidence_score"]
+        if confidence is None or confidence < GOLDEN_HEALTH_MIN_CONFIDENCE:
+            flags.append("low_confidence")
+        if row["decay_tier"] in GOLDEN_HEALTH_WEAK_TIERS:
+            flags.append("weak_tier")
+        cases.append({
+            "question": question, "fact_id": golden_id, "marker": marker,
+            "flags": flags,
+            "status": row["status"], "human_status": row["human_status"],
+            "confidence_score": confidence, "decay_tier": row["decay_tier"],
+        })
+    unhealthy = [case for case in cases if case["flags"]]
+    return {
+        "generator": GENERATOR,
+        "n_cases": len(cases),
+        "healthy": not unhealthy,
+        "unhealthy": unhealthy,
+        "thresholds": {
+            "min_confidence": GOLDEN_HEALTH_MIN_CONFIDENCE,
+            "durable_tiers": sorted(GOLDEN_HEALTH_DURABLE_TIERS),
+        },
+    }
+
+
 # ── Run entry (CLI) ──────────────────────────────────────────
 
 
@@ -367,8 +443,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--golden", action="store_true",
         help="online golden-set benchmark against the live Mímir API",
     )
+    mode.add_argument(
+        "--golden-health", action="store_true",
+        help="golden-set stewardship sentinel against a canonical db "
+             "(read-only; exits 4 when any golden fact is aged)",
+    )
     parser.add_argument("--seed", type=int, default=None,
                         help="synthetic corpus seed (reproducible runs)")
+    parser.add_argument("--db", default=None,
+                        help="canonical store path for --golden-health")
     parser.add_argument("--api", default=DEFAULT_EVAL_API,
                         help="Mímir API base URL for --golden")
     parser.add_argument("--token", default=None,
@@ -384,6 +467,44 @@ def main(argv: Sequence[str] | None = None) -> dict[str, Any]:
     silently green exit.
     """
     args = _build_arg_parser().parse_args(argv)
+    if args.golden_health:
+        import sqlite3
+
+        db_path = Path(args.db) if args.db else None
+        if db_path is None or not db_path.exists():
+            print(
+                json.dumps({"error": f"canonical db not found: {args.db}"}),
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        try:
+            connection = sqlite3.connect(
+                f"file:{db_path}?mode=ro", uri=True, timeout=30.0
+            )
+            connection.row_factory = sqlite3.Row
+        except sqlite3.Error as exc:
+            print(
+                json.dumps({"error": f"cannot open canonical db: {exc}"}),
+                file=sys.stderr,
+            )
+            raise SystemExit(2) from exc
+        try:
+            report = golden_health(connection)
+        finally:
+            connection.close()
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        if not report["healthy"]:
+            print(
+                json.dumps(
+                    {
+                        "error": "golden set aged — stewardship required",
+                        "unhealthy": report["unhealthy"],
+                    }
+                ),
+                file=sys.stderr,
+            )
+            raise SystemExit(4)
+        return report
     if args.synthetic:
         report = SyntheticBenchmark(seed=args.seed).run()
     else:

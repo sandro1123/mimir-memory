@@ -1110,6 +1110,9 @@ class CanonicalStore:
             )
             valid_from = cmd.valid_from if cmd.valid_from is not None else current["valid_from"]
             valid_to = cmd.valid_to if cmd.valid_to is not None else current["valid_to"]
+            decay_tier = (
+                cmd.decay_tier if cmd.decay_tier is not None else current["decay_tier"]
+            )
             content_hash = sha256_text(content)
             changed_fields = [
                 name
@@ -1120,6 +1123,7 @@ class CanonicalStore:
                     ("confidence_score", current["confidence_score"], confidence),
                     ("valid_from", current["valid_from"], valid_from),
                     ("valid_to", current["valid_to"], valid_to),
+                    ("decay_tier", current["decay_tier"], decay_tier),
                 )
                 if before != after
             ]
@@ -1149,7 +1153,7 @@ class CanonicalStore:
             connection.execute(
                 """UPDATE facts SET current_version=?, content=?, summary=?,
                 human_status=?, confidence_score=?, valid_from=?, valid_to=?,
-                updated_at=?, content_hash=? WHERE fact_id=?""",
+                decay_tier=?, updated_at=?, content_hash=? WHERE fact_id=?""",
                 (
                     new_version,
                     content,
@@ -1158,6 +1162,7 @@ class CanonicalStore:
                     confidence,
                     valid_from,
                     valid_to,
+                    decay_tier,
                     now,
                     content_hash,
                     cmd.fact_id,),
@@ -1172,6 +1177,7 @@ class CanonicalStore:
                     "confidence_score": confidence,
                     "valid_from": valid_from,
                     "valid_to": valid_to,
+                    "decay_tier": decay_tier,
                     "updated_at": now,
                     "content_hash": content_hash,
                 }

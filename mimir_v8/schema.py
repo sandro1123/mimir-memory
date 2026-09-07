@@ -155,6 +155,7 @@ class UpdateFact:
     confidence_score: float | None = None
     valid_from: str | None = None
     valid_to: str | None = None
+    decay_tier: str | None = None
     change_reason: str = "canonical fact updated"
     idempotency_key: str | None = None
 
@@ -170,6 +171,8 @@ class UpdateFact:
             _choice("human_status", self.human_status, HUMAN_STATUSES)
         if self.confidence_score is not None and not 0 <= self.confidence_score <= 1:
             raise ValidationError("confidence_score must be between 0 and 1")
+        if self.decay_tier is not None:
+            _choice("decay_tier", self.decay_tier, DECAY_TIERS)
         if all(
             value is None
             for value in (
@@ -177,6 +180,7 @@ class UpdateFact:
                 summary,
                 self.human_status,
                 self.confidence_score,
+                self.decay_tier,
                 self.valid_from,
                 self.valid_to,
             )
@@ -191,6 +195,7 @@ class UpdateFact:
             confidence_score=self.confidence_score,
             valid_from=self.valid_from,
             valid_to=self.valid_to,
+            decay_tier=self.decay_tier,
             change_reason=_required_text("change_reason", self.change_reason, 2_000),
             idempotency_key=self.idempotency_key.strip() if self.idempotency_key else None,
         )
