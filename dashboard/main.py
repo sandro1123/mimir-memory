@@ -1537,6 +1537,172 @@ async def v11_code_impact(symbol_id: str):
 
 # Static files are served via nginx/cloudflare; API only here
 
+# ── v4: customer-view aggregates ───────────────────────────────────────
+# spec: docs/plans/2026-09-05-dashboard-v4-customer-redesign-design.md §3.2
+# 判例修正（2026-09-07 三面勘察，对生产 canonical.db 逐列核实）：
+#   facts 时间列 = recorded_at/updated_at（无 created_at）
+#   「有分歧」= status='disputed'（是状态值非列；生产实存 3 条）
+#   待审候选真状态 = human_review（review_required 在生产恒空）
+#   「从哪学的」= fact_sources→sources join，title 多 NULL，source_kind 才可靠
+
+V4_CONFIDENCE_LABELS = ((0.8, "很确定"), (0.5, "还行"), (0.0, "待观察"))
+
+
+def _v4_conf_label(c: float | None) -> str:
+    """客户语言三档置信（spec §2.5）：≥0.8 很确定 / 0.5~0.8 还行 / <0.5 待观察"""
+    for floor, label in V4_CONFIDENCE_LABELS:
+        if (c or 0) >= floor:
+            return label
+    return "待观察"
+
+
+def _v4_card(r: dict, source_name: str | None = None) -> dict:
+    """facts 行 → 客户卡片（技术词全藏正面，spec §2.5）"""
+    return {
+        "summary": r.get("summary") or (r.get("content") or "")[:80],
+        "domain": r.get("domain", ""),
+        "confidence": r.get("confidence_score"),
+        "confidence_label": _v4_conf_label(r.get("confidence_score")),
+        "source_name": source_name or r.get("source_name") or "记忆管家",
+        "recorded_at": r.get("recorded_at"),
+        "fact_id": r.get("fact_id"),
+    }
+
+
+@app.get("/api/dashboard/today")
+@_cached("dash_today", ttl=60)
+async def api_dashboard_today():
+    """客户视图·今天 — 学到/待审/淡忘单请求聚合，任一上游断只降级不塌（spec §3.4）"""
+    error_sources: list[str] = []
+    learned: list[dict] = []
+    pending: list[dict] = []
+    decayed: list[dict] = []
+
+    # 待审候选：真状态 human_review（review_required 生产恒空——2026-09-07 对表钉死）
+    cand = await _mimir_get("/v8/learning/candidates?status=human_review&limit=20")
+    if cand is None:
+        error_sources.append("learning_candidates")
+    else:
+        for c in (cand.get("candidates") or [])[:20]:
+            pending.append({
+                "candidate_id": c.get("candidate_id"),
+                "summary": c.get("summary") or (c.get("content") or "")[:80],
+                "domain": c.get("proposed_domain", ""),
+                "confidence": c.get("confidence_score"),
+                "confidence_label": _v4_conf_label(c.get("confidence_score")),
+                "source_name": c.get("source_name", "学习引擎"),
+                "created_at": c.get("created_at"),
+            })
+
+    # 今天学到的 facts（时间列=recorded_at）
+    try:
+        rows = _db_query(
+            "SELECT f.domain, f.summary, f.confidence_score, f.recorded_at, f.fact_id, "
+            "COALESCE(NULLIF(sp.title,''), sp.source_kind) AS source_name "
+            "FROM facts f "
+            "LEFT JOIN fact_sources fs ON fs.fact_id=f.fact_id AND fs.version=f.current_version "
+            "LEFT JOIN sources sp ON sp.source_id=fs.source_id "
+            "WHERE f.status='active' AND date(f.recorded_at)=date('now','localtime') "
+            "ORDER BY f.recorded_at DESC LIMIT 30")
+        learned = [_v4_card(r) for r in rows]
+    except Exception:
+        error_sources.append("facts_today")
+
+    # 最近淡忘（decay_tier 事实层；decayed_at 多 NULL，按 tier 就近3日窗取事件面）
+    try:
+        rows = _db_query(
+            "SELECT f.summary, f.recorded_at "
+            "FROM facts f "
+            "WHERE f.status='active' AND f.decay_tier IN ('L4_temporary','L5_archive') "
+            "AND date(f.recorded_at)>=date('now','-3 days','localtime') LIMIT 10")
+        decayed = [{"summary": r["summary"], "last_touched": r["recorded_at"]}
+                   for r in rows]
+    except Exception:
+        error_sources.append("decayed_recent")
+
+    return {
+        "date": datetime.now().astimezone().date().isoformat(),
+        "groups": [{"label": "今天", "kind": "today",
+                    "learned": learned, "pending": pending, "decayed": decayed}],
+        "degraded": bool(error_sources),
+        "error_sources": error_sources,
+    }
+
+
+def _now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+@app.get("/api/dashboard/library")
+@_cached("dash_library", ttl=60)
+async def api_dashboard_library(offset: int = Query(default=0, ge=0),
+                                limit: int = Query(default=50, ge=1, le=100),
+                                filter: str = Query(default="all")):
+    """客户视图·记忆库 — 全量卡片流+筛选（all/disputed/pending）spec §2.1"""
+    error_sources: list[str] = []
+    where = "f.status='active'"
+    if filter == "disputed":
+        # 「有分歧的记忆」= status='disputed'（状态值非列——2026-09-07 对表钉死）
+        where = "f.status='disputed'"
+    elif filter == "pending":
+        where = "f.status='active' AND f.human_status='unreviewed'"
+
+    cards: list[dict] = []
+    total = 0
+    try:
+        cnt_rows = _db_query(f"SELECT COUNT(*) AS cnt FROM facts f WHERE {where}")
+        total = cnt_rows[0]["cnt"] if cnt_rows else 0
+        rows = _db_query(
+            f"SELECT f.domain, f.summary, f.confidence_score, f.recorded_at, f.fact_id, "
+            f"COALESCE(NULLIF(sp.title,''), sp.source_kind) AS source_name "
+            f"FROM facts f "
+            f"LEFT JOIN fact_sources fs ON fs.fact_id=f.fact_id AND fs.version=f.current_version "
+            f"LEFT JOIN sources sp ON sp.source_id=fs.source_id "
+            f"WHERE {where} ORDER BY f.recorded_at DESC LIMIT ? OFFSET ?",
+            (limit, offset))
+        cards = [_v4_card(r) for r in rows]
+    except Exception:
+        error_sources.append("library_query")
+
+    # 待审角标：真状态 human_review（学习引擎侧）
+    pending_count = 0
+    cand = await _mimir_get("/v8/learning/candidates?status=human_review&limit=1")
+    if cand is None:
+        error_sources.append("learning_candidates")
+    else:
+        pending_count = cand.get("count") or len(cand.get("candidates") or [])
+
+    return {"cards": cards, "total": total, "pending_count": pending_count,
+            "degraded": bool(error_sources), "error_sources": error_sources}
+
+
+@app.get("/api/dashboard/health-light")
+@_cached("dash_light", ttl=60)
+async def api_dashboard_health_light():
+    """客户视图·健康灯 绿/黄/红（spec §2.4）——一盏灯，运维细节点开看"""
+    ready = await _mimir_get("/ready")
+    if not ready:
+        return {"light": "red", "reasons": ["Mímir API 不可达"],
+                "pending_count": 0, "checked_at": _now_iso()}
+
+    learning = await _mimir_get("/v8/learning/status")
+    reasons: list[str] = []
+    if ready.get("status") != "ready":
+        reasons.append("API 未就绪")
+    if ready.get("dead_letters", 0) > 0:
+        reasons.append(f"死信 {ready['dead_letters']} 条")
+    bad_proj = [p["projector_name"] for p in ready.get("projectors", [])
+                if p.get("last_error_code") or p.get("status") not in ("idle", "running")]
+    if bad_proj:
+        reasons.append(f"投影器异常: {', '.join(bad_proj)}")
+    # 真键 human_review（review_required 生产恒空——2026-09-07 对表钉死）
+    pending = ((learning or {}).get("candidates", {}).get("human_review", 0)) or 0
+    if pending > 30:
+        reasons.append(f"待审堆积 {pending} 条")
+    light = "red" if ready.get("status") != "ready" else ("yellow" if reasons else "green")
+    return {"light": light, "reasons": reasons,
+            "pending_count": pending, "checked_at": _now_iso()}
+
 
 # ── 启动入口 ──────────────────────────────────────────
 if __name__ == "__main__":
