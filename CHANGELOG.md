@@ -6,6 +6,14 @@
 
 ---
 
+## Unreleased (post v14.1.0) — 移交单收尾 (Handoff Follow-ups)
+
+> 接手 09-08 移交单 §2.2/§2.3/§2.4 三件。均无 schema 变更。
+
+- **P48 抽取链 LLM 失败语义化（§2.2，cd31055）** —  显式标记； 遇标记记  且 ingestion 保持  供下轮重试（此前 LLM 抖动=对话永久丢弃且与正常 discard 不可区分）；24h 内同 run 失败 ≥3 次退避出队；返回带  计数。ops health 新增「近 2h 抽取全 failed 即报」哨兵。
+- **symbolic offload 空文本入口拒绝（§2.4，5fbce55）** —  strip 为空即 422；生产冒烟残留空块  已按 block_id+length=0 双条件清除（empty-blocks 0）。
+- **生产 mimir_config.yaml 死键清理（§2.3，生产仓 7e481aa）** — 4142B→1198B，只留  四段真消费面（ 为 ops/weekly_reflect.py 所读，审计清单勘误补入）；collector 真跑 RSS 4 源+vault 全绿验证；原件备份 。
+
 ## v14.1.0 — 2026-09-07 · 全面审计修复 (Audit Remediation)
 
 > 2026-09-07 全面审计（1 P0 + 12 P1）的修复包。Schema 保持 20、无迁移；生产以新发布树 `v14.1.0-20260907` 滚动上线。
