@@ -1485,6 +1485,11 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         svc = SymbolicMemoryService(context.store)
         session_key = body.get("session_key") or identity.principal_id
         owner = body.get("owner_principal") or identity.principal_id
+        # 移交单 §2.4：空 raw_text 曾 200 落空块（sym_10f7f8e6 生产实证）——
+        # 符号记忆的意义就是承载真实文本，空内容在入口拒绝。
+        raw_text = (body.get("raw_text") or "").strip()
+        if not raw_text:
+            raise HTTPException(422, "raw_text must be non-empty")
         if not identity.can_act_as(owner):
             raise AuthError("cannot offload symbolic block for another principal", 403, "owner_boundary")
         block = svc.offload_block(

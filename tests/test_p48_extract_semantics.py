@@ -174,3 +174,60 @@ class TestHealthyPathUnchanged(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSymbolicOffloadEmptyTextRejected(unittest.TestCase):
+    """B 卡（移交单 §2.4）：offload 空 raw_text 必 422，不再产生空块。
+
+    生产实证（09-08 00:0x 冒烟）：POST {} → 200 落空块 sym_10f7f8e6
+    （raw_len=0）+ 空 canvas——垃圾数据无入口校验。生产残留已清。
+    """
+
+    def setUp(self):
+        import hashlib
+        import json
+        from mimir_v8.api import ServiceContext, create_app
+        from mimir_v8.auth import TokenStore
+        from mimir_v8.extraction import ExtractionService
+        from mimir_v8.query import QueryKernel
+        from fastapi.testclient import TestClient
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        self.store = CanonicalStore(root / "canonical.db")
+        self.token = f"tok-{new_id()}"
+        tp = root / "tokens.json"
+        tp.write_text(json.dumps({"principals": [{
+            "id": "mentor",
+            "token_sha256": hashlib.sha256(self.token.encode()).hexdigest(),
+            "scopes": ["read", "write"],
+            "roles": [], "admin": True,
+        }]}), encoding="utf-8")
+        context = ServiceContext(
+            store=self.store,
+            token_store=TokenStore(tp),
+            query=QueryKernel(self.store),
+            extraction=ExtractionService(self.store),
+        )
+        self.client = TestClient(create_app(context), raise_server_exceptions=False)
+        self.hdr = {"Authorization": f"Bearer {self.token}"}
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_empty_raw_text_is_422(self):
+        r = self.client.post("/v11/symbolic/offload", headers=self.hdr, json={})
+        self.assertEqual(r.status_code, 422, "空 raw_text 必须被拒（422），不得落空块")
+        with self.store.connect() as conn:
+            n = conn.execute("SELECT COUNT(*) FROM symbolic_blocks").fetchone()[0]
+        self.assertEqual(n, 0, "被拒请求不得写入任何块")
+
+    def test_whitespace_raw_text_is_422(self):
+        r = self.client.post("/v11/symbolic/offload", headers=self.hdr,
+                             json={"raw_text": "   \n\t "})
+        self.assertEqual(r.status_code, 422, "纯空白 raw_text 同属空内容")
+
+    def test_valid_raw_text_still_works(self):
+        r = self.client.post("/v11/symbolic/offload", headers=self.hdr,
+                             json={"raw_text": "真实会话日志内容" * 5})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("block_id", r.json())
