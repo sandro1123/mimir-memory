@@ -138,12 +138,23 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
       </div>
     </div>
   </div>
-  <template x-for="item in navItems" :key="item.id">
+  <template x-for="item in (devMode ? navItems : customerNav)" :key="item.id">
     <button class="sidebar-item" :class="{'active':activeTab===item.id}" @click="switchTab(item.id)">
       <span x-html="item.icon"></span><span x-text="item.label"></span>
     </button>
   </template>
   <div style="margin-top:auto;padding:10px 12px 4px;border-top:1px solid var(--border)">
+    <!-- v4 健康灯：客户视图常驻侧栏底部（devMode 不显示——开发者有 status-dot） -->
+    <div x-show="!devMode" @click="lightOpen=!lightOpen" style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-radius:8px">
+      <span :style="'width:10px;height:10px;border-radius:50%;flex-shrink:0;background:' + ({green:'#22c55e',yellow:'#eab308',red:'#ef4444',off:'#94a3b8'}[customerView.light.light]||'#94a3b8')"></span>
+      <span style="font-size:.78rem;color:var(--text)">一切正常</span>
+      <span x-show="customerView.light.light && customerView.light.light!=='green'" style="font-size:.68rem;color:var(--muted)" x-text="'· ' + (customerView.light.reasons||[]).length + ' 件事'"></span>
+    </div>
+    <div x-show="!devMode && lightOpen && (customerView.light.reasons||[]).length" style="padding:2px 12px 8px;font-size:.72rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+      <template x-for="(r,i) in (customerView.light.reasons||[])" :key="i">
+        <span x-text="r"></span>
+      </template>
+    </div>
     <button class="sidebar-item" @click="logout()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       <span>退出登录</span>
@@ -166,6 +177,240 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
 </template>
 
 <div x-show="!loading">
+
+<!-- v4 今天页（客户视图首页） -->
+<div class="tab-content" :class="{'active':activeTab==='today'}" x-show="!devMode">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <div style="min-width:0">
+      <h1 style="font-size:1.35rem">今天</h1>
+      <div style="font-size:.7rem;color:var(--muted);margin-top:4px" x-text="(customerView.today.date ? customerView.today.date + ' · ' : '') + (customerView.today.degraded ? '部分数据暂时读不到，其他部分不受影响' : '我今天学到的、等你确认的、快要淡忘的')"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+      <button class="btn btn-outline btn-sm" style="padding:4px 9px" @click="loadToday()">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+        <span>刷新</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- 搜索框：问我的助手 -->
+  <div class="card" style="padding:12px;margin-bottom:16px">
+    <div style="display:flex;gap:8px;align-items:center">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted);flex-shrink:0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" x-model="customerView.search" @keydown.enter="askAssistant()" placeholder="问我的助手…（比如：我有哪些重要的约定？）"
+        style="flex:1;padding:8px 10px;border:1px solid var(--border2);border-radius:8px;background:var(--card2);color:var(--text);font-size:.85rem;outline:none">
+      <button class="btn btn-sm" :disabled="customerView.searchBusy" @click="askAssistant()" style="padding:6px 14px">
+        <span x-text="customerView.searchBusy ? '找…' : '问一问'"></span>
+      </button>
+    </div>
+    <div x-show="customerView.searchErr" style="color:var(--red);font-size:.74rem;margin-top:8px" x-text="customerView.searchErr"></div>
+    <div x-show="customerView.searchResults" style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:.72rem;color:var(--muted)" x-text="'找到 ' + (customerView.searchResults ? customerView.searchResults.length : 0) + ' 条相关记忆'"></div>
+      <template x-for="(s,i) in (customerView.searchResults||[])" :key="i">
+        <div style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:.82rem;display:flex;flex-direction:column;gap:4px">
+          <span x-text="s.summary || s.content || s.text" style="word-break:break-word"></span>
+          <span style="font-size:.68rem;color:var(--muted)" x-text="[s.source_name, s.score ? ('相关度 ' + Math.round((s.score||0)*100) + '%') : null].filter(Boolean).join(' · ')"></span>
+        </div>
+      </template>
+      <div x-show="customerView.searchResults && !customerView.searchResults.length" class="empty">没找到相关记忆。换个说法试试？</div>
+    </div>
+  </div>
+
+  <template x-for="(g,gi) in (customerView.today.groups||[])" :key="gi">
+    <div>
+      <!-- 学到的 -->
+      <div x-show="g.kind==='today' && (g.learned||[]).length" style="margin-bottom:20px">
+        <div style="font-size:.85rem;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--accent)"></span>
+          <span>今天学到的</span>
+          <span style="font-size:.7rem;color:var(--muted);font-weight:400" x-text="(g.learned||[]).length + ' 条'"></span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <template x-for="c in g.learned" :key="c.fact_id">
+            <div class="card card-hover" style="padding:12px 14px">
+              <div x-text="c.summary" style="font-size:.88rem;word-break:break-word"></div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+                <span style="font-size:.7rem;color:var(--muted)" x-text="'来自 ' + c.source_name + ' · ' + (c.recorded_at||'').slice(11,16)"></span>
+                <span style="font-size:.7rem;font-weight:600;padding:2px 8px;border-radius:99px;border:1px solid var(--border2)"
+                  :class="c.confidence_label==='很确定' ? '' : 'opacity:.85'"
+                  :style="c.confidence_label==='很确定' ? 'color:#22c55e;border-color:#22c55e55' : (c.confidence_label==='还行' ? 'color:#eab308;border-color:#eab30855' : 'color:var(--muted)')"
+                  x-text="c.confidence_label"></span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- 待我确认的 -->
+      <div x-show="g.kind==='today' && (g.pending||[]).length" style="margin-bottom:20px">
+        <div style="font-size:.85rem;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+          <span style="width:7px;height:7px;border-radius:50%;background:#eab308"></span>
+          <span>等我来确认的</span>
+          <span style="font-size:.7rem;color:var(--muted);font-weight:400" x-text="(g.pending||[]).length + ' 条'"></span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <template x-for="c in g.pending" :key="c.candidate_id">
+            <div class="card" style="padding:12px 14px;border-left:3px solid #eab308">
+              <div x-text="c.summary" style="font-size:.88rem;word-break:break-word"></div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+                <span style="font-size:.7rem;color:var(--muted)" x-text="'来自 ' + c.source_name + ' · 建议置信 ' + c.confidence_label"></span>
+                <span style="display:flex;gap:6px">
+                  <button class="btn btn-sm" style="padding:4px 12px;background:#22c55e22;border-color:#22c55e66" @click="reviewPending(c,'approve')">✓ 是这样</button>
+                  <button class="btn btn-outline btn-sm" style="padding:4px 12px" @click="reviewPending(c,'reject')">✗ 纠正它</button>
+                </span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- 淡忘的 -->
+      <div x-show="g.kind==='today' && (g.decayed||[]).length" style="margin-bottom:20px">
+        <div style="font-size:.85rem;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--muted)"></span>
+          <span>快要淡忘的</span>
+          <span style="font-size:.7rem;color:var(--muted);font-weight:400" x-text="(g.decayed||[]).length + ' 条'"></span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <template x-for="c in g.decayed" :key="c.fact_id || c.summary">
+            <div class="card" style="padding:10px 14px;opacity:.7">
+              <div x-text="c.summary" style="font-size:.84rem;word-break:break-word"></div>
+              <div style="font-size:.68rem;color:var(--muted);margin-top:4px" x-text="'记于 ' + (c.recorded_at||'').slice(0,10) + ' · 我现在不太确定这条了'"></div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- 空态 -->
+  <div x-show="!(customerView.today.groups||[]).some(g => ((g.learned||[]).length + (g.pending||[]).length + (g.decayed||[]).length))" class="card" style="padding:32px;text-align:center">
+    <div style="font-size:2rem;margin-bottom:8px">🌱</div>
+    <div style="font-size:.9rem;color:var(--text)">今天还没有新记忆</div>
+    <div style="font-size:.75rem;color:var(--muted);margin-top:6px">去和你的助手聊聊吧，我会自己记下重要的东西。</div>
+  </div>
+
+  <!-- 降级提示条 -->
+  <div x-show="customerView.today.degraded" style="margin-top:12px;padding:8px 12px;border-radius:8px;font-size:.75rem;color:var(--muted);border:1px dashed var(--border2);display:flex;align-items:center;gap:8px">
+    <span>⚠</span>
+    <span x-text="'部分数据暂时读不到：' + (customerView.today.error_sources||[]).join('、') + '。其他部分不受影响。'"></span>
+  </div>
+</div>
+
+<!-- v4 记忆库页（客户视图） -->
+<div class="tab-content" :class="{'active':activeTab==='library'}" x-show="!devMode">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <div style="min-width:0">
+      <h1 style="font-size:1.35rem">记忆库</h1>
+      <div style="font-size:.7rem;color:var(--muted);margin-top:4px" x-text="'共 ' + (customerView.library.total||0) + ' 条记忆' + ((customerView.library.pending_count||0) ? ' · ' + customerView.library.pending_count + ' 条等你确认' : '')"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+      <span x-show="customerView.libLoading" style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite"></span>
+      <button class="btn btn-outline btn-sm" style="padding:4px 9px" @click="loadLibrary()">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+        <span>刷新</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- 筛选 -->
+  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <button class="btn btn-sm" :class="customerView.libFilter==='all' ? '' : 'btn-outline'"
+      :style="customerView.libFilter==='all' ? 'background:var(--accent);border-color:var(--accent)' : ''"
+      @click="libFilterChange('all')">全部</button>
+    <button class="btn btn-sm" :class="customerView.libFilter==='pending' ? '' : 'btn-outline'"
+      :style="customerView.libFilter==='pending' ? 'background:var(--accent);border-color:var(--accent)' : ''"
+      @click="libFilterChange('pending')">等我确认 <span x-show="customerView.library.pending_count" x-text="'(' + customerView.library.pending_count + ')'"></span></button>
+    <button class="btn btn-sm" :class="customerView.libFilter==='disputed' ? '' : 'btn-outline'"
+      :style="customerView.libFilter==='disputed' ? 'background:var(--accent);border-color:var(--accent)' : ''"
+      @click="libFilterChange('disputed')">有分歧的</button>
+  </div>
+
+  <!-- 卡片流 -->
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <template x-for="c in (customerView.library.cards||[])" :key="c.fact_id">
+      <div class="card card-hover" style="padding:12px 14px" :style="customerView.libFilter==='disputed' ? 'border-left:3px solid #ef4444' : (customerView.libFilter==='pending' ? 'border-left:3px solid #eab308' : '')">
+        <div x-text="c.summary" style="font-size:.86rem;word-break:break-word"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <span style="font-size:.7rem;color:var(--muted)" x-text="'来自 ' + c.source_name + (c.recorded_at ? ' · ' + (c.recorded_at||'').slice(0,10) : '')"></span>
+          <span style="font-size:.7rem;font-weight:600"
+            :style="c.confidence_label==='很确定' ? 'color:#22c55e' : (c.confidence_label==='还行' ? 'color:#eab308' : 'color:var(--muted)')"
+            x-text="c.confidence_label"></span>
+        </div>
+        <!-- 已入库待复核卡：无独立 REST 审批通道（facts 治理走旧审批面板），诚实降级为状态说明 -->
+        <div x-show="customerView.libFilter==='pending'" style="font-size:.7rem;color:var(--yellow,#d97706);margin-top:8px;display:flex;align-items:center;gap:6px">
+          <span>⏳</span><span>已记住，等你复核。需要逐条处理时可在设置里开启开发者模式，用「审批」面板操作。</span>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <div x-show="!(customerView.library.cards||[]).length && !customerView.libLoading" class="empty">
+    <span x-text="customerView.libFilter==='pending' ? '没有等你确认的记忆' : (customerView.libFilter==='disputed' ? '没有有分歧的记忆' : '记忆库是空的')"></span>
+  </div>
+
+  <!-- 分页 -->
+  <div x-show="(customerView.library.total||0) > 50" style="display:flex;justify-content:center;gap:10px;margin-top:14px;align-items:center">
+    <button class="btn btn-outline btn-sm" :disabled="customerView.libOffset===0" @click="libPrev()">‹ 上一页</button>
+    <span style="font-size:.72rem;color:var(--muted)" x-text="((customerView.libOffset/50)+1) + ' / ' + Math.ceil((customerView.library.total||1)/50)"></span>
+    <button class="btn btn-outline btn-sm" :disabled="customerView.libOffset + 50 >= (customerView.library.total||0)" @click="libNext()">下一页 ›</button>
+  </div>
+
+  <div x-show="customerView.library.degraded" style="margin-top:12px;padding:8px 12px;border-radius:8px;font-size:.75rem;color:var(--muted);border:1px dashed var(--border2)">
+    ⚠ 记忆库暂时读不到，稍后刷新试试。
+  </div>
+</div>
+
+<!-- v4 设置页（客户视图） -->
+<div class="tab-content" :class="{'active':activeTab==='settings'}" x-show="!devMode">
+  <div style="margin-bottom:16px">
+    <h1 style="font-size:1.35rem">设置</h1>
+    <div style="font-size:.7rem;color:var(--muted);margin-top:4px">关于我和我的记忆管家</div>
+  </div>
+
+  <!-- 开发者模式 -->
+  <div class="card" style="padding:16px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <div>
+        <div style="font-size:.88rem;font-weight:600">开发者模式</div>
+        <div style="font-size:.72rem;color:var(--muted);margin-top:4px">打开后显示完整的 13 个管理面板（管线/审批/来源/联邦等）。关闭则回到简洁的客户视图。</div>
+      </div>
+      <button class="btn btn-sm" :class="devMode ? '' : 'btn-outline'" @click="toggleDevMode()" style="flex-shrink:0">
+        <span x-text="devMode ? '已开启' : '关闭中'"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- 记忆管家状态 -->
+  <div class="card" style="padding:16px;margin-bottom:12px">
+    <div style="font-size:.88rem;font-weight:600;margin-bottom:10px">记忆管家状态</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <span :style="'width:10px;height:10px;border-radius:50%;flex-shrink:0;background:' + ({green:'#22c55e',yellow:'#eab308',red:'#ef4444',off:'#94a3b8'}[customerView.light.light]||'#94a3b8')"></span>
+      <span style="font-size:.82rem" x-text="({green:'一切正常，放心交给我',yellow:'有点小状况，我在处理',red:'需要你看一眼',off:'还不知道状态'}[customerView.light.light]||'还不知道状态')"></span>
+    </div>
+    <div x-show="(customerView.light.reasons||[]).length" style="display:flex;flex-direction:column;gap:4px;padding-left:20px">
+      <template x-for="(r,i) in (customerView.light.reasons||[])" :key="i">
+        <span style="font-size:.74rem;color:var(--muted)" x-text="'· ' + r"></span>
+      </template>
+    </div>
+  </div>
+
+  <!-- 我的学习来源（淡化说明） -->
+  <div class="card" style="padding:16px;margin-bottom:12px">
+    <div style="font-size:.88rem;font-weight:600;margin-bottom:10px">我从哪里学</div>
+    <div style="font-size:.76rem;color:var(--muted);line-height:1.7">
+      我从和你的对话、你让我记住的事、以及我读过的文档里学习。每条记忆都标了来源——在记忆库和今天页里，每张卡片下方写的「来自 …」就是它的出处。不确定的我会先问你，不会自作主张记下来。
+    </div>
+  </div>
+
+  <!-- 记忆的淡化（淡化说明） -->
+  <div class="card" style="padding:16px">
+    <div style="font-size:.88rem;font-weight:600;margin-bottom:10px">关于淡忘</div>
+    <div style="font-size:.76rem;color:var(--muted);line-height:1.7">
+      很久没被用到的记忆会慢慢「淡忘」——不是删掉，而是沉底归档。今天页里「快要淡忘的」就是提醒我：这些事我不太确定了。你随时可以在记忆库里把它们找回来。
+    </div>
+  </div>
+</div>
 
 <!-- 总览页 -->
 <div class="tab-content" :class="{'active':activeTab==='overview'}">
@@ -1251,7 +1496,7 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
 
 <!-- 手机底部导航 -->
 <nav class="mobile-only" style="position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);z-index:50;padding:4px 0 env(safe-area-inset-bottom);box-shadow:0 -2px 12px rgba(0,0,0,.05)">
-  <template x-for="item in navItems" :key="item.id">
+  <template x-for="item in (devMode ? navItems : customerNav)" :key="item.id">
     <button class="nav-item" :class="{'active':activeTab===item.id}" @click="switchTab(item.id)">
       <span x-html="item.icon"></span><span x-text="item.label"></span>
     </button>
@@ -1269,7 +1514,7 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
 const chartInstances = {};
 function dashboard() {
   return {
-    activeTab: 'overview',
+    activeTab: (localStorage.getItem('devMode')==='1') ? 'overview' : 'today',
     loading: true,
     isMobile: window.innerWidth < 769,
     lastUpdated: '',
@@ -1290,6 +1535,23 @@ function dashboard() {
       {id:'codegraph',label:'代码',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>'},
       {id:'federation',label:'联邦',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><line x1="12" y1="7.5" x2="12" y2="14"/><line x1="12" y1="14" x2="5.8" y2="17.2"/><line x1="12" y1="14" x2="18.2" y2="17.2"/></svg>'},
     ],
+
+    // v4 客户视图（spec docs/plans/2026-09-05-dashboard-v4-customer-redesign-design.md §2.1）
+    // devMode=false 显示这套 3 tab；true 恢复上面 13 tab 全量（零功能丢失）
+    customerNav: [
+      {id:'today',label:'今天',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>'},
+      {id:'library',label:'记忆库',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>'},
+      {id:'settings',label:'设置',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>'},
+    ],
+    devMode: (localStorage.getItem('devMode')==='1'),
+    customerView: {
+      today: {groups:[{learned:[],pending:[],decayed:[]}]},
+      light: {},
+      library: {cards:[],total:0,pending_count:0},
+      libFilter: 'all', libOffset: 0, libLoading: false,
+      search: '', searchResults: null, searchBusy: false, searchErr: '',
+      lightOpen: false,
+    },
 
     ov: {status:'',version:'',schema_version:'',total_facts:0,event_head:0,candidates:{review_required:0,committed:0,rejected:0},projectors:[],knowledge:{items:{},layers:[]},memory:{total_gb:0,used_gb:0},facts_by_domain:{},dead_letters:0,governance:{provisional:0,human_review:0,auto_rejected:0},alerts:[]},
     memoryFacts: [], memoryTotal: 0, memoryOffset: 0, memoryStats: {by_domain:{},by_type:{},by_owner:{},by_domain_keys:[],by_owner_keys:[]},
@@ -1419,10 +1681,16 @@ function dashboard() {
     },
 
     async refresh() {
-      this.ov = await this.fetchJSON('/api/overview');
-      this.decayData = await this.fetchJSON('/api/decay');
-      this.trustData = await this.fetchJSON('/api/trust');
-      this.qualityData = await this.fetchJSON('/api/quality');
+      if (this.devMode) {
+        // 开发者视图：全量刷新（原行为不变）
+        this.ov = await this.fetchJSON('/api/overview');
+        this.decayData = await this.fetchJSON('/api/decay');
+        this.trustData = await this.fetchJSON('/api/trust');
+        this.qualityData = await this.fetchJSON('/api/quality');
+      } else {
+        // v4 客户视图：轻载——只拉健康灯+今天页（不打重 5 端点）
+        await this.loadToday();
+      }
       this.lastUpdated = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'});
       await this.loadTab(this.activeTab);
       this.$nextTick(() => this.renderCharts());
@@ -1434,7 +1702,10 @@ function dashboard() {
     },
 
     async loadTab(id) {
-      if (id === 'memory') await this.loadMemory();
+      if (id === 'today') await this.loadToday();
+      else if (id === 'library') await this.loadLibrary();
+      else if (id === 'settings') await this.loadSettings();
+      else if (id === 'memory') await this.loadMemory();
       else if (id === 'review') await this.loadReview();
       else if (id === 'sources') await this.loadSources();
       else if (id === 'pipeline') await this.loadPipeline();
@@ -1447,6 +1718,76 @@ function dashboard() {
       else if (id === 'codegraph') await this.searchCode();
       else if (id === 'federation') await this.loadFederation();
       this.$nextTick(() => this.renderCharts());
+    },
+
+    // ── v4 客户视图方法 ─────────────────────────────────────────────────
+    async loadToday() {
+      const [t, l] = await Promise.all([
+        this.fetchJSON('/api/dashboard/today'),
+        this.fetchJSON('/api/dashboard/health-light'),
+      ]);
+      this.customerView.today = t || {groups:[{learned:[],pending:[],decayed:[]}], degraded:true, error_sources:['today']};
+      this.customerView.light = l || {light:'off', reasons:['健康信息读不到']};
+    },
+
+    async askAssistant() {
+      const q = (this.customerView.search||'').trim();
+      if (!q || this.customerView.searchBusy) return;
+      this.customerView.searchBusy = true; this.customerView.searchErr = '';
+      try {
+        const d = await this.fetchJSON('/api/search/trace', {method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({text:q, limit:8, dedup_threshold:0.85})});
+        // 与既有 runTrace 同源：results 直接可用；失败时 fetchJSON 返回 {} 落空态
+        this.customerView.searchResults = (d.results||[]).map(r => ({
+          summary: r.summary || r.content || r.text || '',
+          source_name: r.source_name || '我的记忆',
+          score: r.score,
+        }));
+        if (!d.results) this.customerView.searchErr = '暂时找不到，稍后再试一次？';
+      } catch(e) {
+        this.customerView.searchErr = '连接出了点问题';
+      }
+      this.customerView.searchBusy = false;
+    },
+
+    async reviewPending(c, action) {
+      // 复用既有审批通道（reviewAction 同端点）；完成后刷新今天页
+      await this.fetchJSON(`/api/candidates/${c.candidate_id}/review?action=${action}&reason=dashboard-v4`, {method:'POST'});
+      await this.loadToday();
+    },
+
+    async loadLibrary() {
+      this.customerView.libLoading = true;
+      const d = await this.fetchJSON(`/api/dashboard/library?filter=${this.customerView.libFilter}&offset=${this.customerView.libOffset}&limit=50`);
+      if (d && d.cards) {
+        this.customerView.library = d;
+      } else {
+        this.customerView.library = {cards:[], total:0, pending_count:0, degraded:true, error_sources:['library']};
+      }
+      this.customerView.libLoading = false;
+    },
+
+    libFilterChange(f) {
+      this.customerView.libFilter = f;
+      this.customerView.libOffset = 0;
+      this.loadLibrary();
+    },
+
+    libPrev() { if (this.customerView.libOffset >= 50) { this.customerView.libOffset -= 50; this.loadLibrary(); } },
+    libNext() { if (this.customerView.libOffset + 50 < (this.customerView.library.total||0)) { this.customerView.libOffset += 50; this.loadLibrary(); } },
+
+    async loadSettings() {
+      // 设置页数据轻：健康灯已在 loadToday 拉过；这里只补一次（直接进入设置 tab 的场景）
+      if (!this.customerView.light.light) {
+        this.customerView.light = (await this.fetchJSON('/api/dashboard/health-light')) || {light:'off', reasons:['健康信息读不到']};
+      }
+    },
+
+    toggleDevMode() {
+      this.devMode = !this.devMode;
+      localStorage.setItem('devMode', this.devMode ? '1' : '0');
+      // 切换后落点：客户视图→今天；开发者视图→总览
+      this.switchTab(this.devMode ? 'overview' : 'today');
     },
 
     async loadQuality() {
