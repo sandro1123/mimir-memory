@@ -8,6 +8,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from .api import ServiceContext, create_app
 from .auth import TokenStore
@@ -53,16 +54,36 @@ class RuntimeComponents:
 
 
 class ProjectorSupervisor:
-    def __init__(self, runners: tuple[ProjectorRunner, ...], *, interval_seconds: float = 0.25):
+    def __init__(
+        self,
+        runners: tuple[ProjectorRunner, ...],
+        *,
+        interval_seconds: float = 0.25,
+        error_hook: Callable[[str, BaseException], None] | None = None,
+    ):
         self.runners = runners
         self.interval_seconds = interval_seconds
+        # P45: 投影器单轮异常的观测钩子（不抛出即不致死；记录由接线方决定）
+        self.error_hook = error_hook
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def drain_once(self, limit: int = 100) -> dict:
         results = {}
         for runner in self.runners:
-            results[runner.projector.name] = runner.run_once(limit=limit)
+            try:
+                results[runner.projector.name] = runner.run_once(limit=limit)
+            except Exception as exc:  # noqa: BLE001
+                # P45 (2026-09-07): 生产事故修复——迁移重启窗口的 sqlite 锁竞争
+                # 曾使任一 runner 抛异常即杀死整个 supervisor 线程（_run 无保护），
+                # outbox 永久积压 /ready 恒 503，飞书巡检 4 天 3392 次误报无人知。
+                # 单轮失败降级为该投影器本轮 0 进度 + failed 计数，循环继续。
+                if self.error_hook:
+                    try:
+                        self.error_hook(runner.projector.name, exc)
+                    except Exception:
+                        pass
+                results[runner.projector.name] = {"processed": 0, "failed": 1}
         return results
 
     def start(self) -> None:
@@ -81,12 +102,22 @@ class ProjectorSupervisor:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            processed = 0
-            failed = 0
-            for result in self.drain_once().values():
-                processed += result["processed"]
-                failed += result["failed"]
-            delay = self.interval_seconds if processed == 0 or failed else 0.01
+            try:
+                processed = 0
+                failed = 0
+                for result in self.drain_once().values():
+                    processed += result["processed"]
+                    failed += result["failed"]
+                delay = self.interval_seconds if processed == 0 or failed else 0.01
+            except Exception as exc:  # noqa: BLE001
+                # P45: 兜底层——drain_once 之外的任何异常（含极端）也不得杀死线程。
+                # 此前一次 sqlite 锁异常即静默死亡（生产 2026-09-03 起永久积压）。
+                if self.error_hook:
+                    try:
+                        self.error_hook("supervisor", exc)
+                    except Exception:
+                        pass
+                delay = self.interval_seconds
             self._stop.wait(delay)
 
 
