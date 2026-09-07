@@ -114,7 +114,7 @@ QueryRequest → RelevanceGate#should_search
 
 `~/mimir-dashboard`
 - ASP.NET 风格后端 FastAPI（8800）反向代理 Mímir HTTP 端点 + 只读直查 canonical.db
-- 前端单页 index.html（Alpine.js + Chart.js），**13 个标签页**：overview / pipeline /
+- 前端单页 index.html（Alpine.js + Chart.js），默认 **3 个客户标签页**（今天/记忆库/设置）+ 开发者模式 **14 个面板**：overview / pipeline /
   memory / review / sources / agents / opinions / skills / insight / system /
   symbolic / codegraph / federation
 - **v11 改进**：Claude 风格重设计（暖奶油/炭灰主题、衬线标题、珊瑚强调色、明暗切换、

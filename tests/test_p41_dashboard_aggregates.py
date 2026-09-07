@@ -16,7 +16,7 @@ import pytest
 def _load_main():
     """独立加载 dashboard/main.py（绕 sys.modules 缓存，测试间互不污染）。"""
     spec = importlib.util.spec_from_file_location(
-        "dash_main_p41", str(Path(__file__).resolve().parents[1] / "dashboard" / "main.py"))
+        "dash_main_p41", str(Path(__file__).resolve().parents[1] / "dashboard" / "backend" / "main.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

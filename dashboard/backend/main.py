@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import secrets as _secrets
 import sqlite3
 import time
 from datetime import datetime, timezone
@@ -11,6 +13,10 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger("mimir_dashboard")
+# audit 2026-09-07 P1-12: session HMAC key must never degrade to a public constant.
+_RUNTIME_SECRET = _secrets.token_bytes(32)
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -78,7 +84,13 @@ def _stored_password_hash() -> str:
 
 
 def _session_secret() -> bytes:
-    return hashlib.sha256(_stored_password_hash().encode() + b"mimir-dashboard-session-v1").digest()
+    stored = _stored_password_hash()
+    if not stored:
+        # No password configured (or file unreadable): the old derivation was
+        # sha256(b"" + constant) — a public value, so cookies were forgeable.
+        # A per-process random secret keeps every cookie unverifiable instead.
+        return _RUNTIME_SECRET
+    return hashlib.sha256(stored.encode() + b"mimir-dashboard-session-v1").digest()
 
 
 SESSION_TTL = 7 * 24 * 3600
@@ -182,6 +194,16 @@ def _invalidate(*prefixes: str):
                 _cache.pop(k, None)
 
 
+def _invalidate_all():
+    """写操作后清空整个缓存。
+
+    审计 2026-09-07 P1-9：按端点维护失效名单屡漏——conflicts 端点失效的是一个
+    不存在的键，crystals/governance-run 零失效，review/commit 漏 facts/governance/
+    agents/alerts。写操作是人点按钮，频率极低，整清比维护名单可靠。
+    """
+    _cache.clear()
+
+
 def _cached(key: str, ttl: int = CACHE_TTL):
     """缓存装饰器"""
     def decorator(func):
@@ -213,8 +235,9 @@ async def _mimir_get(path: str) -> dict | None:
             resp = await client.get(f"{MIMIR_API}{path}", headers=headers)
             if resp.status_code == 200:
                 return resp.json()
-    except Exception:
-        pass
+            logger.warning("mimir api GET %s -> %s %s", path, resp.status_code, resp.text[:200])
+    except Exception as exc:  # noqa: BLE001 - logged, panel degrades to empty
+        logger.warning("mimir api GET %s failed: %s", path, exc)
     return None
 
 
@@ -227,8 +250,9 @@ async def _mimir_post(path: str, data: dict) -> dict | None:
             resp = await client.post(f"{MIMIR_API}{path}", headers=headers, json=data)
             if resp.status_code in (200, 201):
                 return resp.json()
-    except Exception:
-        pass
+            logger.warning("mimir api POST %s -> %s %s", path, resp.status_code, resp.text[:200])
+    except Exception as exc:  # noqa: BLE001 - logged, caller degrades to None
+        logger.warning("mimir api POST %s failed: %s", path, exc)
     return None
 
 
@@ -245,7 +269,8 @@ def _db_query(query: str, params: tuple = (), database: Path | None = None) -> l
         rows = conn.execute(query, params).fetchall()
         conn.close()
         return [dict(r) for r in rows]
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - logged; panel shows empty instead of crashing
+        logger.warning("dashboard db query failed (%s): %s", target, exc)
         return []
 
 
@@ -626,7 +651,7 @@ async def api_candidates(status: str = "review_required", limit: int = 50):
     }
 
 
-@app.api_route("/api/candidates/{candidate_id}/review", methods=["GET", "POST"])
+@app.post("/api/candidates/{candidate_id}/review")
 async def api_review_candidate(candidate_id: str, action: str = Query(...), reason: str = "dashboard review"):
     """审批操作"""
     token = _get_admin_token()
@@ -658,7 +683,7 @@ async def api_review_candidate(candidate_id: str, action: str = Query(...), reas
                 # 清除缓存（v4 客户视图端点也吃同一审批结果——dash_today
                 # 待审列表/dash_library 待审角标/dash_light 待审计数；
                 # 漏失效曾致「点完确认无反应」：60s TTL 窗口内重拉命中旧缓存）
-                _invalidate("candidates", "overview", "dash_today", "dash_library", "dash_light")
+                _invalidate_all()
                 return result
             return {"error": resp.text}
     except Exception as e:
@@ -681,7 +706,7 @@ async def api_commit_candidate(candidate_id: str):
                 json={"candidate_id": candidate_id, "idempotency_key": ik},
             )
             # 同 review 路径：v4 dash_* 缓存键也须一并失效
-            _invalidate("candidates", "overview", "dash_today", "dash_library", "dash_light")
+            _invalidate_all()
             if resp.status_code == 200:
                 return resp.json()
             return JSONResponse({"error": resp.text[:300]}, status_code=resp.status_code)
@@ -713,7 +738,7 @@ async def api_conflict_resolve(conflict_id: str, body: dict):
                 json={"winner_fact_id": body.get("winner_fact_id", ""),
                       "reason": body.get("reason", "")},
             )
-            _invalidate("conflicts")
+            _invalidate_all()
             if resp.status_code in (200, 201):
                 return resp.json()
             return {"status": "error", "error": f"API: {resp.text[:300]}"}
@@ -734,7 +759,7 @@ async def api_conflict_dismiss(conflict_id: str, body: dict | None = None):
                 f"{MIMIR_API}/v12/conflicts/{conflict_id}/dismiss",
                 headers=headers, json={"reason": (body or {}).get("reason", "")},
             )
-            _invalidate("conflicts")
+            _invalidate_all()
             if resp.status_code in (200, 201):
                 return resp.json()
             return {"status": "error", "error": f"API: {resp.text[:300]}"}
@@ -1220,6 +1245,7 @@ async def api_crystals_scan(body: dict | None = None):
                 f"{MIMIR_API}/v12/crystals/scan?window_days={window_days}",
                 headers=headers, json={},
             )
+            _invalidate_all()
             if resp.status_code in (200, 201):
                 return resp.json()
             return {"status": "error", "error": f"API: {resp.text[:300]}"}
@@ -1241,6 +1267,7 @@ async def api_crystals_approve(candidate_id: str, body: dict | None = None):
                 f"{MIMIR_API}/v12/crystals/{candidate_id}/approve",
                 headers=headers, json={"owner_principal": owner},
             )
+            _invalidate_all()
             if resp.status_code in (200, 201):
                 return resp.json()
             return {"status": "error", "error": f"API: {resp.text[:300]}"}
@@ -1261,6 +1288,7 @@ async def api_crystals_dismiss(candidate_id: str, body: dict | None = None):
                 f"{MIMIR_API}/v12/crystals/{candidate_id}/dismiss",
                 headers=headers, json={"reason": (body or {}).get("reason", "")},
             )
+            _invalidate_all()
             if resp.status_code in (200, 201):
                 return resp.json()
             return {"status": "error", "error": f"API: {resp.text[:300]}"}
@@ -1286,8 +1314,6 @@ async def api_observations(owner: str | None = None, limit: int = Query(default=
     return await _mimir_get_params("/v10/observations", params)
 
 
-@app.get("/v10/opinions")
-@app.get("/v10/observations")
 async def _mimir_get_params(path: str, params: dict) -> dict:
     """辅助函数：带参数访问 Mímir API"""
     import urllib.parse
@@ -1358,6 +1384,7 @@ async def api_governance_run(body: dict):
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(f"{MIMIR_API}/v10/governance/run", headers=headers, json=body or {"dry_run": False})
+            _invalidate_all()
             return resp.json()
     except Exception as e:
         return {"error": str(e)}
@@ -1413,7 +1440,7 @@ async def api_skills_promote(body: dict):
     if result is None:
         return {"status": "error",
                 "error": "promote failed (below threshold or API down)"}
-    _invalidate("skills")
+    _invalidate_all()
     return result
 
 
@@ -1508,7 +1535,10 @@ async def api_projection(body: dict):
     return result
 
 
-# ── v11: symbolic memory + code graph proxy ──────────────────────────────@app.post("/v11/symbolic/offload")
+# ── v11: symbolic memory + code graph proxy ──────────────────────────────
+# (audit 2026-09-07 P1-9: the decorator used to sit on the comment line above
+#  and was never registered — the frontend got 404 on every call.)
+@app.post("/v11/symbolic/offload")
 async def v11_symbolic_offload(body: dict):
     """转发符号记忆卸载到 Mímir v11 API"""
     return await _mimir_post("/v11/symbolic/offload", dict(body))

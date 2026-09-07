@@ -12,8 +12,8 @@ renders a visual overview of the memory system.
 一个 FastAPI + Alpine.js 单页看板，代理 Mímir 的 HTTP API，以可视化方式呈现
 记忆系统的概览。
 
-**13 tabs · 13 个标签页**：overview / pipeline / memory / review / sources /
-agents / opinions / skills / insight / system / symbolic / codegraph / federation
+**3 tabs · 客户视图**（今天 / 记忆库 / 设置）+ 开发者模式 14 面板：overview / pipeline / memory / review / sources /
+agents / opinions / skills / insight / system / symbolic / codegraph / federation / settings
 
 **v3 (Mímir v14 适配) 新增 · New in v3**:
 - **技能 skills** — AutoSkill 候选主题（成功 ≥3 次且零负反馈）、主题台账、

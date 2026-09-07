@@ -107,6 +107,8 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
 </style>
 </head>
 <body x-data="dashboard()" x-init="init()" :data-theme="darkMode ? 'dark' : 'light'">
+<!-- audit 2026-09-07 P1-9: fetchJSON 曾三路静默返 {}；后端故障在页面上呈现为「空」。此条只在出错时出现。 -->
+<div x-show="netErr" x-text="netErr" x-cloak style="position:fixed;bottom:10px;right:10px;z-index:9999;background:#b91c1c;color:#fff;padding:6px 10px;border-radius:6px;font-size:12px;max-width:60vw;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
 
 <!-- 登录页 -->
 <div x-show="!authed" style="position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;align-items:center;justify-content:center">
@@ -1609,6 +1611,7 @@ function dashboard() {
     conflictBusy: '',
     conflictMsg: '',
     conflictErr: '',
+    netErr: '',
     crystalBusy: false,
     crystalMsg: '',
     crystalErr: '',
@@ -1617,9 +1620,10 @@ function dashboard() {
       try {
         const r = await fetch(url, {...opts, headers: this.authHeaders(opts.headers || {})});
         if (r.status === 401) { this.authed = false; return {}; }
-        if (!r.ok) return {};
+        if (!r.ok) { this.netErr = `请求失败 ${r.status} · ${url}`; return {}; }
+        this.netErr = '';
         return await r.json();
-      } catch(e) { return {}; }
+      } catch(e) { this.netErr = `网络错误 · ${url}`; return {}; }
     },
 
     authHeaders(extra={}) {

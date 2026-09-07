@@ -187,7 +187,7 @@ Then hit `curl http://127.0.0.1:8456/health` to confirm.
 | Obsidian wikilink bidirectional linking | ✅ |
 | MCP server (27 tools) | ✅ |
 | Hermes MemoryProvider plugin | ✅ |
-| Dashboard (13-tab web UI) | ✅ |
+| Dashboard (3-tab customer view + 14-panel developer mode) | ✅ |
 | PyPI + Docker packaging | ✅ |
 
 ---
