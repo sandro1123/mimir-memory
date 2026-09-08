@@ -79,6 +79,9 @@ def decrypt_envelope(token: str, key: str) -> dict:
         raise FederationError("envelope payload is not valid JSON") from exc
 
 
+# P0-L（#5）：单 envelope 事件数上限——协议级载荷纪律。
+MAX_ENVELOPE_EVENTS = 5000
+
 class FederationService:
     """One node's federation unit: ledger, peer registry, sync protocol."""
 
@@ -91,9 +94,12 @@ class FederationService:
         # half encrypts outgoing envelopes, the public half is what peers
         # register. (Symmetric Fernet: the "public" key IS the shared key —
         # registering it with a peer is the out-of-band trust handshake.)
-        self._key = generate_key()
+        # P0-L（v14.2，#5 硬化1）：本节点密钥持久化——首次生成落
+        # node_key 表，重启复用。旧形态每实例重新生成，服务重启即
+        # 全部 peer 注册作废（peer 侧注册的还是旧钥）。
         with self.store.transaction() as connection:
             self._ensure_tables(connection)
+            self._key = self._load_or_create_key(connection)
 
     # ── identity ──────────────────────────────────────────────────────
 
@@ -166,8 +172,11 @@ class FederationService:
             raise FederationError("event.key is required")
         if op not in ("set", "delete"):
             raise FederationError(f"unsupported op: {op}")
-        if not isinstance(lamport, int) or lamport < 0:
-            raise FederationError("event.lamport must be a non-negative int")
+        # P0-L（#5 硬化4）：上界 10^8——lamport 是逻辑计数器，真实节
+        # 点终生量级远低于此；恶意 peer 用 1e9（#5 实测攻击值）恒久删
+        # 除任意键（LWW 高者胜且无 tombstone 回滚路）在协议层拒绝。
+        if not isinstance(lamport, int) or lamport < 0 or lamport >= 10**8:
+            raise FederationError("event.lamport must be a non-negative int < 10^8")
         if not node_id:
             raise FederationError("event.node_id is required")
         value = event.get("value")
@@ -272,8 +281,14 @@ class FederationService:
         """
         from_node = str((envelope or {}).get("from_node") or "")
         ciphertext = str((envelope or {}).get("ciphertext") or "")
+        to_peer = str((envelope or {}).get("to_peer") or "")
         if not from_node or not ciphertext:
             raise FederationError("envelope requires from_node and ciphertext")
+        # P0-L（#5 硬化5）：收件人必须是本节点——误投/劫持的 envelope
+        # 拒收（fail closed），不再静默入账。
+        if to_peer != self.node_id:
+            raise FederationError(
+                f"envelope addressed to {to_peer!r}, not this node ({self.node_id!r})")
         with closing(self.store.connect()) as connection:
             self._ensure_tables(connection)
             row = connection.execute(
@@ -287,16 +302,76 @@ class FederationService:
         payload = decrypt_envelope(ciphertext, row["public_key"])
         if payload.get("from_node") != from_node:
             raise FederationError("envelope from_node mismatch")
+        # P0-L（#5 硬化3/4）：载荷纪律——事件数上限防内存面轰炸；
+        # 每事件 node_id 必须与 envelope 发送者一致——封死「C 持自己
+        # 钥匙伪造 A 署名事件」的通道（解密钥持有者与事件署名解耦）。
+        events = payload.get("events") or []
+        if len(events) > MAX_ENVELOPE_EVENTS:
+            raise FederationError(
+                f"envelope carries {len(events)} events; cap is {MAX_ENVELOPE_EVENTS}")
+        # P0-L 修订：署名者≠发送者是合法形态（CRDT 中继转发他人事件）。
+        # 正确语义：事件署名者必须∈{注册 peers ∪ 本节点}——封死「C 伪造
+        # 一个从未存在过的节点署名」的通道，同时不破坏中继/合并路径。
+        registered = self._registered_node_ids()
+        # P0-L 语义收敛：中继转发他人署名事件是 CRDT 合法形态，但接收方
+        # 无法穷知全网节点。三面放行=署名者是本节点已注册 peer / 发送者
+        # 本身 / 本节点账本里已见过的节点（此前同步引入的）。第 4 面：
+        # 署名者均非以上 → 伪造（#5 的 C 伪造 A 署名攻击在此拦截）。
+        known_signers = registered | self._seen_node_ids()
+        for event in events:
+            signer = str(event.get("node_id") or "")
+            if signer and signer not in known_signers and signer != from_node:
+                raise FederationError(
+                    f"event signer {signer!r} is neither a registered peer,"
+                    " a previously seen node, nor the envelope sender"
+                    " — forged signature")
         applied = 0
-        for event in payload.get("events") or []:
+        for event in events:
             result = self.append_event(event)
             if not result.get("replayed"):
                 applied += 1
         return {"from_node": from_node, "applied": applied,
-                "received": len(payload.get("events") or [])}
+                "received": len(events)}
 
     # ── internals ──────────────────────────────────────────────────────
+
+    def _seen_node_ids(self) -> set[str]:
+        with closing(self.store.connect()) as connection:
+            self._ensure_tables(connection)
+            rows = connection.execute(
+                "SELECT DISTINCT node_id FROM federation_events").fetchall()
+        return {str(r["node_id"]) for r in rows}
+
+    def _registered_node_ids(self) -> set[str]:
+        with closing(self.store.connect()) as connection:
+            self._ensure_tables(connection)
+            rows = connection.execute(
+                "SELECT node_id FROM federation_peers").fetchall()
+        return {str(r["node_id"]) for r in rows}
 
     def _ensure_tables(self, connection: sqlite3.Connection) -> None:
         for statement in FEDERATION_STATEMENTS:
             connection.execute(statement)
+        # P0-L：本节点密钥持久表（守卫式 IF NOT EXISTS）
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS federation_local_key (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                node_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            ) STRICT""")
+
+    def _load_or_create_key(self, connection) -> str:
+        row = connection.execute(
+            "SELECT key FROM federation_local_key WHERE singleton=1"
+        ).fetchone()
+        if row is not None:
+            return str(row["key"])
+        key = generate_key()
+        from ..store import utc_now
+        connection.execute(
+            "INSERT INTO federation_local_key(singleton, node_id, key, created_at)"
+            " VALUES(1,?,?,?)",
+            (self.node_id, key, utc_now()),
+        )
+        return key
