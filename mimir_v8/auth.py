@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,24 @@ class Principal:
         return self.is_admin or self.principal_id == principal_id
 
 
+def atomic_write_registry(path: str | Path, content: str) -> None:
+    """P0-N（嘟嘟🟡3）：token registry 的原子写协议（运维侧唯一合法写法）。
+
+    直接 `echo > tokens.json` 会让 TokenStore 的 mtime 触发式热加载在
+    中间态读到半截 JSON → auth_unavailable 全站 503。协议=同目录临时
+    文件写入 + fsync + os.replace（同文件系统原子改名，读侧要么看到
+    完整旧表要么看到完整新表，无半截窗口）。
+    """
+    import os as _os
+    target = Path(path)
+    tmp = target.with_name(target.name + ".tmp-atomic")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(content)
+        f.flush()
+        _os.fsync(f.fileno())
+    _os.replace(tmp, target)
+
+
 class TokenStore:
     """Hot-reload a hash-only token registry and fail closed on errors."""
 
@@ -54,6 +73,12 @@ class TokenStore:
                 stat = self.path.stat()
                 data = json.loads(self.path.read_text(encoding="utf-8"))
             except (OSError, ValueError, TypeError) as exc:
+                # P0-N：fail closed 保持，但失败必须可观测（嘟嘟判例：
+                # 静默失败=运维盲飞）。原子写协议见 atomic_write_registry。
+                logging.getLogger(__name__).warning(
+                    "token registry reload failed (path=%s): %s — "
+                    "use mimir_v8.auth.atomic_write_registry for updates",
+                    self.path, type(exc).__name__)
                 raise AuthError("authentication registry is invalid", 503, "auth_unavailable") from exc
             records = []
             principal_ids = set()
