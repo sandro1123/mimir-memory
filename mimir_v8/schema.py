@@ -78,8 +78,20 @@ DOCUMENT_TYPES = frozenset({"decision", "overview", "runbook", "learning", "revi
 DOCUMENT_STATUSES = frozenset({"active", "review", "archived"})
 DOCUMENT_TARGET_SCOPES = frozenset({"private", "shared"})
 
+# P0-I（v14.2，issue #1）：闭集开箱可扩——环境变量引导启动注册。
+# 保留四席默认（fallback），MIMIR_AGENTS / MIMIR_DOMAINS 逗号清单可
+# 增补自定义成员；运行时注册走 register_agent/register_domain。
+import os as _os
+
 _DYNAMIC_AGENTS: set[str] = set(AGENT_IDS)
 _DYNAMIC_DOMAINS: set[str] = set(DOMAINS)
+
+for _extra in (a.strip() for a in _os.environ.get("MIMIR_AGENTS", "").split(",")):
+    if _extra:
+        _DYNAMIC_AGENTS.add(_extra)
+for _extra in (d.strip() for d in _os.environ.get("MIMIR_DOMAINS", "").split(",")):
+    if _extra:
+        _DYNAMIC_DOMAINS.add(_extra)
 
 
 def get_registered_agents() -> frozenset[str]:

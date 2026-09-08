@@ -99,6 +99,12 @@ def build_parser() -> argparse.ArgumentParser:
     evolve.add_argument("--actor", default=os.environ.get("MIMIR_EVOLVE_ACTOR", "service:evolve"))
 
     # ── v12 new command: Skill crystallization ──────────────────────────
+    reg_agent = sub.add_parser("register-agent")
+    reg_agent.add_argument("--agent-id", required=True)
+    reg_agent.add_argument("--note", default="")
+    reg_domain = sub.add_parser("register-domain")
+    reg_domain.add_argument("--domain", required=True)
+    reg_domain.add_argument("--note", default="")
     crystallize = sub.add_parser("crystallize")
     crystallize.add_argument("--window-days", type=int, default=7)
     crystallize.add_argument("--min-freq", type=int, default=3)
@@ -859,6 +865,16 @@ def main(argv=None) -> int:
         )
     elif args.command == "evolve":
         result = EvolveMemService(store).evolve(actor_principal=args.actor)
+    elif args.command == "register-agent":
+        from .schema import register_agent, get_registered_agents
+        register_agent(args.agent_id)
+        result = {"status": "ok", "registered": args.agent_id,
+                  "known_agents": sorted(get_registered_agents())}
+    elif args.command == "register-domain":
+        from .schema import register_domain, get_registered_domains
+        register_domain(args.domain)
+        result = {"status": "ok", "registered": args.domain,
+                  "known_domains": sorted(get_registered_domains())}
     elif args.command == "crystallize":
         from .crystallize import CrystalService
         result = CrystalService(store).scan(

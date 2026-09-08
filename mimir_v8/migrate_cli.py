@@ -67,7 +67,13 @@ def main(argv: list[str] | None = None) -> int:
         with sqlite3.connect(args.database) as probe:
             row = probe.execute("SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()
         source_version = int(row[0]) if row else 0
-        if source_version == 12 or (args.to_version == 13):
+        # P0-J（v14.2，issue #2）：12 不再分流单腿 v13——旧路由只应用
+        # v13 DDL 就盖章 SCHEMA_VERSION，v14~v18 结构缺失（审计实证：
+        # "migrate stamps schema_version=18 while only applying the v13
+        # DDL"）。12 与其他版本一律走全链 migrate_schema()：源 12 的
+        # additive 链从 V13 起步顺序补齐至当前 schema。
+        # to_version=13 的显式降级请求保留单腿（有留档用途）。
+        if args.to_version == 13:
             result = migrate_schema_v13(args.database, args.backup).as_dict()
         else:
             result = migrate_schema(args.database, args.backup).as_dict()
