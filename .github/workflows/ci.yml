@@ -44,3 +44,14 @@ jobs:
         run: pip install ruff
       - name: Lint
         run: ruff check mimir_v8/ || true
+
+  release-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Release hygiene scan (P0-C seven-face gate)
+        run: python scripts/release_scan.py

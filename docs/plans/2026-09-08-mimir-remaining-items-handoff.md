@@ -2,7 +2,7 @@
 
 - 收件：Mímir 记忆系统开发会话（名册登记 key `claude:74553bd8-09ec-4bfe-8892-60e2356936c0`；若该会话已换代，以 `list_sessions` 当前名册为准）
 - 发件：审计/修复会话（`claude:5c0ecd1e-8673-4c38-a37d-fbc209614c72`）
-- 依据：`分层讨论/Mímir-全面审计-2026-09-07.md`（§0 结论、§1~§7 取证、§8 处置顺序、§9 处置结果）；同文件也在本机 `C:\Users\sandr\mimir_audit_20260907\`
+- 依据：`分层讨论/Mímir-全面审计-2026-09-07.md`（§0 结论、§1~§7 取证、§8 处置顺序、§9 处置结果）；同文件也在本机 `<本机工作目录>\mimir_audit_20260907\`
 - 本单自包含，不依赖发件会话的上下文。
 
 ---
@@ -77,7 +77,7 @@
 ---
 
 ## 3. 施工纪律（本轮新判例，接手必读）
-1. **行尾**：仓库 74 个文件 CRLF、其余 LF，且工作树可能与 HEAD 风格漂移（governance.py 工作树 CRLF/HEAD LF）。补丁一律以 `git show HEAD:<path>` 的风格回写（本机 `C:\Users\sandr\mimir_audit_20260907\patchlib.py` 的 `head_nl`）。改后 `git diff --numstat` 必看，整文件翻红即行尾污染。
+1. **行尾**：仓库 74 个文件 CRLF、其余 LF，且工作树可能与 HEAD 风格漂移（governance.py 工作树 CRLF/HEAD LF）。补丁一律以 `git show HEAD:<path>` 的风格回写（本机 `<本机工作目录>\mimir_audit_20260907\patchlib.py` 的 `head_nl`）。改后 `git diff --numstat` 必看，整文件翻红即行尾污染。
 2. **新旧库 schema 漂移已五例**（conversation_sources CHECK / graph_edges / candidate_review_assessments+governance_decisions / symbolic_* owner_principal）：任何 `CREATE TABLE IF NOT EXISTS` 扩展表都要在构造器里配守卫式 `ALTER` 自愈，且要有「老形态表」测试。
 3. **施工中用户会并行操作生产**（09-07 23:23 在看板批完 18 条待审）：部署前后对拍 DB 差异先查 `review_actions` / `audit_log`，再怀疑代码。
 4. 生产写入只走 API（事件溯源）或停机 CLI；`reproject` 含 vector 时必须停 `mimir.service`；回填类 PATCH 需 `expected_version`，且会触发向量重嵌入使 `/ready` 短暂 503（146 条约 2 分钟）。
@@ -86,7 +86,7 @@
 ---
 
 ## 4. 参考路径
-- 审计报告：vault `分层讨论/Mímir-全面审计-2026-09-07.md`；本机 `C:\Users\sandr\mimir_audit_20260907\Mimir-全面审计-2026-09-07.md`
+- 审计报告：vault `分层讨论/Mímir-全面审计-2026-09-07.md`；本机 `<本机工作目录>\mimir_audit_20260907\Mimir-全面审计-2026-09-07.md`
 - 施工计划（已执行勾选）：仓库 `docs/plans/2026-09-07-mimir-full-repair-plan.md`
-- 探针/补丁/部署脚本原件：`C:\Users\sandr\mimir_audit_20260907\`（`probe_*.py|sh`、`patch_task*.py`、`deploy_v1410.sh`、`task1*_device.*`、`mimir_offsite_backup.sh`）
-- 生产真库：`~/.hermes/mimir/v9/production-v9.0-20260805_214614/canonical.db`（投影 fts.db / graph.db / core_memory.db / chroma/ 同目录）
+- 探针/补丁/部署脚本原件：`<本机工作目录>\mimir_audit_20260907\`（`probe_*.py|sh`、`patch_task*.py`、`deploy_v1410.sh`、`task1*_device.*`、`mimir_offsite_backup.sh`）
+- 生产真库：`<生产库实例>/canonical.db`（投影 fts.db / graph.db / core_memory.db / chroma/ 同目录）

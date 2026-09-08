@@ -18,7 +18,7 @@
 - 空态文案明确非空白（spec §3.4）
 - 部署树改动须留 `.bak-v4-<date>` 备印；repo 与部署树同步 commit（spec §3.5）
 - auth 中间件不动——新 `/api/dashboard/*` 端点自动落进现有 `/api/` 鉴权面
-- 测试跑在设备端 v14 venv：`/home/sandro1123/.hermes/mimir/venvs/v14.0.0-20260903/bin/python3 -m pytest`
+- 测试跑在设备端 v14 venv：`<设备用户主目录>/.hermes/mimir/venvs/v14.0.0-20260903/bin/python3 -m pytest`
 - CRLF 域墙：新文件 LF 入库；改 `dashboard/frontend/index.html` 前后必 `git ls-files --eol` 查（repo 该文件现状 LF）
 - 置信度小数、fact_id、decay_tier 等技术词不得出现在客户视图卡片正面（spec §2.5）
 
@@ -133,7 +133,7 @@ class TestTodayEndpoint:
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cd /home/sandro1123/mimir-open-source && .hermes/mimir/venvs/v14.0.0-20260903/bin/python3 -m pytest tests/test_p41_dashboard_aggregates.py -v`（设备端）
+Run: `cd <设备用户主目录>/mimir-open-source && .hermes/mimir/venvs/v14.0.0-20260903/bin/python3 -m pytest tests/test_p41_dashboard_aggregates.py -v`（设备端）
 Expected: FAIL — `AttributeError: module 'dash_main' has no attribute 'api_dashboard_today'`
 
 - [ ] **Step 3: 最小实现（main.py 尾部追加）**
@@ -630,7 +630,7 @@ git commit -m "feat(dashboard): library + settings tabs with dev-mode toggle (v4
 ### Task 5: 部署 + 验收 + repo 收尾
 
 **Files:**
-- Modify: 部署树 `/home/sandro1123/mimir-dashboard/backend/main.py` + `/home/sandro1123/mimir-dashboard/frontend/index.html`（scp 推送）
+- Modify: 部署树 `<设备用户主目录>/mimir-dashboard/backend/main.py` + `<设备用户主目录>/mimir-dashboard/frontend/index.html`（scp 推送）
 - Modify: `dashboard/README.md`（v4 客户视图说明）
 - Modify: `CHANGELOG.md`（4.0.0 段）
 
@@ -645,8 +645,8 @@ git commit -m "feat(dashboard): library + settings tabs with dev-mode toggle (v4
 - [ ] **Step 2: 部署（备印+推送+重启）**
 
 ```bash
-cp /home/sandro1123/mimir-dashboard/backend/main.py /home/sandro1123/mimir-dashboard/backend/main.py.bak-v4-20260905
-cp /home/sandro1123/mimir-dashboard/frontend/index.html /home/sandro1123/mimir-dashboard/frontend/index.html.bak-v4-20260905
+cp <设备用户主目录>/mimir-dashboard/backend/main.py <设备用户主目录>/mimir-dashboard/backend/main.py.bak-v4-20260905
+cp <设备用户主目录>/mimir-dashboard/frontend/index.html <设备用户主目录>/mimir-dashboard/frontend/index.html.bak-v4-20260905
 scp repo 件 → 部署树（backend/main.py + frontend/index.html）
 sudo systemctl restart mimir-dashboard.service
 ```

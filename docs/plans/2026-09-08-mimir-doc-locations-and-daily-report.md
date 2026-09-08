@@ -9,9 +9,9 @@
 | **1. 仓库文档（随 git 走，双远端备份）** | `~/mimir-open-source/docs/plans/` | 施工计划、移交单、设计稿。**命名格式：`YYYY-MM-DD-主题.md`**（现有先例：`2026-09-07-mimir-full-repair-plan.md`、`2026-09-08-mimir-remaining-items-handoff.md`） |
 | **2. 顶层文档（随 git 走）** | `~/mimir-open-source/` 根目录 | README.md（中文主） / README_en.md（英文） / CHANGELOG.md / ARCHITECTURE.md / SECURITY.md / docs/ROADMAP.md / docs/FEDERATION.md——**版本发布时五位一体必须同步改**（血泪判例：168f4d1 之前 README 停留 in progress 状态一周） |
 | **3. 生产运维（不进 git，设备私有）** | `~/.hermes/mimir/ops/` | 运维脚本（mimir_v8_ops.py 等）；报告产物在 `~/.hermes/mimir/v8/ops-reports/`（health/verify 的 json 自动落这里） |
-| **4. 跨会话交接（本机 Windows 工作目录）** | `C:\Users\sandr\mimir_audit_20260907\` | 审计报告原件、探针/补丁脚本原件、移交单副本。**会话间的交接底稿放这里**（你收到的两份 deliver_artifact 文件源在此） |
+| **4. 跨会话交接（本机 Windows 工作目录）** | `<本机工作目录>\mimir_audit_20260907\` | 审计报告原件、探针/补丁脚本原件、移交单副本。**会话间的交接底稿放这里**（你收到的两份 deliver_artifact 文件源在此） |
 
-**记忆库（跨会话知识沉淀）**：`C:\Users\sandr\.claude\projects\C--Users-sandr\memory\MEMORY.md` + 同目录 md 文件——Claude 会话每卡收官落判例。Kimi 会话如无同等机制，判例写入下述日报即可。
+**记忆库（跨会话知识沉淀）**：`<本机工作目录>\.claude\projects\C--Users-sandr\memory\MEMORY.md` + 同目录 md 文件——Claude 会话每卡收官落判例。Kimi 会话如无同等机制，判例写入下述日报即可。
 
 ## 二、日报制度（2026-09-08 起生效）
 
@@ -48,7 +48,7 @@
 
 - 开源仓 master = `168f4d1`（gitee+github 推平），tag v14.1.0
 - 生产发布树 `~/.hermes/mimir/releases/v14.1.0-20260907`，venv `venvs/v14.1.0-20260907`（**注意是 Python 3.11**，验证脚本用它）
-- 生产真库 `~/.hermes/mimir/v9/production-v9.0-20260805_214614/canonical.db`
+- 生产真库 `<生产库实例>/canonical.db`
 - 移交单在仓库 `docs/plans/2026-09-08-mimir-remaining-items-handoff.md`（与 deliver 给你的附件同源）
 - 修复施工计划（已执行）`docs/plans/2026-09-07-mimir-full-repair-plan.md`
 - aduMEI 对标结论在你自己的会话记录里（v19.4.0 照搬 Mímir 六项设计）——建议沉淀成 `docs/plans/2026-09-08-adumei-benchmark.md` 入仓

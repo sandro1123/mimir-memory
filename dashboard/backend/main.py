@@ -23,9 +23,13 @@ from fastapi.staticfiles import StaticFiles
 
 # ── 配置 ──────────────────────────────────────────────
 MIMIR_API = os.environ.get("MIMIR_API", "http://127.0.0.1:8456")
+# P0-C（v14.2）脱敏：默认路径不再硬编码本机生产实例名（实例名可被
+# 外部推断机器部署形态）。默认改走 MIMIR_DATA_DIR（生产 unit 已显式
+# 设置 CANONICAL_DB，此默认值仅影响裸跑场景）。
 CANONICAL_DB = Path(os.environ.get(
     "CANONICAL_DB",
-    str(Path.home() / ".hermes/mimir/v9/production-v9.0-20260805_214614/canonical.db"),
+    str(Path(os.environ.get("MIMIR_DATA_DIR", str(Path.home() / ".hermes/mimir/data")))
+         / "canonical.db"),
 ))
 # v13 blackboards live in a dedicated transient SQLite file next to the
 # canonical store (runtime: root / "blackboard.db") — NOT in canonical.db.

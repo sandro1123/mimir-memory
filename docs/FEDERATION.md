@@ -103,7 +103,7 @@ curl -X POST http://127.0.0.1:8456/v8/facts \
   -H "Authorization: Bearer $JARVIS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "content": "NAS 位于 192.168.1.100，DS923+ 型号",
+    "content": "NAS 位于 203.0.113.10，DS923+ 型号",
     "domain": "infrastructure",
     "fact_type": "project_config",
     "visibility": "shared",       # 共享给团队 · shared with the team
