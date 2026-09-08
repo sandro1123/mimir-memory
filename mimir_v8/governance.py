@@ -58,7 +58,11 @@ def router_config() -> dict:
     }
 
 
-GOVERNANCE_AUTO_APPROVE = os.environ.get("MIMIR_GOVERNANCE_AUTO_APPROVE", "1") == "1"
+# P0-H（v14.2，issue #5 Finding 4）：原死键通电——成为 fast_track 的总闸。
+# 默认 0（关闭）：fast_track_commit_all 由治理轮自动触发的前提是显式
+# 开启（记忆系统的错误晋升比查询失败更难发现——污染长期画像）。
+# MIMIR_GOVERNANCE_AUTO_APPROVE=1 维持 v14.1 行为（生产 unit 已设）。
+GOVERNANCE_AUTO_APPROVE = os.environ.get("MIMIR_GOVERNANCE_AUTO_APPROVE", "0") == "1"
 GOVERNANCE_FAST_TRACK_THRESHOLD = float(os.environ.get("MIMIR_FAST_TRACK_THRESHOLD", "0.8"))
 
 
@@ -323,6 +327,9 @@ def run_governance_once(store: CanonicalStore, candidate_service: CandidateServi
 
 
 def fast_track_commit_all(store: CanonicalStore, candidate_service: CandidateService, *, actor: str = "service:governance") -> dict:
+    if not GOVERNANCE_AUTO_APPROVE:
+        return {"status": "ok", "committed": 0, "fast_track": "disabled",
+                "message": "fast_track 关闭（MIMIR_GOVERNANCE_AUTO_APPROVE=1 开启；默认关闭防错误自动晋升）"}
     with closing(store.connect()) as conn:
         rows = conn.execute(
             "SELECT candidate_id, content, summary, confidence_score, created_at FROM candidate_facts WHERE status='provisional' ORDER BY created_at ASC LIMIT 20"

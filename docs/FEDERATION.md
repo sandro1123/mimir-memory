@@ -184,7 +184,7 @@ subscribed to the matching domain.
 ```
 federation_events (追加式账本 · append-only ledger)
   (crdt_key, lamport, node_id) 唯一身份 → 重投递幂等 · re-delivery is a no-op
-  op ∈ {'set','delete'} · value 经 Fernet 信封加密 · value inside a Fernet envelope
+  op ∈ {'set','delete'} · value 经 Fernet 信封加密（加密在信封/传输层；账本列本身明文存储——at-rest 加密不适用于本层，节点磁盘防护靠文件系统）
 
 federation_peers (节点注册表 · peer registry)
   node_id → public_key 指纹 · fingerprint
@@ -208,9 +208,10 @@ svc.register_peer("node-b", peer_public_key)         # 注册对端指纹
 
 # 发布 · publish: 追加一条事件进账本 ((crdt_key, lamport, node_id) 幂等)
 event = {
-    "event_id": ..., "crdt_key": "shared/skill/k8s-drain",
+    # append_event 的真键契约（#5 勘误：旧示例的 crdt_key/event_id 会报错）
+    "key": "shared/skill/k8s-drain",
     "lamport": next_lamport, "node_id": "node-a", "op": "set",
-    "value": encrypt_envelope(payload, key), "recorded_at": now,
+    "value": encrypt_envelope(payload, key),
 }
 svc.append_event(event)
 
