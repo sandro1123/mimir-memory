@@ -18,6 +18,15 @@
 - **symbolic offload 空文本入口拒绝（§2.4，5fbce55）** — `raw_text` strip 为空即 422；生产冒烟残留空块 `sym_10f7f8e6` 已按 block_id+length=0 双条件清除（empty-blocks 0）。
 - **生产 mimir_config.yaml 死键清理（§2.3，生产仓 7e481aa）** — 4142B→1198B，只留 `version/collector/reflect/federation` 四段真消费面（`reflect.topics` 为 ops/weekly_reflect.py 所读，审计清单勘误补入）；collector 真跑 RSS 4 源+vault 全绿验证；原件备份 `backups/mimir_config.yaml.bak-v7full-20260908`。
 
+---
+
+## v14.2.0 — 2026-09-08 · P0 三小卡 + 中文默认 README (P0 Trio + Chinese Default README)
+
+> 2026-09-08 用户三 GO 拍板当晚交付。Schema 保持 20、无迁移、无 reproject。
+> P0 详见 Unreleased 段各条；本版本另含 README 默认语言切换。
+
+- **版本面** — `MIMIR_VERSION = "14.2.0"`；生产以发布树 `v14.2.0-20260908` 滚动上线。
+
 ## v14.1.0 — 2026-09-07 · 全面审计修复 (Audit Remediation)
 
 > 2026-09-07 全面审计（1 P0 + 12 P1）的修复包。Schema 保持 20、无迁移；生产以新发布树 `v14.1.0-20260907` 滚动上线。
