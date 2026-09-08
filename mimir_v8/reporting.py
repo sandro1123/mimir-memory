@@ -7,6 +7,7 @@ and performs LLM-powered deep reading of collected content.
 from __future__ import annotations
 
 import contextlib
+from contextlib import closing
 import json
 import os
 import re
@@ -52,7 +53,7 @@ class ReportGenerator:
 
         report = DailyReport(date=today)
 
-        with self.store.connect() as connection:
+        with closing(self.store.connect()) as connection:
             report.ingestion = self._ingestion_stats(connection, since)
             report.candidates = self._candidate_stats(connection, since)
             report.reviews = self._review_stats(connection, since)

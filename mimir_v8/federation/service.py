@@ -19,6 +19,7 @@ from typing import Any
 from cryptography.fernet import Fernet, InvalidToken
 
 from ..store import CanonicalStore, new_id, utc_now
+from contextlib import closing
 
 #: v14.0 additive DDL — append-only CRDT event stream + peer registry.
 FEDERATION_STATEMENTS = (
@@ -127,7 +128,7 @@ class FederationService:
         return {"node_id": node_id, "fingerprint": fingerprint}
 
     def list_peers(self) -> list[dict]:
-        with self.store.connect() as connection:
+        with closing(self.store.connect()) as connection:
             self._ensure_tables(connection)
             rows = connection.execute(
                 """SELECT node_id, fingerprint, registered_at
@@ -136,7 +137,7 @@ class FederationService:
         return [dict(row) for row in rows]
 
     def peer_key_fingerprint(self, node_id: str) -> str | None:
-        with self.store.connect() as connection:
+        with closing(self.store.connect()) as connection:
             self._ensure_tables(connection)
             row = connection.execute(
                 "SELECT fingerprint FROM federation_peers WHERE node_id=?",
@@ -197,7 +198,7 @@ class FederationService:
         ties broken by node_id (descending) — a deterministic total
         order, so every node folds the same winner regardless of
         arrival order."""
-        with self.store.connect() as connection:
+        with closing(self.store.connect()) as connection:
             self._ensure_tables(connection)
             row = connection.execute(
                 """SELECT lamport, node_id, op, value FROM federation_events
@@ -224,7 +225,7 @@ class FederationService:
         if not to_peer or not to_peer.strip():
             raise FederationError("to_peer is required")
         to_peer = to_peer.strip()
-        with self.store.connect() as connection:
+        with closing(self.store.connect()) as connection:
             self._ensure_tables(connection)
             rows = connection.execute(
                 """SELECT seq, crdt_key, lamport, node_id, op, value
@@ -273,7 +274,7 @@ class FederationService:
         ciphertext = str((envelope or {}).get("ciphertext") or "")
         if not from_node or not ciphertext:
             raise FederationError("envelope requires from_node and ciphertext")
-        with self.store.connect() as connection:
+        with closing(self.store.connect()) as connection:
             self._ensure_tables(connection)
             row = connection.execute(
                 "SELECT public_key FROM federation_peers WHERE node_id=?",

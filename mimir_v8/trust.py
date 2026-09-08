@@ -140,7 +140,7 @@ class TrustManager:
 
                 if not dry_run:
                     try:
-                        with self.store.connect() as conn:
+                        with closing(self.store.connect()) as conn:
                             conn.execute(
                                 "UPDATE facts SET confidence_score=?, updated_at=? WHERE fact_id=? AND status='active'",
                                 (trust.score, now, fact_id),

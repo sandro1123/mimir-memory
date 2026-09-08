@@ -22,6 +22,7 @@ import sqlite3
 from typing import Any
 
 from .store import CanonicalStore, new_id, sha256_text, utc_now
+from contextlib import closing
 
 V18_ADDITIVE_STATEMENTS = (
     """CREATE TABLE IF NOT EXISTS fact_assets (
@@ -103,7 +104,7 @@ class MultiModalService:
         return {"status": "ok", "asset_id": asset_id, "fact_id": fact_id}
 
     def list(self, fact_id: str) -> list[dict]:
-        with self.store.connect() as connection:
+        with closing(self.store.connect()) as connection:
             rows = connection.execute(
                 """SELECT asset_id, asset_kind, asset_ref, created_at,
                           actor_principal

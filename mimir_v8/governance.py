@@ -21,6 +21,7 @@ from uuid import uuid4
 from .store import CanonicalStore
 from .candidates import CandidateService, ReviewCandidate
 from .schema import MIMIR_VERSION
+from contextlib import closing
 
 
 logger = logging.getLogger("mimir_v8.governance")
@@ -236,7 +237,7 @@ def make_decision(assessment: AssessmentResult) -> tuple[str, str]:
 
 
 def run_governance_once(store: CanonicalStore, candidate_service: CandidateService, *, dry_run: bool = False, actor: str = "service:governance") -> dict:
-    with store.connect() as conn:
+    with closing(store.connect()) as conn:
         rows = conn.execute(
             "SELECT candidate_id, content, summary, status FROM candidate_facts WHERE status='review_required' ORDER BY created_at ASC LIMIT 50"
         ).fetchall()
@@ -322,7 +323,7 @@ def run_governance_once(store: CanonicalStore, candidate_service: CandidateServi
 
 
 def fast_track_commit_all(store: CanonicalStore, candidate_service: CandidateService, *, actor: str = "service:governance") -> dict:
-    with store.connect() as conn:
+    with closing(store.connect()) as conn:
         rows = conn.execute(
             "SELECT candidate_id, content, summary, confidence_score, created_at FROM candidate_facts WHERE status='provisional' ORDER BY created_at ASC LIMIT 20"
         ).fetchall()

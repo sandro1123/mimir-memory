@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -31,35 +32,41 @@ class CircuitBreaker:
         self.state = "closed"
         self._failures = 0
         self._opened_at: float | None = None
+        # P0-E（v14.2，嘟嘟🟡6/#5 硬化）：FastAPI 多线程下状态转换必须
+        # 串行化——否则并发 HALF_OPEN 放行多个探测、失败计数互相覆盖。
+        self._lock = threading.Lock()
 
     def allow_call(self, *, now: float | None = None) -> bool:
         """CLOSED/HALF_OPEN 放行调用；OPEN 时冷却到期则转 HALF_OPEN 放一次探测。"""
-        if self.state == "closed":
-            return True
-        if self.state == "half_open":
-            return True  # 单次探测已在飞；后续调用仍走 OPEN 语义由 on_failure/on_success 定
-        # state == "open"
-        current = time.monotonic() if now is None else now
-        if self._opened_at is not None and (current - self._opened_at) >= self.cooldown_seconds:
-            self.state = "half_open"
-            return True
-        return False
+        with self._lock:
+            if self.state == "closed":
+                return True
+            if self.state == "half_open":
+                return True  # 单次探测已在飞；后续调用仍走 OPEN 语义由 on_failure/on_success 定
+            # state == "open"
+            current = time.monotonic() if now is None else now
+            if self._opened_at is not None and (current - self._opened_at) >= self.cooldown_seconds:
+                self.state = "half_open"
+                return True
+            return False
 
     def on_success(self) -> None:
-        self.state = "closed"
-        self._failures = 0
-        self._opened_at = None
+        with self._lock:
+            self.state = "closed"
+            self._failures = 0
+            self._opened_at = None
 
     def on_failure(self, *, now: float | None = None) -> None:
-        self._failures += 1
-        if self.state == "half_open":
-            # 探测失败：回 OPEN 重新计冷却（不放行潮水流量）。
-            self.state = "open"
-            self._opened_at = time.monotonic() if now is None else now
-            return
-        if self._failures >= self.failure_threshold:
-            self.state = "open"
-            self._opened_at = time.monotonic() if now is None else now
+        with self._lock:
+            self._failures += 1
+            if self.state == "half_open":
+                # 探测失败：回 OPEN 重新计冷却（不放行潮水流量）。
+                self.state = "open"
+                self._opened_at = time.monotonic() if now is None else now
+                return
+            if self._failures >= self.failure_threshold:
+                self.state = "open"
+                self._opened_at = time.monotonic() if now is None else now
 
 
 @dataclass(frozen=True)

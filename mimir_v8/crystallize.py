@@ -20,6 +20,7 @@ import sqlite3
 from typing import Any
 
 from .store import CanonicalStore, new_id, sha256_text, utc_now
+from contextlib import closing
 
 
 V17_ADDITIVE_STATEMENTS = (
@@ -188,12 +189,15 @@ class CrystalService:
         except Exception:
             pass
         try:
-            with self.store.connect() as connection:
+            with closing(self.store.connect()) as connection:
+                # closing() 模式下 __exit__ 不再自动 commit（它只关闭），
+                # 降级直写路径必须显式提交，否则 UPDATE 随连接一起蒸发。
                 connection.execute(
                     "UPDATE crystal_runs SET status=?, completed_at=?,"
                     " error_code=? WHERE run_id=?",
                     (status, utc_now(), error_code, run_id),
                 )
+                connection.commit()
         except Exception:
             pass
 
@@ -279,7 +283,7 @@ class CrystalService:
             raise ValueError(
                 f"status must be one of {sorted(CRYSTAL_STATUSES)}"
             )
-        with self.store.connect() as connection:
+        with closing(self.store.connect()) as connection:
             rows = connection.execute(
                 """SELECT * FROM crystal_candidates
                 WHERE status=? ORDER BY freq DESC, created_at DESC LIMIT ?""",

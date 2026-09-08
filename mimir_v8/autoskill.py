@@ -25,6 +25,7 @@ import sqlite3
 from typing import Any
 
 from .store import CanonicalStore, new_id, sha256_text, utc_now
+from contextlib import closing
 
 #: 胜任门槛：同主题成功执行次数下限（spec: 成功解决 ≥3 次）。
 MIN_SKILL_SUCCESSES = 3
@@ -136,7 +137,7 @@ class AutoSkillService:
         negative feedback row (Fail-Closed on evidence quality).
         Topics already promoted (skill_fact_id set) are not re-listed.
         """
-        with self.store.connect() as connection:
+        with closing(self.store.connect()) as connection:
             self._ensure_tables(connection)
             rows = connection.execute(
                 """SELECT topic, success_count, trace_ids, skill_fact_id
@@ -293,7 +294,7 @@ class AutoSkillService:
     def _ensure_tables(self, connection: sqlite3.Connection | None = None) -> None:
         """Create skill_topics on first use (additive, idempotent)."""
         if connection is None:
-            with self.store.connect() as owned:
+            with closing(self.store.connect()) as owned:
                 self._ensure_tables(owned)
             return
         for statement in V18_ADDITIVE_STATEMENTS:

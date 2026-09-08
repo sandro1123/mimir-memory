@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from contextlib import closing
 import threading
 import time
 import uuid
@@ -903,7 +904,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         return {"limit": limit, "total": len(rows), "results": rows, "channels": {"facts": True}}
 
     def _recent_memories(context, identity, limit, owner_principal) -> list[dict]:
-        with context.store.connect() as connection:
+        with closing(context.store.connect()) as connection:
             params: list[str] = []
             where = "status='active'"
             if owner_principal:
@@ -1844,7 +1845,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         """
         if not identity.can_act_as(agent_id):
             raise AuthError("profile view is owner-only", 403, "owner_boundary")
-        with context.store.connect() as connection:
+        with closing(context.store.connect()) as connection:
             iron_rows = _profile_section(
                 connection, agent_id, ("iron_rule",), limit=100)
             pref_rows = _profile_section(

@@ -18,6 +18,7 @@ from typing import Any
 from .dedup import jaccard_similarity
 from .schema import PROJECTORS
 from .store import CanonicalStore, new_id, sha256_text, utc_now
+from contextlib import closing
 
 
 V16_ADDITIVE_STATEMENTS = (
@@ -120,7 +121,7 @@ class ConflictService:
     def list(self, status: str = "open", limit: int = 50) -> list[dict]:
         if status not in ("open", "resolved", "dismissed"):
             raise ValueError("status must be open|resolved|dismissed")
-        with self.store.connect() as connection:
+        with closing(self.store.connect()) as connection:
             rows = connection.execute(
                 """SELECT * FROM conflict_resolutions
                 WHERE status=? ORDER BY created_at DESC LIMIT ?""",
