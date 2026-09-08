@@ -6,8 +6,14 @@ services:
     container_name: mimir-v10
     restart: unless-stopped
     ports:
-      - "8456:8456"
+      # P0-K (dudu RED-4): loopback default. LAN/WAN exposure requires
+      # explicitly changing to "0.0.0.0:8456:8456" + your own ingress
+      # boundary (reverse proxy / TLS / token at deploy side).
+      - "127.0.0.1:8456:8456"
     environment:
+      # container must listen on all interfaces for compose networking;
+      # the loopback guard applies at the published-port mapping above.
+      - MIMIR_ALLOW_NONLOOPBACK=1
       - MIMIR_V8_DATA_DIR=/data/canonical.db
       - MIMIR_V8_TOKEN_FILE=/data/api_tokens.json
       - MIMIR_V8_COLLECTION=mimir_v10_prod_local
@@ -26,13 +32,17 @@ services:
       retries: 3
 
   mimir-dashboard:
-    image: python:3.11-slim
+    # P0-K (dudu RED-5): deps installed at BUILD time via dashboard/Dockerfile
+    # (pinned requirements.txt); runtime runs a fixed entrypoint only — no
+    # per-start PyPI pulls of unlocked versions.
+    build:
+      context: ./dashboard
     container_name: mimir-dashboard
     restart: unless-stopped
     depends_on:
       - mimir
     ports:
-      - "8800:8800"
+      - "127.0.0.1:8800:8800"
     environment:
       - MIMIR_API=http://mimir:8456
       - CANONICAL_DB=/data/canonical.db
@@ -43,7 +53,6 @@ services:
       - ./dashboard/backend:/app/backend
       - ./dashboard/frontend:/app/frontend
       - mirdata:/data
-    command: sh -c "pip install --no-cache-dir fastapi uvicorn httpx jinja2 && python -m uvicorn backend.main:app --host 0.0.0.0 --port 8800"
 
 volumes:
   mirdata:
