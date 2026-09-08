@@ -630,6 +630,21 @@ ON crystal_candidates(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_crystal_topic
 ON crystal_candidates(topic, domain);
 
+CREATE TABLE IF NOT EXISTS crystal_runs (
+    run_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK (status IN ('started','completed','failed')),
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    error_code TEXT,
+    window_days INTEGER,
+    created INTEGER,
+    updated INTEGER,
+    skipped INTEGER
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_crystal_runs_status
+ON crystal_runs(status, started_at);
+
 CREATE TABLE IF NOT EXISTS fact_assets (
     asset_id TEXT PRIMARY KEY,
     fact_id TEXT NOT NULL REFERENCES facts(fact_id),

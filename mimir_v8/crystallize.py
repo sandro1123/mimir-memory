@@ -41,6 +41,21 @@ V17_ADDITIVE_STATEMENTS = (
        ON crystal_candidates(status, created_at)""",
     """CREATE INDEX IF NOT EXISTS idx_crystal_topic
        ON crystal_candidates(topic, domain)""",
+    # P0-B（v14.2）结晶腿账本：scan 三态记账，断供欠账可证可补。
+    # 与 extraction_runs（P48 先例）同构——FAILED 必须与正常零产出可区分。
+    """CREATE TABLE IF NOT EXISTS crystal_runs (
+        run_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL CHECK (status IN ('started','completed','failed')),
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        error_code TEXT,
+        window_days INTEGER,
+        created INTEGER,
+        updated INTEGER,
+        skipped INTEGER
+    ) STRICT""",
+    """CREATE INDEX IF NOT EXISTS idx_crystal_runs_status
+       ON crystal_runs(status, started_at)""",
 )
 
 
@@ -110,12 +125,96 @@ class CrystalService:
         Only clusters with >= min_freq observations become candidates. Rows
         already decided (approved/dismissed) are never resurrected. Existing
         open candidates are refreshed with the latest sample set.
+
+        P0-B（v14.2）账本：起手 INSERT started 行；成功 completed；异常
+        failed+error_code。catchup 探测断供欠账（failed 且其后无
+        completed），补跑即重放（scan 本身 upsert 幂等，无特殊路径）。
         """
         if window_days < 1:
             raise ValueError("window_days must be >= 1")
         if min_freq < 2:
             raise ValueError("min_freq must be >= 2")
         now = utc_now()
+        run_id = new_id()
+        runs_meta = self._open_run(run_id, window_days)
+        try:
+            result = self._scan_inner(
+                window_days, min_freq, actor_principal, now)
+        except Exception as exc:
+            self._close_run(run_id, "failed", error_code=type(exc).__name__)
+            raise
+        self._close_run(run_id, "completed", created=result["created"],
+                        updated=result["updated"], skipped=result["skipped"])
+        runs_meta["completed"] = 1
+        result["runs"] = runs_meta
+        return result
+
+    def _open_run(self, run_id: str, window_days: int) -> dict:
+        """记 started 行并探测断供欠账（独立事务：即便主 scan 事务失败，
+        账本也必须留痕——否则失败本身就成了新的无痕缺口）。"""
+        with self.store.transaction() as connection:
+            self._ensure_run_table(connection)
+            catchup = connection.execute(
+                "SELECT COUNT(*) FROM crystal_runs WHERE status='failed'"
+                " AND NOT EXISTS (SELECT 1 FROM crystal_runs c"
+                "  WHERE c.status='completed' AND c.started_at > crystal_runs.started_at)"
+            ).fetchone()[0]
+            connection.execute(
+                "INSERT INTO crystal_runs(run_id, status, started_at, window_days)"
+                " VALUES(?,?,?,?)",
+                (run_id, "started", utc_now(), window_days),
+            )
+        return {"catchup": int(catchup)}
+
+    def _close_run(self, run_id: str, status: str, *, error_code: str | None = None,
+                   created: int | None = None, updated: int | None = None,
+                   skipped: int | None = None) -> None:
+        """关账（started→completed/failed）。
+
+        断供恢复的边界情形：主 scan 事务失败可能因 store 整体不可用，
+        此时 transaction() 再抛一次——账本关闭走 connect() 直写降级，
+        失败行至少能落 'failed'（started 残留本身就是可观测信号，
+        但 failed+error_code 才让 ops 哨兵能按因聚合）。
+        """
+        try:
+            with self.store.transaction() as connection:
+                self._ensure_run_table(connection)
+                connection.execute(
+                    "UPDATE crystal_runs SET status=?, completed_at=?,"
+                    " error_code=?, created=?, updated=?, skipped=? WHERE run_id=?",
+                    (status, utc_now(), error_code, created, updated, skipped, run_id),
+                )
+                return
+        except Exception:
+            pass
+        try:
+            with self.store.connect() as connection:
+                connection.execute(
+                    "UPDATE crystal_runs SET status=?, completed_at=?,"
+                    " error_code=? WHERE run_id=?",
+                    (status, utc_now(), error_code, run_id),
+                )
+        except Exception:
+            pass
+
+    @staticmethod
+    def _ensure_run_table(connection) -> None:
+        """守卫式建表：老库（迁移链已过 V17 的生产库）首次跑新代码时自愈。"""
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS crystal_runs (
+            run_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL CHECK (status IN ('started','completed','failed')),
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            error_code TEXT,
+            window_days INTEGER,
+            created INTEGER,
+            updated INTEGER,
+            skipped INTEGER
+        ) STRICT""")
+
+    def _scan_inner(self, window_days: int, min_freq: int,
+                    actor_principal: str, now: str) -> dict:
         with self.store.transaction() as connection:
             rows = connection.execute(
                 """SELECT fact_id, content, summary, domain
