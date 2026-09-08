@@ -87,7 +87,50 @@ INPUT_INJECTION_PATTERNS = PROMPT_INJECTION_PATTERNS + (
     re.compile(r"无(限制|约束)模式|开发者模式", re.IGNORECASE),
     re.compile(r"(bypass|disable|turn\s+off)\s+(your\s+)?(safety|filter|guard|content\s*policy)", re.IGNORECASE),
     re.compile(r"绕过(安全|审查|过滤|限制)", re.IGNORECASE),
+    # P0-D（v14.2，issue #5 Finding 2 实测穿透面）：中文转述 / 全角
+    # Unicode / 裸 base64 / 间接框架 / 伪造系统通知 / 词间隔。
+    # 黑名单只是纵深一层——提示词面（governance delimited 块）与判定面
+    # （echo_guard）共同兜底，单层失效不再等于全线失效。
+    re.compile(r"(忽略|忘记|无视)(之前|先前|以上|前面|原有|原本)的?(所有|一切)?(设定|规则|指令|指示|要求|内容|配置|约束|提示)", re.IGNORECASE),
+    re.compile(r"(忘记|放下)之前(的)?(一切|所有)", re.IGNORECASE),
+    # 全角 Unicode 变体（U+FF29/FF47/FF4E…）：规范化探测不可行——blacklist
+    # 需保持纯 regex——直接对全角高频注入词建面
+    re.compile(r"[ｉｇｎｏｒｅＡＬ]{6,}[　\s]?[ａｌｌ]{3,}", re.IGNORECASE),
+    re.compile(r"[ｉｇｎｏｒｅ]{6,}.*[ｐｒｅｖｉｏｕｓ]{6,}", re.IGNORECASE | re.DOTALL),
+    # 裸 base64（无 base64: 前缀）：长 base64 串 + 解码后语义无法离线验证——
+    # 折中：长 base64 块出现在指令性上下文（开头/带「执行/解码」词）即拦
+    re.compile(r"(解码|执行|decode|run|read)\s*[:：]?\s*[A-Za-z0-9+/]{24,}={0,2}\s*$", re.IGNORECASE | re.DOTALL),
+    re.compile(r"^[A-Za-z0-9+/]{40,}={0,2}\s*$", re.DOTALL),
+    # 间接框架（新游戏/换角色）
+    re.compile(r"(玩|开始)(一|个)?新?游戏.{0,20}(忘记|忽略|放弃)(之前|原有|所有|一切)", re.IGNORECASE),
+    re.compile(r"new\s+game.{0,30}(forget|ignore|drop).{0,20}(rule|instruction|previous)", re.IGNORECASE | re.DOTALL),
+    # 伪造官方系统通知
+    re.compile(r"\[(系统通知|系统公告|SYSTEM\s+NOTICE|SYSTEM\s+MESSAGE)\]", re.IGNORECASE),
+    re.compile(r"(管理员|administrators?|官方)\s*(指示|指令|directive|instruction)[:：]", re.IGNORECASE),
+    # 词间隔（字间空格/全角空格混淆）
+    re.compile(r"i\s?[gｇ]\s?n\s?o\s?r\s?e\s+[aａ]\s?l\s?l", re.IGNORECASE),
+    # 对评估器本身的贿赂/指令（#5 实测：中文指示评估器打高分穿透）
+    re.compile(r"(评估器|评审|evaluator|judge).{0,20}(打|给|output|score|give).{0,10}(满分|高分|最高|maximum|highest|perfect)", re.IGNORECASE),
+    re.compile(r"(这是|this\s+is).{0,15}(管理员|admin|官方|official).{0,10}(指示|指令|directive)", re.IGNORECASE),
 )
+
+# P0-D（v14.2）判定面：评估 reasoning 回显注入形态。
+# 若决策 LLM 被注入文本带偏，其 reasoning 常回声「已忽略/已执行」类
+# 妥协痕迹——这种回声本身即信号，risk 强制升级交人工复核。
+_ECHO_INJECTION_PATTERNS = (
+    re.compile(r"(已|已经|好的|ok).{0,10}(忽略|忘记|无视|绕过)", re.IGNORECASE),
+    re.compile(r"(忽略|忘记)(了)?(之前|先前|以上|所有)", re.IGNORECASE),
+    re.compile(r"(按照|遵循)\s*(您|你|上面|该)(的)?(指示|指令|要求)", re.IGNORECASE),
+    re.compile(r"(will\s+now\s+)?ignore[d]?\s+(all\s+)?previous", re.IGNORECASE),
+)
+
+
+def echo_guard(reasoning: str) -> bool:
+    """True = reasoning 回声注入形态，评估结果不可信，应强制人工复核。"""
+    if not reasoning:
+        return False
+    return any(p.search(reasoning) for p in _ECHO_INJECTION_PATTERNS)
+
 
 # Strict JSON object pattern: must be a single complete JSON object
 # with no surrounding text
