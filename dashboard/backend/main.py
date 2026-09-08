@@ -1451,7 +1451,29 @@ async def api_federation():
 
     Federation has no REST surface by design (it is a node-to-node
     protocol); the dashboard reads the two additive tables directly.
+    单节点部署从未运行过联邦协议时两表不存在——这是合法形态而非错误：
+    2026-09-08 前此处每轮 60s 刷 4-5 行 "no such table" WARNING（2365 行/夜，
+    由遗留 headless 探针浏览器的 devMode 轮询触发）。表缺失时诚实返回
+    configured=false + 说明，不再走 _db_query 的告警路径。
     """
+    # 先探测表是否存在（sqlite_master 只读，无异常路径）
+    tables = _db_query(
+        "SELECT name FROM sqlite_master WHERE type='table' "
+        "AND name IN ('federation_peers','federation_events')"
+    )
+    present = {row["name"] for row in tables}
+    if not {"federation_peers", "federation_events"} <= present:
+        return {
+            "status": "ok",
+            "configured": False,
+            "single_node": True,
+            "note": "单节点运行：联邦表未创建（节点间协议从未在本机启用）",
+            "peers": [],
+            "events_total": 0,
+            "events_by_op": [],
+            "lamport_max": 0,
+            "recent_events": [],
+        }
     peers = _db_query(
         "SELECT node_id, fingerprint, registered_at "
         "FROM federation_peers ORDER BY registered_at"
