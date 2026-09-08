@@ -105,16 +105,18 @@ Mímir 深度融合业界 6 大标杆记忆系统的核心工程精髓（详见 
 
 ---
 
-### 4. v14.1 系列：质量与韧性 (Quality & Resilience) — 2026-09 起进行中
+### 4. v14.1 系列：质量与韧性 (Quality & Resilience) — 2026-09 起进行中（v14.1.0 已于 2026-09-08 发布上线）
 
 **目标**：v14 三大件已在生产运行（2026-09-03 迁移收官，金标复测无退化），本系列不再堆新大件——**把已建成的机制跑起来、把地板下的隐患治掉**。生产金标复测（09-04）暴露三件「建好了没跑起来」的面：金标事实老化无人审、AutoSOP 生产零结晶、反馈燃料近零。
 
 - [ ] **P0 金标治理（Golden-Set Stewardship）**：
   - 金标集扩容（现 8 条太瘦——每条都顶 12.5% 权重）；老金标事实人审升档（unreviewed → reviewed，置信度落值、衰减档 L4 → 更高）——治 hit_rate@3 贴地板零裕度的根因：金标 7 月底入库至今 unreviewed/零置信/L4 最弱衰减档，被新 user_pref 挤位是事实层自然结果，非排序病。
-  - 金标健康度哨兵：金标 fact 状态/置信/衰减档巡检入 `verify` 门禁，老化即报。
+  - 金标健康度哨兵：金标 fact 状态/置信/衰减档巡检入 `verify` 门禁，老化即报。（✅ 部分落地 v14.1.0：`ops health` 三哨兵已在线、`verify` 已算 disputed；金标专用巡检待金标扩容后跟进）
 - [x] **P1 韧性挡位（Resilience Gears）**（shipped cd9cf41 三态断路器 + 诚实遥测，v14.1.0）：
   - 借鉴 aduMEI v20.2 自动挡位引擎：三态断路器 + 请求内降挡 + pending 债务账本 + half-open 真实流量探测——治 2026-08-17 生产路由事故类的「下游抖动放大成全站失败」。
   - 诚实遥测：检索三态（found / not_found / degraded）明示降档，永不把 degraded 冒充 found。
+- [x] **P4.5 全面审计修复（Audit Remediation，shipped v14.1.0 2026-09-08）**：
+  - 治理 LLM 静默失效 6 天根治（env 回退 + requeue 上限 + 退出码）；LLM 抽取失败语义化（`llm_unavailable` 标记 + `failed` 可区分 + ingestion 保持 `stored` 供重试 + 24h 退避）——LLM 抖动不再冒充「对话无价值」永久丢弃；人批 → `confirmed` 语义 + 146 条历史回填；投影漂移 `reproject` CLI；插件 per-agent token ACL；看板 v4 客户视图 + 单节点联邦诚实降级；Mímir 离机备份通道（每日 03:50 落第二设备）；`mimir_config.yaml` 死键瘦身。
 - [ ] **P2 AutoSOP 首结晶（First Production Crystallization）**：
   - 生产 `fact_type='skill'` 至今 0 条——AutoSOP 建成但从未真跑。喂第一单真实数据验证全链（record_success → compile → promote），打通「多 Agent 协作经验 → L3 技能」的闭环。
 - [ ] **P3 反馈燃料与知识层通电**：

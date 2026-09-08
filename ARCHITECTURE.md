@@ -1,6 +1,6 @@
 # Mímir Architecture · 架构设计
 
-> 同步版本 · Synced version：v14.0.0 · Schema 20 · 代号 Codename Insight · 2026-09-03
+> 同步版本 · Synced version：v14.1.0 · Schema 20 · 代号 Codename Insight · 2026-09-08
 >
 > English · 中文双语
 

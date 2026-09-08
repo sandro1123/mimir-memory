@@ -203,7 +203,7 @@ Then hit `curl http://127.0.0.1:8456/health` to confirm.
 | v12.2 | L0–L3 tiered memory, unified Profile API, XTMEM lineage, anchor channel, /v12/profile | ✅ shipped |
 | v13.0 | Multi-agent shared blackboards, temporal knowledge graph, proactive intent wake | ✅ shipped |
 | v14.0 | AutoSkill pipeline, cross-node CRDT federation, cross-model projection | ✅ shipped · **in production since 2026-09-03** |
-| v14.1 | Quality & resilience: golden-set stewardship, first production skill crystallization, resilience gears, honest telemetry | 🔵 in progress |
+| v14.1.0 | Audit remediation: silent-LLM-failure governance fix, resilience gears (three-state circuit breakers), honest telemetry, off-site backup, dashboard v4 customer view | ✅ shipped · **in production since 2026-09-08** |
 
 ---
 
