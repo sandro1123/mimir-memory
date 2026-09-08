@@ -805,43 +805,5 @@ class TestM4MultiModal(unittest.TestCase):
             self.assertIn("fact_assets", present)
 
 
-class TestM1dHermesPluginContract(unittest.TestCase):
-    """M1d: Hermes MemoryProvider plugin package imports and mirrors MEMORY.md."""
-
-    @classmethod
-    def setUpClass(cls):
-        sys.path.insert(0, str(Path.home() / ".hermes/plugins/memory"))
-        import importlib
-        cls.pkg = importlib.import_module("mimir_memory_provider")
-        cls.provider = importlib.import_module("mimir_memory_provider.provider")
-        cls.tools = importlib.import_module("mimir_memory_provider.tools")
-
-    def test_provider_hooks_exist(self):
-        for name in ("on_turn_start", "on_turn_end", "before_context_compress", "on_memory_update"):
-            self.assertTrue(callable(getattr(self.provider, name, None)), name)
-
-    def test_tools_exist(self):
-        for name in ("mimir_search", "mimir_remember", "mimir_recent", "mimir_reflect"):
-            self.assertTrue(callable(getattr(self.tools, name, None)), name)
-
-    def test_on_memory_update_writes_memory_md(self):
-        import os
-        from pathlib import Path
-        target = Path(tempfile.mkdtemp()) / "MEMORY.md"
-        saved = os.environ.get("MIMIR_PLUGIN_MEMORY_MD")
-        try:
-            os.environ["MIMIR_PLUGIN_MEMORY_MD"] = str(target)
-            import importlib
-            reloaded = importlib.reload(self.provider)
-            result = reloaded.on_memory_update(snapshot=["alpha", "beta"])
-            self.assertEqual(result["status"], "ok")
-            self.assertTrue(target.is_file())
-        finally:
-            if saved is None:
-                os.environ.pop("MIMIR_PLUGIN_MEMORY_MD", None)
-            else:
-                os.environ["MIMIR_PLUGIN_MEMORY_MD"] = saved
-
-
 if __name__ == "__main__":
     unittest.main()

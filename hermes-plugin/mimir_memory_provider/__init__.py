@@ -20,7 +20,14 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from agent.memory_provider import MemoryProvider
+try:  # Hermes host runtime present → real ABC
+    from agent.memory_provider import MemoryProvider
+except ImportError:  # clean checkout / CI → structural stand-in
+    class MemoryProvider:  # type: ignore[no-redef]
+        """运行时被 Hermes 替换；独立环境下仅保证方法面存在。"""
+        def initialize(self, session_id: str, **kwargs) -> None: ...
+        def prefetch(self, query: str, *, session_id: str = "") -> str: ...
+        def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str: ...
 
 from .tools import (
     ADMIN_TOKEN_FILE,
