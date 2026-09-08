@@ -494,12 +494,19 @@ class UnifiedSearch:
             deduplicated.append(item)
             if len(deduplicated) >= request.limit:
                 break
+        # P0-A 召回诚实判语：partial=任一层非 ok 即降级（故障先于缺失）
+        degraded = any(value["status"] != "ok" for value in layer_status.values())
+        verdict = (
+            "degraded" if degraded
+            else ("found" if len(deduplicated) > 0 else "not_found")
+        )
         return {
             "query": query,
             "principal_id": request.principal_id,
+            "recall_verdict": verdict,
             "results": deduplicated,
             "layers": layer_status,
-            "partial": any(value["status"] != "ok" for value in layer_status.values()),
+            "partial": degraded,
             "fusion": {"algorithm": "rrf", "rrf_k": self.rrf_k, "score_comparable": True},
         }
 

@@ -355,9 +355,12 @@ class QueryKernel:
             layer=bool(sweep_types),
         )
         degraded = any(s == "degraded" or s == "open" for s in channels.values())
+        # P0-A：诚实判语一词定论，与 degraded 布尔同源但语义更细
+        verdict = self._recall_verdict(degraded, len(results[: request.limit]))
         return {
             "query": query,
             "principal_id": request.principal_id,
+            "recall_verdict": verdict,
             "results": results[: request.limit],
             "candidate_count": len(ranked),
             "filtered": filtered,
@@ -554,9 +557,13 @@ class QueryKernel:
             anchor="closed" if request.use_anchor else "off",
             layer=bool(sweep_types),
         )
+        # P0-A：trace 与 search 两口径不分叉（P46 判例延续）
         return {
             "query": query,
             "skipped": False,
+            "recall_verdict": self._recall_verdict(
+                any(s == "degraded" or s == "open" for s in channels.values()),
+                len(top)),
             "stages": stages,
             "results": top,
             "total_candidates": len(pool),
@@ -564,6 +571,18 @@ class QueryKernel:
             "channels": channels,
             "degraded": any(s == "degraded" or s == "open" for s in channels.values()),
         }
+
+    # ── P0-A 召回诚实判语（v14.2）───────────────────────────────
+    @staticmethod
+    def _recall_verdict(degraded: bool, hit_count: int) -> str:
+        """一词定论：degraded（故障先于缺失）> not_found（正常但零命中）> found。
+
+        与「空≠错」纪律同源：通道故障导致的空结果绝不能被呈现为
+        「没找到」——消费者（dashboard 健康灯/问我的助手）只看这个词。
+        """
+        if degraded:
+            return "degraded"
+        return "found" if hit_count > 0 else "not_found"
 
     def _layer_sweep_spec(self, request: QueryRequest) -> tuple[tuple[str, ...], int]:
         """Which non-anchor layers the progressive sweep covers.
