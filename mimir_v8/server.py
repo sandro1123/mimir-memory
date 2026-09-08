@@ -38,7 +38,10 @@ def parse_knowledge_layers(raw: str) -> tuple[str, ...]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Mímir v9 loopback-only REST server")
     parser.add_argument("--bind", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=18456)
+    # P0-F（v14.2，issue #3）：默认端口对齐全家（EXPOSE/healthcheck/
+    # compose/MIMIR_API 全按 8456；旧默认 18456 是历史遗留，与容器宇宙
+    # 不一致导致首装「端口上有健康检查、端口上没有服务」）。
+    parser.add_argument("--port", type=int, default=8456)
     parser.add_argument(
         "--data-dir",
         default=os.environ.get("MIMIR_V8_DATA_DIR", "./var/mimir-v8"),

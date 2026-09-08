@@ -110,6 +110,27 @@ YAML
   echo "    已写入 / wrote $CONFIG_FILE"
 fi
 
+# ── 3.5 嵌入模型预取 / embedding model prefetch ──────────────
+# runtime.py 以 local_files_only=True + HF_HUB_OFFLINE=1 加载 bge-m3（生
+# 产纪律：运行时永不联网下载）。首装必须在此显式预取——否则首次嵌入
+# 调用即抛「模型不在本地缓存」。预取完成后再交回离线纪律。
+if [ "${SKIP_MODEL_PREFETCH:-0}" != "1" ]; then
+  MODEL_NAME="${MIMIR_V8_MODEL:-BAAI/bge-m3}"
+  echo "==> 预取嵌入模型 / prefetching embedding model: $MODEL_NAME"
+  echo "    （约 2.3G；SKIP_MODEL_PREFETCH=1 可跳过，模型已缓存时推荐跳过）"
+  python3 - "$MODEL_NAME" <<'PYEOF_INNER'
+import sys
+try:
+    from sentence_transformers import SentenceTransformer
+    model = sys.argv[1]
+    SentenceTransformer(model, device="cpu")  # 联网下载并写入 HF 缓存
+    print(f"    model cached: {model}")
+except ImportError:
+    print("    !! sentence-transformers 未安装，跳过预取（先 pip install -e .[embeddings]）")
+    sys.exit(0)
+PYEOF_INNER
+fi
+
 # ── 4. 收尾 / wrap up ────────────────────────────────────
 echo ""
 echo "==> 完成 / Done."
