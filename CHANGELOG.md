@@ -230,6 +230,11 @@
 
 ## v11.0.0 (schema 14) — 2026-08 · 全量升级 (借鉴 TencentDB Agent Memory)
 
+> **版本史说明**：v9~v11 时代早于开源仓——公开 git 历史起点是 v12.0.0 开源首发
+> （`92c41b7`，2026-08-18）。v9 仅存发布候选快照（`9.0.0-rc1~rc3`），v10/v11 的
+> 内部 git 树未随开源导入（内网时代代码含已被开源前清洗的机密面，重新公开
+> 属安全倒退）。本节及以下由 CHANGELOG 文本承载历史；对应 tag 自 v12.0.0 起。
+
 ### Added · 新增
 - **Symbolic short-term memory**（`symbolic_memory.py`）— Mermaid canvas 卸载引擎。
 - **CodeGraph**（`code_symbols`, `code_relations`）— 代码符号索引、调用图、影响分析。

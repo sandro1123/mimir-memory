@@ -222,6 +222,11 @@ cd mimir-memory
 
 ---
 
+## 版本史边界 · Pre-Open-Source Era
+
+公开 git 历史与 tag 自 **v12.0.0（2026-08-18 开源首发）** 起；v9~v11 为内部时代，
+无公开 tag（快照与内部史不随开源导出——历史在 [CHANGELOG](CHANGELOG.md) 文本承载）。
+
 ## 路线图
 
 | 里程碑 | 范围 | 状态 |
