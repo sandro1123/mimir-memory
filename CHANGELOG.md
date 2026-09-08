@@ -10,6 +10,7 @@
 
 > 接手 09-08 移交单 §2.2/§2.3/§2.4 三件。均无 schema 变更。
 
+- **README 默认语言切换为中文** — GitHub/Gitee 主页默认展示中文：`README_zh.md` 内容升主为 `README.md`（浏览器打开即中文），原英文版挪 `README_en.md`；两文件语言切换链接改 `[English](README_en.md) · [简体中文](README.md)`；`docs/plans/2026-09-08-mimir-doc-locations-and-daily-report.md` 顶层文档清单同步。纯改名+一行链接替换，内容零改动。
 - **P48 抽取链 LLM 失败语义化（§2.2，cd31055）** — `EvaluationResult.llm_unavailable` 显式标记；`llm_extract_once` 遇标记记 `extraction_runs.status=failed + error_code=llm_unavailable` 且 ingestion 保持 `stored` 供下轮重试（此前 LLM 抖动=对话永久丢弃且与正常 discard 不可区分）；24h 内同 run 失败 ≥3 次退避出队；返回带 `llm_unavailable` 计数。ops health 新增「近 2h 抽取全 failed 即报」哨兵。
 - **symbolic offload 空文本入口拒绝（§2.4，5fbce55）** — `raw_text` strip 为空即 422；生产冒烟残留空块 `sym_10f7f8e6` 已按 block_id+length=0 双条件清除（empty-blocks 0）。
 - **生产 mimir_config.yaml 死键清理（§2.3，生产仓 7e481aa）** — 4142B→1198B，只留 `version/collector/reflect/federation` 四段真消费面（`reflect.topics` 为 ops/weekly_reflect.py 所读，审计清单勘误补入）；collector 真跑 RSS 4 源+vault 全绿验证；原件备份 `backups/mimir_config.yaml.bak-v7full-20260908`。

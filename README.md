@@ -1,8 +1,7 @@
-# Mímir — Federated Memory for Multi-Agent Systems
+# Mímir — 面向多智能体系统的联邦记忆
 
-> **One shared memory, many agents.** An event-sourced, self-evolving,
-> federated memory system that lets multiple AI agents remember *together* —
-> and forget intelligently.
+> **一份共享记忆，多个智能体。** 一个事件溯源、自我演化、联邦化的记忆系统，
+> 让多个 AI 智能体「一起」记忆——并智能地遗忘。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Schema Version](https://img.shields.io/badge/schema-20-blue.svg)](#)
@@ -10,134 +9,165 @@
 [![CI](https://github.com/sandro1123/mimir-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/sandro1123/mimir-memory/actions)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-[English](README.md) · [中文](README_zh.md)
+[English](README_en.md) · [简体中文](README.md)
 
 ---
 
-## The Name
+## 名字的由来 · The Name
 
-**Mímir** originates from Norse mythology — the guardian of the Well of Mímir (Mímisbrunnr), the source of wisdom.
+**Mímir**（密米尔）源自北欧神话 —— 智慧之泉（Well of Mímir）的守护者。
 
-In Norse mythology, Odin, the Allfather, sacrificed one of his own eyes to drink from the Well of Wisdom. The well possessed wisdom precisely because it was guarded day and night by the giant **Mímir** — the personification of memory and knowledge. Odin lost an eye, yet gained the wisdom to foresee the future. Even after Ragnarök, Mímir's severed head remained by Odin's side, continuing to offer him counsel.
+在北欧神话中，众神之父奥丁（Odin）为了换取一口智慧之泉的井水，献出了自己
+的一只眼睛。而这口泉水之所以蕴含智慧，正是因为它由巨人 **Mímir** 日夜守护——
+Mímir 本身就是「记忆」与「知识」的化身。奥丁失去一只眼，却得到了预见未来的
+智慧；而 Mímir 的头颅，即使在诸神黄昏（Ragnarök）之后，仍被奥丁带在身边，
+继续为他提供忠告。
 
-This name is an apt metaphor for a memory system:
+这个名字对一套记忆系统而言，是一个恰到好处的隐喻：
 
-- **Memory comes at a cost** — Odin traded an eye for wisdom, just as reliable memory demands the continuous investment of governance, audit, and evolution, rather than a cheap "just write it down".
-- **Memory endures** — Even when the world ends (Ragnarök), Mímir remains. A true memory system should withstand the passage of time and version iterations, rather than vanishing with a process restart.
-- **The value of memory lies in being "consumed"** — A well without drinkers is merely water. If memory cannot be retrieved at the right moment with the proper permissions, it remains mere accumulated data.
+- **记忆需要代价** —— 奥丁用一只眼换智慧，正如可靠的记忆需要投入治理、
+  审计与演化的成本，而非廉价的「记下来就行」。
+- **记忆是长存的** —— 即使世界毁灭（诸神黄昏），Mímir 仍在。真正的记忆
+  系统应当经得起时间的冲刷、版本的更迭，而不是随进程重启而消失。
+- **记忆的价值在于「被喝下」** —— 泉水若无人饮用便只是水。记忆若无法在
+  正确的时刻、以正确的权限被检索到，就只是堆积的数据。
 
-Mímir is therefore not merely a technical name, but a design promise: **to build a long-lived, consumable memory substrate worthy of trading "an eye" for.**
-
----
-
-## The Philosophy
-
-Mímir is founded on a simple yet often overlooked conviction: **memory is not a static accumulation of data, but a living lifecycle process.**
-
-Most memory systems treat "remembering" as the destination — store it, retrieve it, done. But real-world memory does not work this way. Genuine memory:
-
-1. **Is admitted with deliberation** — Not all information is worth remembering, nor should everything "remembered" be unconditionally trusted. Every candidate must undergo governance assessment before admission, keeping extraction strictly separated from approval.
-2. **Evolves over time** — Frequently used memories gain trust, while obsolete ones are deweighted. Confidence should be a dynamic curve over time, not a frozen scalar.
-3. **Knows how to forget** — Forgetting is not the enemy of memory, but an essential part of it. True forgetting is selective letting go rather than outright destruction — using tombstones rather than deletion, and Ebbinghaus curves rather than blunt purges.
-4. **Has ownership and boundaries** — In a world shared by multiple agents, *who remembers* and *who can view* are just as crucial as *what was remembered*. Memory must have clear ownership, boundaries, and deliberate sharing.
-
-This is the core philosophy of Mímir: **treating memory as something to be respected, governed, evolved, and consciously forgotten, rather than an unbounded hash table.**
-
-We do not strive to remember the most; we strive to remember what matters.
+Mímir 因此不只是一个技术命名，而是一句设计承诺：**做一套值得用「一只眼睛」
+去换的、长存的、可饮用的记忆。**
 
 ---
 
-## The One Thing Mímir Does That Others Don't: **Federated Memory**
+## 我们的哲学 · The Philosophy
 
-Most memory systems are built for **one agent**. Mímir is built for **many**.
+Mímir 建立在一个简单但常被忽视的信念上：**记忆不是数据的堆积，而是一个
+有生命周期的过程。**
 
-In a multi-agent system — a network ops agent, a quant-trading agent, a tech consultant, a trainer — each agent has a different job, different knowledge, and a different owner. They shouldn't all see everything, but they *should* be able to share what matters.
+大多数记忆系统把「记住」当成终点——存进去，取出来，完事。但真实世界的
+记忆不是这样的。真实记忆会：
 
-Mímir's answer is **federated memory with fine-grained isolation**:
+1. **被审慎地接纳** —— 不是所有信息都值得记住，也不是所有「记住了」都
+   该被无条件信任。所以我们让每一条候选在进入记忆之前，都经过治理评估，
+   并让「提取」与「批准」永远分离。
+2. **随时间演化** —— 用得多的记忆更可信，失效的记忆被降权。记忆的
+   置信度应该是一段随时间变化的曲线，而不是一个静止的数字。
+3. **懂得遗忘** —— 遗忘不是记忆的敌人，而是记忆的一部分。真正的遗忘
+   是「有选择地放下」，而不是「销毁」。所以我们用墓碑标记而非删除，
+   用艾宾浩斯曲线而非一刀切。
+4. **有归属、有边界** —— 在多个智能体共享的世界里，「谁记得」和
+   「谁能看」与「记住了什么」同样重要。记忆必须有主人，有边界，有
+   克制的共享。
 
-- **Each agent has its own memory** — facts are tagged with `owner_principal`, and ACLs control exactly who can read what.
-- **Agents share deliberately** — three visibility tiers (`all` / `shared` / `owner_only`) let you mark a fact as "mine alone", "for my team", or "public to all agents".
-- **Cross-agent awareness** — an awareness broadcast surfaces what other agents learned recently, so agents don't operate in silos.
-- **Federated search** — `/v10/federation/{peer}` queries across principals with ACL enforcement, so one agent can ask "what does anyone know about X?" safely.
+这就是 Mímir 的全部哲学：**把记忆当作一件需要被尊重、被治理、被演化、
+被有意识地遗忘的事物，而不是一个可以无限写入的哈希表。**
 
-The result: **a single memory substrate shared by N agents, with the isolation of N private memories.** That's the difference between a memory store and a *collective* memory.
+我们不追求「记得最多」，我们追求「记得恰到好处」。
 
 ---
 
-## Why Mímir Is Different (Beyond Federation)
+## Mímir 独一无二的能力：**联邦记忆**
 
-Federation is the headline. But Mímir is also built on a fundamentally different premise from "a vector database with a nice API": **a memory is an event, not a row.**
+大多数记忆系统为**单个智能体**设计。Mímir 为**多个智能体**设计。
 
-| A normal memory store | Mímir |
+在多智能体系统中——网络运维智能体、量化投顾智能体、技术顾问、培训师——每个
+智能体职责不同、知识不同、归属不同。它们不该看到所有内容，但**应该**能共享
+真正重要的东西。
+
+Mímir 的答案是**细粒度隔离的联邦记忆**：
+
+- **每个智能体有自己的记忆**——事实用 `owner_principal` 打标签，ACL 精确控制
+  谁能读什么。
+- **智能体有意识地共享**——三档可见性（`all` / `shared` / `owner_only`）让你把
+  事实标记为「仅我自己」「我的团队」或「所有智能体可见」。
+- **跨智能体感知**——感知广播呈现其他智能体最近学到了什么，让智能体不再各自为战。
+- **联邦搜索**——`/v10/federation/{peer}` 在 ACL 约束下跨主体查询，让一个智能体
+  能安全地问「有没有谁知道关于 X 的事？」。
+
+结果：**N 个智能体共享一份记忆底座，同时保有 N 份私有记忆的隔离性。** 这就是
+「记忆存储」与「集体记忆」的区别。
+
+---
+
+## Mímir 的其他与众不同之处（联邦之外）
+
+联邦记忆是招牌。但 Mímir 也建立在一个与「带 API 的向量数据库」根本不同的前提上：
+**记忆是事件，不是一行数据。**
+
+| 普通的记忆存储 | Mímir |
 |---|---|
-| Built for one agent | **Built for N agents with ACL-isolated federation** |
-| Overwrites old memories | **Appends immutable events** — history is never rewritten |
-| "Forgetting" = deleting rows | **Tombstone forgetting** — marked, never destroyed |
-| Memory quality = your prompt | **Governed** — an LLM *evaluates* every candidate; it can only *suggest*, never *commit* |
-| Static retrieval score | **Self-evolving** — feedback nudges confidence up *and* down |
-| Single vector index | **Three-channel fusion** — vector + FTS + graph, RRF + local rerank |
-| Facts decay arbitrarily | **Ebbinghaus decay** — five forgetting curves, never-forget to ephemeral |
+| 为单个智能体设计 | **为 N 个智能体设计，ACL 隔离的联邦** |
+| 覆盖旧记忆 | **追加不可变事件**——历史永不改写 |
+| 「遗忘」= 删行 | **墓碑遗忘**——标记，而非销毁 |
+| 记忆质量靠你的 prompt | **可治理**——LLM *评估*每个候选；只能*建议*，不能*提交* |
+| 静态检索分 | **自我演化**——反馈让置信度可升可降 |
+| 单一向量索引 | **三通道融合**——向量 + 全文 + 图，RRF + 本地重排 |
+| 事实随意衰减 | **艾宾浩斯衰减**——五条遗忘曲线，从永不遗忘到临时 |
 
-Mímir is the complete lifecycle for collective agent memory:
-*ingest → govern → commit → retrieve → self-correct → forget* — every step auditable and reversible.
+Mímir 是集体智能体记忆的完整生命周期：
+*摄入 → 治理 → 提交 → 检索 → 自我纠偏 → 遗忘*——每一步可审计、可回滚。
 
 ---
 
-## The Core Architecture in One Picture
+## 一图看懂核心架构
 
 ```
                          ┌─────────────────────────────┐
-   conversation          │         GOVERNANCE          │
-   / ingestion ────────▶ │  candidate → LLM assess →   │
-                         │  noise / provisional /       │
-                         │  human-review / commit       │
+   对话 / 采集 ────────▶ │          治理层             │
+                         │  候选 → LLM 评估 →          │
+                         │  噪声 / 暂定 / 人工审核 /    │
+                         │  提交                     │
                          └──────────────┬──────────────┘
                                         ▼
                          ┌─────────────────────────────┐
-                         │   CANONICAL (event-sourced) │
-                         │   facts + memory_events +    │
-                         │   fact_versions (immutable)  │
-                         │   owner_principal + ACL      │
+                         │  规范化存储（事件溯源）      │
+                         │  facts + memory_events +     │
+                         │  fact_versions（不可变）      │
+                         │  owner_principal + ACL       │
                          └──────────────┬──────────────┘
-                                        ▼  (outbox fan-out)
+                                        ▼  （outbox 扇出）
               ┌──────────────┬──────────┴──────────┬──────────────┐
               ▼              ▼                     ▼              ▼
-          vector (chroma)  fts (FTS5)          graph           core_memory
+          向量 (chroma)   全文 (FTS5)           图             核心记忆
               └──────────────┴──────────┬──────────┴──────────────┘
                                         ▼
-                              RRF fusion + local rerank
+                              RRF 融合 + 本地重排
                                         ▼
-                          ranked, ACL-filtered results
-                          (per-agent visibility enforced)
+                          排序后、经 ACL 过滤的结果
+                          （逐智能体可见性强制）
 ```
 
 ---
 
-## The Six Pillars
+## 六大支柱
 
-### 1. Federated Memory — *the headline*
-Multiple agents share one memory substrate with `owner_principal` isolation, three visibility tiers, cross-agent awareness, and federated search with ACL. See [docs/FEDERATION.md](docs/FEDERATION.md) for the multi-agent setup guide.
+### 1. 联邦记忆（多 Agent 联邦记忆）— *招牌能力*
+多个智能体共享一份记忆底座，`owner_principal` 隔离、三档可见性、跨智能体感知、
+带 ACL 的联邦搜索。多智能体接入指南见 [docs/FEDERATION.md](docs/FEDERATION.md)。
 
-### 2. Event-Sourced Truth
-Every fact is an append-only event stream. `memory_events` and `fact_versions` are trigger-protected against UPDATE and DELETE — rewindable, auditable, and explainable as a structural property.
+### 2. 事件溯源真相（事件溯源）
+每条事实都是追加式事件流。`memory_events` 和 `fact_versions` 受触发器保护，
+拒绝 UPDATE 和 DELETE——可回放、可审计、可解释，是结构属性。
 
-### 3. Governed Ingestion
-A deterministic rule engine plus an independent LLM assessor classify every candidate before commit. The LLM is **deliberately separated** from the commit path — it cannot extract *and* approve.
+### 3. 治理闭环（受控的摄入）
+确定性规则引擎 + 独立的 LLM 评估器在提交前分类每个候选。LLM 被**刻意与提交路径
+分离**——不能既提取又批准。
 
-### 4. Symmetric Self-Evolution
-Search feedback (`useful`/`useless`/`correction`) aggregates over a 7-day window and nudges confidence up *and* down, gated by minimum signal count.
+### 4. 对称自我演化（检索自进化）
+检索反馈（`有用`/`无用`/`纠正`）按 7 天窗口聚合，置信度可升可降，受最小信号数
+门槛约束。
 
-### 5. Scientific Forgetting
-Five Ebbinghaus decay tiers + Chronos dual-timeline. Identity rules never decay; ephemeral facts half-life in 7 days; expired facts are deweighted — never deleted.
+### 5. 科学的遗忘（艾宾浩斯曲线）
+五条艾宾浩斯衰减层级 + Chronos 双时间轴。身份规则永不衰减，临时事实 7 天半衰期，
+过期事实被降权——永不删除。
 
-### 6. Local-First Privacy
-All embeddings (bge-m3) and reranking (ms-marco) run **locally on CPU** — embedded text never leaves your machine. API binds `127.0.0.1` only.
+### 6. 本地优先隐私（本地隐私）
+所有嵌入（bge-m3）和重排（ms-marco）在**本地 CPU** 运行——待嵌入文本绝不出机器。
+API 仅绑定 `127.0.0.1`。
 
 ---
 
-## Quick Start (Out of the Box)
+## 快速开始（开箱即用）
 
-**One command** — installs dependencies, bootstraps config & tokens, and starts the server:
+**一条命令** —— 安装依赖、生成配置与 token、并启动服务：
 
 ```bash
 git clone git@github.com:sandro1123/mimir-memory.git
@@ -145,101 +175,102 @@ cd mimir-memory
 ./bootstrap.sh
 ```
 
-That's it. `bootstrap.sh` does three things:
-1. `pip install -e ".[embeddings]"` — installs deps (first run downloads bge-m3)
-2. `scripts/init.sh` — creates dirs, agent tokens, minimal config
-3. starts the server on `127.0.0.1:8456`
+就这么简单。`bootstrap.sh` 做了三件事：
+1. `pip install -e ".[embeddings]"` —— 安装依赖（首次运行会下载 bge-m3 模型）
+2. `scripts/init.sh` —— 生成目录、agent token、最小配置
+3. 在 `127.0.0.1:8456` 启动服务
 
-Then hit `curl http://127.0.0.1:8456/health` to confirm.
+然后访问 `curl http://127.0.0.1:8456/health` 确认。
 
-> **Manual setup** (if you prefer control):
+> **手动安装**（如果你偏好自行控制）：
 > `pip install -e ".[embeddings]"` → `./scripts/init.sh` → `python -m mimir_v8.server ...`
 >
-> **For a multi-agent federated setup**, follow [docs/FEDERATION.md](docs/FEDERATION.md).
+> **多智能体联邦接入**，按 [docs/FEDERATION.md](docs/FEDERATION.md) 操作。
 
 ---
 
-## Feature Matrix
+## 能力矩阵
 
-| Capability | Mímir |
+| 能力 | Mímir |
 |---|---|
-| **Multi-agent federated memory + ACL isolation** | ✅ |
-| Cross-agent awareness broadcast | ✅ |
-| Federated cross-principal search | ✅ |
-| **Cross-node CRDT federation (Lamport LWW + Fernet envelopes)** | ✅ |
-| Event sourcing (immutable events) | ✅ |
-| Governance pipeline (LLM assessor) | ✅ |
-| Vector + FTS + graph fusion (RRF) | ✅ |
-| Local CPU embeddings & rerank | ✅ |
-| Search-feedback self-evolution | ✅ |
-| Ebbinghaus decay + Chronos validity | ✅ |
-| L0–L3 tiered memory with progressive disclosure | ✅ |
-| Anchor channel (iron rules / core prefs never voted out) | ✅ |
-| Shared agent blackboards (distill to facts) | ✅ |
-| Temporal knowledge graph (valid_during history) | ✅ |
-| Proactive intent-based wake | ✅ |
-| Conflict resolution (disputed, never deleted) | ✅ |
-| **Mímir-Eval: standard benchmark suite (HitRate@K · MRR · ACL-leak, golden-set floors)** | ✅ |
-| Skill crystallization | ✅ |
-| **AutoSkill: traces → wiki → L3 skills (auto-compiled)** | ✅ |
-| **Cross-model projection (tier-aware injection blocks)** | ✅ |
-| Multi-modal fact assets | ✅ |
-| Obsidian wikilink bidirectional linking | ✅ |
-| MCP server (27 tools) | ✅ |
-| Hermes MemoryProvider plugin | ✅ |
-| Dashboard (3-tab customer view + 14-panel developer mode) | ✅ |
-| PyPI + Docker packaging | ✅ |
+| **多智能体联邦记忆 + ACL 隔离** | ✅ |
+| 跨智能体感知广播 | ✅ |
+| 联邦跨主体搜索 | ✅ |
+| **跨节点 CRDT 联邦（Lamport LWW + Fernet 信封）** | ✅ |
+| 事件溯源（不可变事件）| ✅ |
+| 治理管线（LLM 评估器）| ✅ |
+| 向量 + 全文 + 图融合（RRF）| ✅ |
+| 本地 CPU 嵌入与重排 | ✅ |
+| 检索反馈自我演化 | ✅ |
+| 艾宾浩斯衰减 + Chronos 双时间轴 | ✅ |
+| L0~L3 分层记忆与渐进展开 | ✅ |
+| 锚通道（铁律与核心偏好免被相似度否决）| ✅ |
+| 共享工作黑板（蒸馏成事实）| ✅ |
+| 时态知识图谱（valid_during 历史）| ✅ |
+| 主动意图前置唤醒 | ✅ |
+| 冲突消解（标记争议，永不删除）| ✅ |
+| **Mímir-Eval：标准化基准套件（HitRate@K · MRR · ACL 泄漏率、金标地板）** | ✅ |
+| 技能结晶 | ✅ |
+| **AutoSkill：痕迹 → Wiki → L3 技能自动编译** | ✅ |
+| **跨模型投影（档位感知注入块）** | ✅ |
+| 多模态事实资产 | ✅ |
+| Obsidian wikilink 双向链接 | ✅ |
+| MCP 服务（27 工具）| ✅ |
+| Hermes MemoryProvider 插件 | ✅ |
+| Dashboard（13 标签页 Web 界面）| ✅ |
+| PyPI + Docker 打包 | ✅ |
 
 ---
 
-## Roadmap
+## 路线图
 
-| Milestone | Scope | Status |
+| 里程碑 | 范围 | 状态 |
 |---|---|---|
-| v10.0 | In-package governance, Opinion/Observation confidence layer | ✅ shipped |
-| v11.0 | Symbolic short-term memory + CodeGraph + reflect/federation API | ✅ shipped |
-| v12.0 | Insight: Ebbinghaus decay, Chronos, EvolveMem, recall funnel, conflict resolution, crystallization, MCP, multimodal, PyPI/Docker | ✅ shipped |
-| v12.1 | Mímir-Eval benchmark suite (HitRate@K/MRR/ACL-leak, golden-set floors), full-source ingestion, dynamic agent/domain registry | ✅ shipped |
-| v12.2 | L0–L3 tiered memory, unified Profile API, XTMEM lineage, anchor channel, /v12/profile | ✅ shipped |
-| v13.0 | Multi-agent shared blackboards, temporal knowledge graph, proactive intent wake | ✅ shipped |
-| v14.0 | AutoSkill pipeline, cross-node CRDT federation, cross-model projection | ✅ shipped · **in production since 2026-09-03** |
-| v14.1.0 | Audit remediation: silent-LLM-failure governance fix, resilience gears (three-state circuit breakers), honest telemetry, off-site backup, dashboard v4 customer view | ✅ shipped · **in production since 2026-09-08** |
+| v10.0 | 包内治理、Opinion/Observation 置信度层 | ✅ 已发布 |
+| v11.0 | 符号短时记忆 + CodeGraph + reflect/federation API | ✅ 已发布 |
+| v12.0 | Insight：艾宾浩斯衰减、Chronos、EvolveMem、召回漏斗、冲突消解、技能结晶、MCP、多模态、PyPI/Docker | ✅ 已发布 |
+| v12.1 | Mímir-Eval 基准套件（HitRate@K/MRR/ACL 泄漏率、金标地板）+ 全源采集 + 动态注册表 | ✅ 已发布 |
+| v12.2 | L0~L3 分层记忆、统一 Profile API、XTMEM 血缘、锚通道 | ✅ 已发布 |
+| v13.0 | 多智能体共享黑板、时态知识图谱、主动意图唤醒 | ✅ 已发布 |
+| v14.0 | AutoSkill 流水线、跨节点 CRDT 联邦、跨模型投影 | ✅ 已发布 · **2026-09-03 起在生产运行** |
+| v14.1.0 | 审计修复：治理 LLM 静默失效根治、韧性挡位（三态断路器）、诚实遥测、离机备份、看板 v4 客户视图 | ✅ 已发布 · **2026-09-08 起在生产运行** |
 
 ---
 
-## Security
+## 安全
 
-- API binds `127.0.0.1` only; remote access via reverse proxy (nginx / Cloudflare Tunnel)
-- Bearer-token auth with scopes (`read/write/review/manage/admin`) on every endpoint
-- SQLite triggers make `memory_events` / `fact_versions` immutable
-- Idempotency keys + `actor_principal` + audit logging on all mutations
-- `egress_policy=local_only` blocks external processing of sensitive facts
+- API 仅绑定 `127.0.0.1`；远程访问经反向代理（nginx / Cloudflare Tunnel）
+- 每个端点 Bearer token 鉴权 + 权限范围（read/write/review/manage/admin）
+- SQLite 触发器保证 `memory_events` / `fact_versions` 不可变
+- 所有变更携带幂等键 + `actor_principal` + 审计日志
+- `egress_policy=local_only` 阻止敏感事实被外部处理
 
-See [SECURITY.md](SECURITY.md) for the vulnerability disclosure policy.
+漏洞披露政策见 [SECURITY.md](SECURITY.md)。
 
 ---
 
-## Acknowledgements
+## 鸣谢
 
-Mímir stands on the shoulders of several excellent open-source memory projects. We are grateful to their authors for ideas we borrowed and built upon:
+Mímir 站在多个优秀开源记忆项目的肩膀上。我们衷心感谢它们的作者：
 
-| Project | Author | What We Learned |
+| 项目 | 作者 | 我们学到了什么 |
 |---|---|---|
-| [aiduMEI](https://github.com/monkey2jack/aiduMEI) | [monkey2jack](https://github.com/monkey2jack) | The **governance + self-evolution vision** that shaped Mímir v12 "Insight": Tahoe-Gate relevance gating, the EvolveMem feedback loop, conflict-resolution, and skill-crystallization patterns. The single largest influence on our design. |
-| [TencentDB Agent Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory) | Tencent Cloud | Symbolic short-term memory (Mermaid canvas offload + drill-down) and CodeGraph indexing |
-| [Hindsight](https://github.com/obsidianforensics/hindsight) | Obsidian Forensics | Belief modeling — the Opinion/Observation layer separating "what I know" from "how sure I am" |
-| [Mem0](https://github.com/mem0ai/mem0) / [MemGPT](https://github.com/cpacker/MemGPT) | mem0ai / cpacker | The memory-pipeline paradigm: tiered storage, context management, memory as a first-class service |
+| [aiduMEI](https://github.com/monkey2jack/aiduMEI) | [monkey2jack](https://github.com/monkey2jack) | 塑造 Mímir v12「Insight」的**治理 + 自我演化愿景**：Tahoe-Gate 相关性门控、EvolveMem 反馈回路、冲突消解、技能结晶。对我们设计影响最大的单一项目。 |
+| [TencentDB Agent Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory) | 腾讯云 | 符号短时记忆（Mermaid 画布卸载 + 下钻）与 CodeGraph 索引 |
+| [Hindsight](https://github.com/obsidianforensics/hindsight) | Obsidian Forensics | 信念建模——区分「我知道什么」与「我有多大把握」的 Opinion/Observation 层 |
+| [Mem0](https://github.com/mem0ai/mem0) / [MemGPT](https://github.com/cpacker/MemGPT) | mem0ai / cpacker | 记忆管线范式：分层存储、上下文管理、记忆作为一等公民服务 |
 
-**A special note on [aiduMEI](https://github.com/monkey2jack/aiduMEI)** (aidu Memory Engine Insight): beyond the four borrowed patterns, its author's deep thinking on **verbatim preservation vs. distillation** — *"distillation loses warmth; the verbatim record is the evidence"* — directly inspired Mímir's retention-exemption design, where conversation messages cited by committed facts are never purged. We encourage you to check out aiduMEI.
+**特别致意 [aiduMEI](https://github.com/monkey2jack/aiduMEI)**（aidu Memory
+Engine Insight，「爱嘟优忆思」）：除了上述四个借鉴模式，其作者关于**原文保真 vs
+蒸馏**的深刻思考——「蒸馏会丢温度，原文才是证据」——直接启发了 Mímir 的保留豁免
+设计：被已提交事实引用的对话消息永不被清理。我们诚心推荐你去了解 aiduMEI。
 
 ---
 
-## License
+## 许可证
 
 [MIT](LICENSE)
 
----
+## 联系方式
 
-## Contact
-
-Maintainer: **sandro1123** · 📧 [sandro1123@hotmail.com](mailto:sandro1123@hotmail.com)
+维护者：**sandro1123** · 📧 [sandro1123@hotmail.com](mailto:sandro1123@hotmail.com)

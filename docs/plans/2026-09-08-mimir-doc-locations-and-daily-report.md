@@ -7,7 +7,7 @@
 | 层级 | 路径 | 放什么 |
 |---|---|---|
 | **1. 仓库文档（随 git 走，双远端备份）** | `~/mimir-open-source/docs/plans/` | 施工计划、移交单、设计稿。**命名格式：`YYYY-MM-DD-主题.md`**（现有先例：`2026-09-07-mimir-full-repair-plan.md`、`2026-09-08-mimir-remaining-items-handoff.md`） |
-| **2. 顶层文档（随 git 走）** | `~/mimir-open-source/` 根目录 | README.md / README_zh.md / CHANGELOG.md / ARCHITECTURE.md / SECURITY.md / docs/ROADMAP.md / docs/FEDERATION.md——**版本发布时五位一体必须同步改**（血泪判例：168f4d1 之前 README 停留 in progress 状态一周） |
+| **2. 顶层文档（随 git 走）** | `~/mimir-open-source/` 根目录 | README.md（中文主） / README_en.md（英文） / CHANGELOG.md / ARCHITECTURE.md / SECURITY.md / docs/ROADMAP.md / docs/FEDERATION.md——**版本发布时五位一体必须同步改**（血泪判例：168f4d1 之前 README 停留 in progress 状态一周） |
 | **3. 生产运维（不进 git，设备私有）** | `~/.hermes/mimir/ops/` | 运维脚本（mimir_v8_ops.py 等）；报告产物在 `~/.hermes/mimir/v8/ops-reports/`（health/verify 的 json 自动落这里） |
 | **4. 跨会话交接（本机 Windows 工作目录）** | `C:\Users\sandr\mimir_audit_20260907\` | 审计报告原件、探针/补丁脚本原件、移交单副本。**会话间的交接底稿放这里**（你收到的两份 deliver_artifact 文件源在此） |
 
