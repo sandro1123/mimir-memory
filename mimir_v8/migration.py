@@ -242,7 +242,13 @@ def migrate_schema_v14(
     database: str | Path,
     backup: str | Path,
 ) -> SchemaMigrationReport:
-    """Migrate schema 13 -> 14: symbolic short-term memory + code graph tables."""
+    """Migrate schema 13 -> 14: symbolic short-term memory + code graph tables.
+
+    P0-P note (2026-09): historical single-step migrator. Production path is
+    migrate_cli -> migrate_schema() full chain (v14 statements ride
+    _additive_chain). Kept as the documented 13->14 step marker; no standalone
+    CLI route by design.
+    """
     database_path = Path(database)
     backup_path = Path(backup)
     if not database_path.is_file():
@@ -292,7 +298,11 @@ def migrate_schema_v15(
     database: str | Path,
     backup: str | Path,
 ) -> SchemaMigrationReport:
-    """Migrate schema 14 -> 15: EvolveMem tables (search_feedback, quality_metrics)."""
+    """Migrate schema 14 -> 15: EvolveMem tables (search_feedback, quality_metrics).
+
+    P0-P note (2026-09): historical single-step migrator, same standing as
+    migrate_schema_v14 - full chain is the production route.
+    """
     database_path = Path(database)
     backup_path = Path(backup)
     if not database_path.is_file():

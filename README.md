@@ -272,6 +272,50 @@ Engine Insight，「爱嘟优忆思」）：除了上述四个借鉴模式，其
 
 ---
 
+## 环境变量速查 · Environment Variables
+
+全部 `MIMIR_*` 环境变量约 56 个，核心面如下（完整清单以 `grep -rhoE 'MIMIR_[A-Z_0-9]+' mimir_v8/` 为准——本表是语义速查不是穷举）：
+
+### 路径与身份
+
+| 键 | 语义 |
+|---|---|
+| `MIMIR_HOME` / `MIMIR_DATA_DIR` / `MIMIR_CACHE_DIR` / `MIMIR_SECRETS_DIR` / `MIMIR_LOG_DIR` | 主目录/数据/缓存/密钥/日志五路径（生产 unit 全显式设置；`MIMIR_V8_DATA_DIR` 为历史别名同指数据目录） |
+| `MIMIR_AGENTS` / `MIMIR_DOMAINS` | 启动期扩册清单（逗号分隔，v14.2 新增；四席默认之上追加） |
+| `MIMIR_ALLOW_NONLOOPBACK` | 跨网卡监听开关（默认 0，容器部署经 compose 显式授予） |
+
+### 「看似重复实为分工」的两对键（文档缺位曾致误判）
+
+| 键 | 语义 | 谁读 |
+|---|---|---|
+| `MIMIR_HERMES_STATE_DB` | CDC 抽取的 Hermes 状态库（worker `--state-db` 的 env 形态） | `worker.py:46` |
+| `MIMIR_CONNECTOR_HERMES_STATE_DB` | 同一库的 config 面引用（`config.py` 装配 `MimirPaths`） | `config.py:39` |
+| `MIMIR_EVAL_API` | **自评套件**的 Mímir API 地址（Mímir-Eval 打分用） | `eval_suite.py:56` |
+| `MIMIR_EVAL_API_URL` | **评估器 LLM** 的网关地址（治理候选打分用） | `evaluator.py:25` |
+
+> 两对都是活键、管不同的事——HERMES_STATE_DB 双名是历史层积（worker CLI 与 config 两条装配线），EVAL 双名是自评与治理两个消费方。改名属破坏性变更，暂留双名+文档锚定。
+
+### LLM 与治理
+
+| 键 | 语义 |
+|---|---|
+| `MIMIR_EVALUATOR_API_KEY` / `MIMIR_EVALUATOR_API_URL` / `MIMIR_EVALUATOR_MODEL` | 评估器 LLM 三件套（治理候选打分） |
+| `MIMIR_ROUTER_URL` / `MIMIR_ROUTER_API_KEY` | 9router 路由面（部分组件的 LLM 出口） |
+| `MIMIR_GOVERNANCE_MODEL` / `MIMIR_GOVERNANCE_FALLBACK_MODEL` | 治理主/备模型 |
+| `MIMIR_GOVERNANCE_AUTO_APPROVE` | fast_track 总闸（**v14.2 起默认 0**；生产 unit 显式 =1） |
+| `MIMIR_FAST_TRACK_THRESHOLD` | fast_track 置信度阈值（默认 0.8） |
+| `MIMIR_LLM_SALIENCE_THRESHOLD` / `MIMIR_EXTRACTION_LIMIT` | 抽取链参数 |
+
+### 客户端与检索
+
+| 键 | 语义 |
+|---|---|
+| `MIMIR_V8_URL` / `MIMIR_V8_TOKEN` / `MIMIR_V8_TIMEOUT` | API 客户端三件套 |
+| `MIMIR_V8_TOKEN_FILE` / `MIMIR_V8_CLIENT_TOKEN_FILE` | 服务端 token 表 / 客户端 token 文件 |
+| `MIMIR_V8_COLLECTION` / `MIMIR_V8_MODEL` | Chroma collection 名 / 嵌入模型名 |
+| `MIMIR_V9_KNOWLEDGE_LAYERS` | 知识层开关（memory,learning,wiki） |
+| `MIMIR_VAULT_ROOT` | Obsidian vault 根（采集器） |
+
 ## 版本号域表 · Version Domains
 
 多个版本号并存不是漂移——五个域各有语义，彼此独立演进（嘟嘟审计 🟡7 的澄清）：

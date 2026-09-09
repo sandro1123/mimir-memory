@@ -49,7 +49,7 @@ opinions → 生成 observation）。`run_governance_once` 在权限范围内处
 | 知识 Knowledge `/v9/knowledge/*` | GET/POST | `read`/`write` |
 | 治理 Governance `/v10/opinions` | GET/POST | GET: read, POST: write |
 | `/v10/observations` | GET | `read` |
-| `/v10/opinions/consolidate` | POST | `manage` |
+| `/v10/observations/consolidate` | POST | `manage` |
 | `/v10/governance/run` | POST | `manage` |
 | `/v10/candidates/{id}/fast_track` | POST | `write` |
 | 黑板 Blackboard `/v13/blackboard/*` | POST/GET | `read`/`write` |
@@ -208,7 +208,7 @@ schema 18  Multi-modal: fact_assets (图片/音频/文档/文件引用, 发布�
 
 ---
 
-## 10. v12.2 分层记忆与锚通道 (schema 19) · Tiered Memory & Anchor Channel
+## 10. v12.2 分层记忆与锚通道 (schema 19→20) · Tiered Memory & Anchor Channel
 
 ```
 L0 原始痕迹 (traces/对话) → L1 事件与配置 → L2 pattern 模式 → L3 铁律/偏好/技能
@@ -225,14 +225,14 @@ L0 原始痕迹 (traces/对话) → L1 事件与配置 → L2 pattern 模式 →
 
 ---
 
-## 11. v13.0 协作三件 (schema 19 不变) · Collaboration Triplet
+## 11. v13.0 协作三件 (schema 20) · Collaboration Triplet
 
 - **共享工作黑板 blackboard** — `blackboards` / `blackboard_entries` 两表 +
   `/v13/blackboard/*` 五端点（create 201 / post 201 / list / distill / destroy）。
   多智能体在同一块黑板上追加条目（不可变 seq 流），主题收束后 `distill` 蒸馏为
   正式 fact 落库，黑板状态翻 `distilled`。creator 必须 participants 成员，
   否则回滚 422。
-- **时态知识图谱 TKG** — `relations` 增 `valid_during`（双时态区间），
+- **时态知识图谱 TKG** — `relations` 增 `valid_from`/`valid_until`（双时态区间，'' = 开区间），
   `/v13/graph/history?entity_id&at_timestamp` 回放任一时点的邻域。
 - **主动意图前置唤醒 wake** — `relevance.py` 从近期检索/反馈预测下一步意图，
   `/v13/wake` 提前把相关记忆装配进上下文（read scope，503 if not configured）。

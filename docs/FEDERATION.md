@@ -206,7 +206,7 @@ from mimir_v8.federation import FederationService, encrypt_envelope
 svc = FederationService(store, node_id="node-a")   # 首跑自动建两张表
 svc.register_peer("node-b", peer_public_key)         # 注册对端指纹
 
-# 发布 · publish: 追加一条事件进账本 ((crdt_key, lamport, node_id) 幂等)
+# 发布 · publish: 追加一条事件进账本（幂等键 = (key, lamport, node_id)，列名 crdt_key）
 event = {
     # append_event 的真键契约（#5 勘误：旧示例的 crdt_key/event_id 会报错）
     "key": "shared/skill/k8s-drain",
