@@ -123,6 +123,54 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _settle_purged_shell_runs(store) -> int:
+    """把正文已被 retention 清空的 stored run 诚实清账（幂等，限 500/轮）。
+
+    标 extracted + extraction_runs(error_code='content_purged')——账本
+    可审计（谁清的、何时、多少条），积压水位回归真实。
+    自带事务：调用方常见于 closing(connect) 只读块（closing 后无自动
+    commit——P0-E 判例），写面必须自持。
+    """
+    with store.transaction() as connection:
+        return _settle_purged_shell_runs_tx(connection)
+
+
+def _settle_purged_shell_runs_tx(connection) -> int:
+    rows = connection.execute(
+        """SELECT r.run_id FROM ingestion_runs r
+        JOIN conversation_sources s ON s.source_id = r.source_id
+        WHERE r.status = 'stored'
+          AND EXISTS (SELECT 1 FROM conversation_messages m2
+                      WHERE m2.source_id = r.source_id
+                        AND m2.content_redacted LIKE '%RETAINED CONTENT PURGED%')
+        ORDER BY r.started_at LIMIT 500""").fetchall()
+    settled = 0
+    now = utc_now()
+    for row in rows:
+        run_id = row["run_id"]
+        exists = connection.execute(
+            "SELECT 1 FROM extraction_runs WHERE run_id=? AND error_code='content_purged'",
+            (run_id,)).fetchone()
+        if exists:
+            connection.execute(
+                "UPDATE ingestion_runs SET status='extracted' WHERE run_id=? AND status='stored'",
+                (run_id,))
+            settled += 1
+            continue
+        connection.execute(
+            "INSERT INTO extraction_runs(extraction_id,run_id,extractor_principal,policy_version,"
+            "status,candidate_count,started_at,completed_at,error_code) VALUES(?,?,?,?,?,?,?,?,?)",
+            (new_id(), run_id, "service:retention", "v14.2.1-shell-settlement",
+             "cancelled", 0, now, now, "content_purged"))
+        connection.execute(
+            "UPDATE ingestion_runs SET status='extracted' WHERE run_id=? AND status='stored'",
+            (run_id,))
+        settled += 1
+    if settled:
+        logger.info("settled %d purged shell runs (content_purged)", settled)
+    return settled
+
+
 def extract_once(store: CanonicalStore, actor_principal: str, *, limit: int = 20) -> dict:
     """Conservatively turn explicit preference/rule utterances into review-only Candidates."""
     if limit < 1 or limit > 200:
@@ -213,23 +261,51 @@ def extract_once(store: CanonicalStore, actor_principal: str, *, limit: int = 20
     return {"created": created, "skipped": skipped, "failed": failed, "count": len(created)}
 
 
+# v14.2.1-1（2026-09-11 盘点）: 抽取源闸门可配置。
+# 生产史：硬编码 conversation 使 rss(2461)+vault(478) 全量积压零消费——
+# 但实测大部分正文已被 retention 清掉（壳 run），真可抽仅 ~586 条。
+# 默认仍 conversation（生产行为不变）；扩册走
+# MIMIR_EXTRACT_CATEGORIES="conversation,knowledge_doc"（逗号分隔）。
+# 读取放 call time（非 import time）——unit 覆盖与热改配置都不用重启进程。
+_DEFAULT_EXTRACT_CATEGORIES = ("conversation",)
+
+
+def _extract_categories() -> tuple[str, ...]:
+    raw = os.environ.get("MIMIR_EXTRACT_CATEGORIES", "").strip()
+    if not raw:
+        return _DEFAULT_EXTRACT_CATEGORIES
+    return tuple(c.strip() for c in raw.split(",") if c.strip()) or _DEFAULT_EXTRACT_CATEGORIES
+
+
 def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int = 10, salience_threshold: float = 0.3) -> dict:
     """LLM-powered extraction with higher recall than keyword rules."""
     if limit < 1 or limit > 50:
         raise ValueError("llm extraction limit must be between 1 and 50")
     with contextlib.closing(store.connect()) as connection:
+        categories = _extract_categories()
+        cat_placeholders = ",".join("?" for _ in categories)
         rows = [dict(row) for row in connection.execute(
-            """SELECT r.run_id, r.source_id, s.owner_principal, s.memory_mode
+            f"""SELECT r.run_id, r.source_id, s.owner_principal, s.memory_mode
             FROM ingestion_runs r
             JOIN conversation_sources s ON s.source_id = r.source_id
-            WHERE r.status = 'stored' AND s.source_category = 'conversation'
+            WHERE r.status = 'stored'
+              AND s.source_category IN ({cat_placeholders})
+              AND NOT EXISTS (SELECT 1 FROM conversation_messages m2
+                              WHERE m2.source_id = r.source_id
+                                AND m2.content_redacted LIKE '%RETAINED CONTENT PURGED%')
               AND (SELECT COUNT(*) FROM extraction_runs e
                    WHERE e.run_id = r.run_id
                      AND e.error_code = 'llm_unavailable'
                      AND e.started_at >= datetime('now', ?)) < ?
             ORDER BY r.started_at LIMIT ?""",
-            (f'-{LLM_BACKOFF_WINDOW_HOURS} hours', LLM_BACKOFF_HITS, limit),
+            (*categories, f'-{LLM_BACKOFF_WINDOW_HOURS} hours',
+             LLM_BACKOFF_HITS, limit),
         ).fetchall()]
+        # v14.2.1-2 壳 run 诚实清账：正文被 retention 清掉的 stored run
+        # 逐条标 extracted+content_purged——它们永远抽不出东西，挂着只
+        # 会把积压水位虚胖 2300+，看板与 ops 全被误导。
+        # 注意：本块是 closing(connect) 只读语义，settle 自带事务提交。
+        _settle_purged_shell_runs(store)
     if not rows:
         return {"created": [], "skipped": [], "failed": [], "count": 0, "evaluator_mode": "no_data"}
 
