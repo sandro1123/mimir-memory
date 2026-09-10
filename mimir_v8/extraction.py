@@ -227,9 +227,16 @@ class ExtractionService:
         category = row["source_category"]
         if category is None:
             raise ValidationError(f"source_category is NULL for run_id {run_id}, cannot extract")
-        if category != "conversation":
+        # v14.2.1-4 (2026-09-11): the service-layer gate now honours the same
+        # configurable categories as the worker queue gate
+        # (MIMIR_EXTRACT_CATEGORIES, default conversation). This was the
+        # second hardcoded gate behind the worker one — opening the queue
+        # alone made every vault/rss run die here with ValidationError.
+        from .worker import _extract_categories
+        if category not in _extract_categories():
             raise ValidationError(
-                f"source_category must be 'conversation' for extraction, got '{category}' for run_id {run_id}"
+                f"source_category {category!r} is outside the extraction gate"
+                f" (MIMIR_EXTRACT_CATEGORIES) for run_id {run_id}"
             )
         return str(row["source_id"])
 

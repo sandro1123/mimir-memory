@@ -76,7 +76,7 @@ class TestExtractionServiceGate(unittest.TestCase):
             r = self._ingest(store, "rss")
             with self.assertRaises(ValidationError) as ctx:
                 self._extract(store, r["run_id"], r["source_id"])
-            self.assertIn("must be 'conversation'", str(ctx.exception))
+            self.assertIn("outside the extraction gate", str(ctx.exception))
 
     def test_unknown_quarantine_denied(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -84,7 +84,7 @@ class TestExtractionServiceGate(unittest.TestCase):
             r = self._ingest(store, "unknown_xyz")
             with self.assertRaises(ValidationError) as ctx:
                 self._extract(store, r["run_id"], r["source_id"])
-            self.assertIn("must be 'conversation'", str(ctx.exception))
+            self.assertIn("outside the extraction gate", str(ctx.exception))
 
     def test_knowledge_doc_denied(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -92,7 +92,7 @@ class TestExtractionServiceGate(unittest.TestCase):
             r = self._ingest(store, "file")
             with self.assertRaises(ValidationError) as ctx:
                 self._extract(store, r["run_id"], r["source_id"])
-            self.assertIn("must be 'conversation'", str(ctx.exception))
+            self.assertIn("outside the extraction gate", str(ctx.exception))
 
     # ─── Negative: run/source mismatch ───
 
