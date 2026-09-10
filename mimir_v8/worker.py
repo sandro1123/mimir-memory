@@ -277,6 +277,29 @@ def _extract_categories() -> tuple[str, ...]:
     return tuple(c.strip() for c in raw.split(",") if c.strip()) or _DEFAULT_EXTRACT_CATEGORIES
 
 
+def _extract_source_quotas() -> dict[str, int]:
+    """v14.2.1-2: per-connector daily extraction quotas (UTC day).
+
+    User verdict 2026-09-11: vault 全量、rss 限 100/日（LLM 调用烧 cbcn
+    倍率池，先吃高价值源）。0 = 不限。读 call time。
+    MIMIR_EXTRACT_DAILY_QUOTA="rss:100" (逗号分隔 connector:quota 对)。
+    """
+    raw = os.environ.get("MIMIR_EXTRACT_DAILY_QUOTA", "").strip()
+    quotas: dict[str, int] = {"rss": 100}  # 默认即用户拍板值
+    if raw:
+        quotas = {}
+        for pair in raw.split(","):
+            pair = pair.strip()
+            if not pair:
+                continue
+            connector, _, q = pair.partition(":")
+            try:
+                quotas[connector.strip()] = max(0, int(q))
+            except ValueError:
+                continue
+    return quotas
+
+
 def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int = 10, salience_threshold: float = 0.3) -> dict:
     """LLM-powered extraction with higher recall than keyword rules."""
     if limit < 1 or limit > 50:
@@ -284,8 +307,10 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
     with contextlib.closing(store.connect()) as connection:
         categories = _extract_categories()
         cat_placeholders = ",".join("?" for _ in categories)
+        quotas = _extract_source_quotas()
         rows = [dict(row) for row in connection.execute(
-            f"""SELECT r.run_id, r.source_id, s.owner_principal, s.memory_mode
+            f"""SELECT r.run_id, r.source_id, s.owner_principal, s.memory_mode,
+                       s.connector_type
             FROM ingestion_runs r
             JOIN conversation_sources s ON s.source_id = r.source_id
             WHERE r.status = 'stored'
@@ -301,6 +326,30 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
             (*categories, f'-{LLM_BACKOFF_WINDOW_HOURS} hours',
              LLM_BACKOFF_HITS, limit),
         ).fetchall()]
+        # v14.2.1-2 RSS 日配额（Python 面，简单可测）：按 connector 计数
+        # 当日（UTC）已完成抽取次数，超配额的 connector 本轮跳过——
+        # vault 全量、rss 默认 100/日（用户 09-11 拍板）。
+        if quotas:
+            used: dict[str, int] = {}
+            for qrow in connection.execute(
+                """SELECT s.connector_type AS ct, COUNT(*) AS n
+                FROM extraction_runs e
+                JOIN ingestion_runs i2 ON i2.run_id = e.run_id
+                JOIN conversation_sources s ON s.source_id = i2.source_id
+                WHERE e.started_at >= datetime('now', 'start of day')
+                  AND e.status IN ('completed','cancelled')
+                GROUP BY 1"""):
+                used[str(qrow["ct"])] = int(qrow["n"])
+            filtered = []
+            for row in rows:
+                ct = str(row.get("connector_type") or "")
+                cap = quotas.get(ct, 0)
+                if cap > 0 and used.get(ct, 0) >= cap:
+                    continue
+                if cap > 0:
+                    used[ct] = used.get(ct, 0) + 1
+                filtered.append(row)
+            rows = filtered
         # v14.2.1-2 壳 run 诚实清账：正文被 retention 清掉的 stored run
         # 逐条标 extracted+content_purged——它们永远抽不出东西，挂着只
         # 会把积压水位虚胖 2300+，看板与 ops 全被误导。
