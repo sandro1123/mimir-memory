@@ -377,6 +377,11 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
             ).fetchall()]
 
         combined = " ".join(str(m.get("content_redacted", "") or "") for m in messages if m.get("content_redacted"))
+        # v14.2.1-3 long-content sampling: vault notes run 10k+ chars;
+        # whole-body feeds waste tokens and drop the tail. Over 4000:
+        # keep head 2000 + tail 2000 (YAML metadata head, conclusion tail).
+        if len(combined) > 4000:
+            combined = combined[:2000] + "\n...\n" + combined[-2000:]
         if not combined:
             # mark extracted so empty sessions do not clog the queue forever
             with store.transaction() as connection:
@@ -442,6 +447,18 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
                 skipped.append({"run_id": run_id, "reason": "exact_duplicate"})
                 continue
 
+            # v14.2.1-3 闭集守卫：LLM 自由发挥的 domain/fact_type 落回
+            # 合法默认而非让 CreateFact 校验炸整条 run（vault/rss 首批
+            # 实测 10 条 ValidationError 的根因之一）。
+            from .schema import DOMAINS as _DOMAINS, FACT_TYPES as _FACT_TYPES
+            safe_domain = eval_result.domain if eval_result.domain in _DOMAINS else "personal"
+            safe_fact_type = eval_result.fact_type if eval_result.fact_type in _FACT_TYPES else "reference"
+            if safe_domain != eval_result.domain or safe_fact_type != eval_result.fact_type:
+                logger.warning(
+                    "extract %s: evaluator domain/fact_type out of closure"
+                    " (%s/%s) — fell back to %s/%s",
+                    run_id, eval_result.domain, eval_result.fact_type,
+                    safe_domain, safe_fact_type)
             result = service.extract_candidate(
                 run_id=run_id,
                 source_id=row["source_id"],
@@ -449,8 +466,8 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
                 content=eval_result.summary or combined[:200],
                 summary=eval_result.summary[:200],
                 owner_principal=row["owner_principal"],
-                domain=eval_result.domain,
-                fact_type=eval_result.fact_type,
+                domain=safe_domain,
+                fact_type=safe_fact_type,
                 idempotency_key=f"llm-extract:{run_id}:{sha256_text(combined[:500])}",
                 policy_version=eval_result.policy_version,
             )
