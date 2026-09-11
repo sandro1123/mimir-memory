@@ -34,6 +34,7 @@ mimir-server = "mimir_v8.server:main"
 mimir-worker = "mimir_v8.worker:main"
 mimir-migrate = "mimir_v8.migrate_cli:main"
 mimir-cli = "mimir_v8.cli:main"
+mimir-mcp = "mimir_v8.mcp:main"
 
 [project.optional-dependencies]
 embeddings = ["sentence-transformers==3.4.1", "transformers>=4.47.0"]
