@@ -183,7 +183,7 @@ Then hit `curl http://127.0.0.1:8456/health` to confirm.
 | **Multi-agent federated memory + ACL isolation** | ✅ |
 | Cross-agent awareness broadcast | ✅ |
 | Federated cross-principal search | ✅ |
-| **Cross-node CRDT federation (Lamport LWW + Fernet envelopes)** | ⚙️ Implemented, not yet wired to production (protocol complete; two-node live sync pending — v14.2 P1 federation card) |
+| **Cross-node CRDT federation (Lamport LWW + Fernet envelopes)** | ✅ Production-proven 2026-09-12 (sandbox 11/11 → real two-node convergence over Tailscale → one-way production wire; see CHANGELOG 1.0) |
 | Event sourcing (immutable events) | ✅ |
 | Governance pipeline (LLM assessor) | ✅ |
 | Vector + FTS + graph fusion (RRF) | ✅ |

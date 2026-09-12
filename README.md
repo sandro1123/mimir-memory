@@ -229,7 +229,7 @@ cd mimir-memory
 | **多智能体联邦记忆 + ACL 隔离** | ✅ |
 | 跨智能体感知广播 | ✅ |
 | 联邦跨主体搜索 | ✅ |
-| **跨节点 CRDT 联邦（Lamport LWW + Fernet 信封）** | ⚙️ 已实现未通电 · implemented, not yet wired to production（协议层完整、单节点生产从未真跑双节点同步；两节点实测 = v14.2 P1 联邦实测卡，届时摘牌） |
+| **跨节点 CRDT 联邦（Lamport LWW + Fernet 信封）** | ✅ 生产实证 2026-09-12 · production-proven（沙箱 11/11 → Tailscale 真双节点逐键全等 → 生产单向实弹；三段式证据链见 CHANGELOG 1.0 条目） |
 | 事件溯源（不可变事件）| ✅ |
 | 治理管线（LLM 评估器）| ✅ |
 | 向量 + 全文 + 图融合（RRF）| ✅ |

@@ -22,7 +22,7 @@
 - [x] 567+ tests 零红（0 errors）
 - [x] 三份社区审计全部收官（嘟嘟/monkey2jack/RyuuzakiLu2023），issue 清零
 - [x] 喂料三面通电（conversation 持续 / vault / rss 限速）——生产实证
-- [ ] 联邦三段式：沙箱 ✅ 11/11 →（剩 Tailscale 双节点、生产单向接入）
+- [x] 联邦三段式 ✅ 09-12：沙箱 11/11 → Tailscale 真双节点逐键全等（LWW 平局跨机决胜）→ 生产单向实弹（table_drift NONE）
 - [x] 检索闭环四件（tombstone 恢复/证据召回/出口包裹/feedback 激活）✅ 09-12
 - [x] 仪表盘 v5 止血三件 ✅ 09-12（pipeline_health 端点+degraded 进灯+积压黄灯）
 - [x] 发布闸门（脱敏七面扫描）clean
