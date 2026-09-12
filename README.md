@@ -25,8 +25,8 @@
 > | **细粒度 ACL** | owner/可见性/外发策略三件套；联邦信封 Fernet 加密 |
 > | **诚实遥测** | 查询带 `recall_verdict ∈ {found, not_found, degraded}`——「没查到」和「通道坏了」永不混淆 |
 >
-> 当前版本 **v14.2.1**（0.x 纪元收官在即）→ 下一版 **1.0.0 The Trust Baseline**，
-> 进入 semver 承诺纪元（[版本纪元表](docs/VERSIONING.md)）。
+> 当前版本 **1.0.0 — The Trust Baseline**：0.x 纪元收官，从本版起对兼容性
+> 负责（semver 承诺纪元，[版本纪元表](docs/VERSIONING.md)）。
 
 ---
 

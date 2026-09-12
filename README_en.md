@@ -28,8 +28,8 @@ and revocable**:
 - **Honest telemetry** — queries carry `recall_verdict ∈ {found, not_found,
   degraded}`: "nothing found" never masquerades as "channel broken"
 
-Current: **v14.2.1** (closing the 0.x era) → next: **1.0.0 The Trust
-Baseline**, entering the semver commitment era ([versioning](docs/VERSIONING.md)).
+Current: **1.0.0 — The Trust Baseline**. The 0.x era is closed; from this
+version on we honor semver compatibility commitments ([versioning](docs/VERSIONING.md)).
 
 ## The Name
 

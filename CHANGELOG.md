@@ -6,7 +6,15 @@
 
 ---
 
-## Unreleased (post v14.1.0) — 移交单收尾 (Handoff Follow-ups)
+## v1.0.0 — 2026-09-13 · The Trust Baseline · 信任基线
+
+> **承诺纪元第一版**：从本版起对 API/Schema 兼性负责（semver：加法不删法）。
+> 本节合并 0.x 尾段（v14.2.1 喂料通血）与「通血」四线全部成果；
+> 版本纪元与旧号映射见 [docs/VERSIONING.md](docs/VERSIONING.md)。
+
+> v1.0.0 门槛 8/8 全勾：579 测试零红 · 三份社区审计收官 issue 清零 · 喂料三面
+> 通电 · 检索闭环四件 · 仪表盘 v5 止血 · 联邦三段式（沙箱 11/11 → Tailscale 真双
+> 节点逐键全等 → 生产单向 table_drift=NONE）· 发布闸门 clean · Release 纪律。
 
 > 接手 09-08 移交单 §2.2/§2.3/§2.4 三件。均无 schema 变更。
 
