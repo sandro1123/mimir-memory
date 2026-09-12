@@ -1735,6 +1735,88 @@ async def api_dashboard_library(offset: int = Query(default=0, ge=0),
             "degraded": bool(error_sources), "error_sources": error_sources}
 
 
+@app.get("/api/pipeline_health")
+@_cached("dash_pipeline_health", ttl=60)
+async def api_pipeline_health():
+    """1.0-D 管道健康面板：抽取链水位分桶三线 + LLM 不可用 + 治理成败率。
+
+    盘点教训（09-11）：2902 积压在看板上不可见——壳 run 虚胖水位全靠
+    SQL 探针。本端点把「管道在不在转」变成一眼可见。
+    """
+    try:
+        rows = _db_query("""
+            SELECT s.connector_type AS ct, i.status AS st, COUNT(*) AS n
+            FROM ingestion_runs i
+            JOIN conversation_sources s ON s.source_id = i.source_id
+            WHERE i.status = 'stored'
+            GROUP BY 1, 2""")
+    except Exception as exc:
+        return {"status": "degraded", "error": f"pipeline query failed: {exc}",
+                "checked_at": _now_iso()}
+    by_type: dict[str, int] = {}
+    for r in rows:
+        by_type[r["ct"]] = by_type.get(r["ct"], 0) + int(r["n"])
+    total_stored = sum(by_type.values())
+
+    # llm_unavailable 近 24h
+    try:
+        una = _db_query("""
+            SELECT COUNT(*) AS n FROM extraction_runs
+            WHERE error_code = 'llm_unavailable'
+              AND started_at >= datetime('now', '-24 hours')""")
+        llm_unavailable = int(una[0]["n"]) if una else 0
+    except Exception:
+        llm_unavailable = 0
+
+    # shell-run settlement visibility (content_purged = honest backlog cleanup)
+    try:
+        purged = _db_query("""
+            SELECT COUNT(*) AS n FROM extraction_runs
+            WHERE error_code = 'content_purged'
+              AND started_at >= datetime('now', '-24 hours')""")
+        purged_today = int(purged[0]["n"]) if purged else 0
+    except Exception:
+        purged_today = 0
+
+    # governance success rate, 24h
+    try:
+        gov = _db_query("""
+            SELECT success AS s, COUNT(*) AS n FROM candidate_review_assessments
+            WHERE created_at >= datetime('now', '-24 hours')
+            GROUP BY 1""")
+        gok = sum(int(r["n"]) for r in gov if r["s"])
+        gtotal = sum(int(r["n"]) for r in gov)
+        gov_rate = round(gok / gtotal, 3) if gtotal else None
+    except Exception:
+        gov_rate = None
+
+    # backlog age per connector (oldest stored)
+    try:
+        ages = _db_query("""
+            SELECT s.connector_type AS ct,
+                   MIN(i.started_at) AS oldest
+            FROM ingestion_runs i
+            JOIN conversation_sources s ON s.source_id = i.source_id
+            WHERE i.status = 'stored'
+            GROUP BY 1""")
+        oldest = {r["ct"]: r["oldest"] for r in ages}
+    except Exception:
+        oldest = {}
+
+    # yellow-light rule: total > 500
+    light = "green" if total_stored <= 500 else "yellow"
+    return {
+        "light": light,
+        "stored_total": total_stored,
+        "stored_by_connector": by_type,
+        "oldest_stored_by_connector": oldest,
+        "llm_unavailable_24h": llm_unavailable,
+        "purged_settled_24h": purged_today,
+        "governance_success_rate_24h": gov_rate,
+        "checked_at": _now_iso(),
+    }
+
+
 @app.get("/api/dashboard/health-light")
 @_cached("dash_light", ttl=60)
 async def api_dashboard_health_light():
@@ -1748,6 +1830,24 @@ async def api_dashboard_health_light():
     reasons: list[str] = []
     if ready.get("status") != "ready":
         reasons.append("API 未就绪")
+    # 1.0-D: 检索通道 degraded 进健康灯（此前 channels 态藏在查询响应里）
+    try:
+        probe = await _mimir_post("/v8/query", {"text": "health-light probe", "limit": 1})
+        if isinstance(probe, dict) and probe.get("recall_verdict") == "degraded":
+            reasons.append("检索通道降级 (recall_verdict=degraded)")
+    except Exception:
+        pass
+    # 1.0-D: 积压黄灯——水位过 500 即亮（管道健康面板同规则）
+    try:
+        ph = _db_query("""
+            SELECT COUNT(*) AS n FROM ingestion_runs i
+            JOIN conversation_sources s ON s.source_id = i.source_id
+            WHERE i.status = 'stored'""")
+        backlog = int(ph[0]["n"]) if ph else 0
+        if backlog > 500:
+            reasons.append(f"抽取积压 {backlog} 条（>500）")
+    except Exception:
+        pass
     if ready.get("dead_letters", 0) > 0:
         reasons.append(f"死信 {ready['dead_letters']} 条")
     bad_proj = [p["projector_name"] for p in ready.get("projectors", [])
