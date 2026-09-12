@@ -130,6 +130,11 @@ class TombstoneBody(BaseModel):
     reason: str
     idempotency_key: str | None = None
 
+class RestoreBody(BaseModel):
+    """1.0-C1: restore request — reason is optional (defaulted)."""
+    model_config = ConfigDict(extra="forbid")
+    reason: str | None = None
+
 
 class GrantBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -968,6 +973,23 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         return context.store.update_fact(
             UpdateFact(fact_id=fact_id, **body.model_dump()),
             actor_principal=identity.principal_id,
+            request_id=request.state.request_id,
+            correlation_id=request.state.correlation_id,
+        )
+
+    @app.post("/v8/facts/{fact_id}/restore")
+    def restore_fact(fact_id: str, body: RestoreBody, request: Request,
+                     identity: Principal = Depends(scoped("delete"))):
+        """1.0-C1: tombstone 恢复端点。
+
+        30 天快照窗口内回插为 active；幂等（已 active 返回现态）。
+        需要 delete 权限（恢复是删除的逆操作，同等敏感级）。
+        """
+        fact = context.store.get_fact(fact_id)
+        require_fact_permission(identity, fact, "delete")
+        return context.store.restore_fact(
+            fact_id, actor_principal=identity.principal_id,
+            reason=str(body.reason or "restored via API"),
             request_id=request.state.request_id,
             correlation_id=request.state.correlation_id,
         )

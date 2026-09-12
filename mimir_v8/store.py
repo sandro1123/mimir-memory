@@ -645,6 +645,32 @@ CREATE TABLE IF NOT EXISTS crystal_runs (
 CREATE INDEX IF NOT EXISTS idx_crystal_runs_status
 ON crystal_runs(status, started_at);
 
+CREATE TABLE IF NOT EXISTS tombstone_snapshots (
+    snapshot_id TEXT PRIMARY KEY,
+    fact_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    owner_principal TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    fact_type TEXT NOT NULL,
+    visibility TEXT NOT NULL,
+    sensitivity TEXT NOT NULL,
+    egress_policy TEXT NOT NULL,
+    confidence_score REAL,
+    decay_tier TEXT,
+    valid_from TEXT,
+    valid_to TEXT,
+    recorded_at TEXT,
+    updated_at TEXT,
+    version_at_tombstone INTEGER NOT NULL,
+    tombstoned_by TEXT NOT NULL,
+    tombstoned_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_tombstone_snapshots_expiry
+ON tombstone_snapshots(expires_at);
+
 CREATE TABLE IF NOT EXISTS fact_assets (
     asset_id TEXT PRIMARY KEY,
     fact_id TEXT NOT NULL REFERENCES facts(fact_id),
@@ -1266,6 +1292,72 @@ class CanonicalStore:
             "idempotent_replay": False,
         }
 
+    def restore_fact(
+        self,
+        fact_id: str,
+        *,
+        actor_principal: str,
+        reason: str,
+        request_id: str | None = None,
+        correlation_id: str | None = None,
+    ) -> dict:
+        """1.0-C1: tombstone 恢复——快照回插 + fact.restored 事件。
+
+        「可悔」的操作腿：30 天窗口内把 tombstone 前完整状态回插为
+        active。幂等：已 active 的事实重复 restore 返回现态不重复加版。
+        事件链 tombstoned → restored 全程可审计。
+        """
+        request_id = request_id or new_id()
+        correlation_id = correlation_id or request_id
+        now = utc_now()
+        with self.transaction() as connection:
+            current = connection.execute(
+                "SELECT fact_id, status, current_version FROM facts WHERE fact_id=?",
+                (fact_id,),
+            ).fetchone()
+            if not current:
+                raise NotFoundError(fact_id)
+            if current["status"] == "active":
+                return {"fact_id": fact_id, "status": "active",
+                        "restored": False, "reason": "already active"}
+            snap = connection.execute(
+                "SELECT * FROM tombstone_snapshots WHERE fact_id=?"
+                " ORDER BY tombstoned_at DESC LIMIT 1", (fact_id,),
+            ).fetchone()
+            if snap is None:
+                raise ConflictError(
+                    f"no tombstone snapshot for {fact_id} — "
+                    "restore window expired or snapshot missing")
+            new_version = int(current["current_version"]) + 1
+            event_id = new_id()
+            payload = {
+                "fact_id": fact_id,
+                "version": new_version,
+                "reason": reason,
+                "restored_from_snapshot_at": snap["tombstoned_at"],
+            }
+            self._insert_event(
+                connection,
+                event_id=event_id,
+                fact_id=fact_id,
+                version=new_version,
+                event_type="fact.restored",
+                actor_principal=actor_principal,
+                request_id=request_id,
+                correlation_id=correlation_id,
+                occurred_at=now,
+                payload=payload,
+                idempotency_key=f"restore-{event_id}",
+            )
+            connection.execute(
+                """UPDATE facts SET current_version=?, status='active',
+                tombstoned_at=NULL, updated_at=? WHERE fact_id=?""",
+                (new_version, now, fact_id),
+            )
+            # 快照保留（审计链），garbage 由 ops 30 天窗口清理
+            return {"fact_id": fact_id, "status": "active",
+                    "restored": True, "reason": reason}
+
     def tombstone_fact(
         self,
         command: TombstoneFact,
@@ -1325,6 +1417,27 @@ class CanonicalStore:
                 payload=payload,
                 idempotency_key=cmd.idempotency_key,
             )
+            # 1.0-C1: tombstone 快照与状态翻转同事务——「可悔」从事件账本
+            # 升级为可操作恢复路径；30 天窗口内 restore_fact 可完整回插。
+            _snapshot_days = 30
+            from datetime import timedelta as _td
+            _expires = (datetime.fromisoformat(now) + _td(days=_snapshot_days)).isoformat()
+            connection.execute(
+                """INSERT INTO tombstone_snapshots(
+                    snapshot_id, fact_id, content, summary, owner_principal,
+                    domain, fact_type, visibility, sensitivity, egress_policy,
+                    confidence_score, decay_tier, valid_from, valid_to,
+                    recorded_at, updated_at, version_at_tombstone,
+                    tombstoned_by, tombstoned_at, expires_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (new_id(), cmd.fact_id, current["content"], current["summary"],
+                 current["owner_principal"], current["domain"],
+                 current["fact_type"], current["visibility"],
+                 current["sensitivity"], current["egress_policy"],
+                 current["confidence_score"], current["decay_tier"],
+                 current["valid_from"], current["valid_to"],
+                 current["recorded_at"], current["updated_at"],
+                 int(current["current_version"]), actor_principal, now, _expires))
             connection.execute(
                 """UPDATE facts SET current_version=?, status='tombstoned',
                 tombstoned_at=?, updated_at=? WHERE fact_id=?""",
