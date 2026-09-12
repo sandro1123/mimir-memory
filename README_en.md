@@ -14,6 +14,23 @@
 
 ---
 
+## Why Mímir
+
+Most memory systems accept whatever an agent says: no review, no ledger, no undo.
+Mímir is designed the other way around — **every memory is reviewed, audited,
+and revocable**:
+
+- **Governance pipeline** — new memories enter a candidate queue; quality
+  assessment + human approval before commit (unique in the field)
+- **Event-sourced ledger** — who wrote it, how many versions, who approved —
+  fully auditable from day one
+- **Fine-grained ACL** — owner / visibility / egress policy; Fernet envelopes
+- **Honest telemetry** — queries carry `recall_verdict ∈ {found, not_found,
+  degraded}`: "nothing found" never masquerades as "channel broken"
+
+Current: **v14.2.1** (closing the 0.x era) → next: **1.0.0 The Trust
+Baseline**, entering the semver commitment era ([versioning](docs/VERSIONING.md)).
+
 ## The Name
 
 **Mímir** originates from Norse mythology — the guardian of the Well of Mímir (Mímisbrunnr), the source of wisdom.

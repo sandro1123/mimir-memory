@@ -13,6 +13,39 @@
 
 ---
 
+> ### 为什么选 Mímir · Why Mímir
+>
+> 市面上的记忆系统大多「**来者不拒**」：agent 说记就记，没有审批、没有账本、没有撤销。
+> Mímir 从第一天起就是反着设计的——**每一条记忆都要过审、有账、可悔**：
+>
+> | 硬牌 | 说明 |
+> |---|---|
+> | **治理管线** | 新记忆先进候选队列，质量评估+人工确认才入库（全市场独一份） |
+> | **事件溯源账本** | 谁记的、改过几版、谁批准的——从写入起全程可审计 |
+> | **细粒度 ACL** | owner/可见性/外发策略三件套；联邦信封 Fernet 加密 |
+> | **诚实遥测** | 查询带 `recall_verdict ∈ {found, not_found, degraded}`——「没查到」和「通道坏了」永不混淆 |
+>
+> 当前版本 **v14.2.1**（0.x 纪元收官在即）→ 下一版 **1.0.0 The Trust Baseline**，
+> 进入 semver 承诺纪元（[版本纪元表](docs/VERSIONING.md)）。
+
+---
+
+## 快速开始（30 秒版）· TL;DR
+
+```bash
+# 一键初始化（含 bge-m3 模型预取）
+./scripts/init.sh
+# 启动 API（默认 127.0.0.1:8456，token 必备）
+python -m mimir_v8.server --data-dir ./var/mimir-v8
+# Claude Code / 任何 MCP 宿主接入
+claude mcp add mimir -- mimir-mcp    # 27 个 mimir_* 工具
+cp -r skills/mimir ~/.claude/skills/ # 场景路由 skill
+```
+
+详细路径见下文「快速开始（开箱即用）」与 [skills/mimir/INSTALL.md](skills/mimir/INSTALL.md)。
+
+---
+
 ## 名字的由来 · The Name
 
 **Mímir**（密米尔）源自北欧神话 —— 智慧之泉（Well of Mímir）的守护者。
