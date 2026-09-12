@@ -53,7 +53,11 @@ def _format_results(results: list[dict]) -> str:
         text = (fact.get("summary") or fact.get("content") or "").strip()
         if not text:
             continue
-        lines.append(f"- {text[:300]}")
+        # 1.0-C4: fact_id 短码随行注入——agent 反馈 (mimir_feedback) 的
+        # 抓手。没有它，30 天反馈 6 条=自进化回路形同虚设。
+        fid = str(fact.get("fact_id") or "")
+        ref = f" [id:{fid[:8]}]" if fid else ""
+        lines.append(f"- {text[:300]}{ref}")
         if sum(len(l) for l in lines) > MAX_PREFETCH_CHARS:
             break
     if not lines:
@@ -140,7 +144,8 @@ FEEDBACK_SCHEMA = {
         "Signal retrieval quality for a Mímir search result so memory "
         "self-evolves: useful (answered the query), useless (irrelevant), "
         "correction (fact outdated/incorrect). Use right after mimir_search "
-        "or recalled facts clearly helped or misled."
+        "or recalled facts clearly helped or misled. Recalled lines carry "
+        "an [id:xxxxxxxx] tag — pass that tag as fact_id in your feedback."
     ),
     "parameters": {
         "type": "object",
