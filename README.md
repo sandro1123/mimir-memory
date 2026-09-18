@@ -4,7 +4,7 @@
 > 让多个 AI 智能体「一起」记忆——并智能地遗忘。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Schema Version](https://img.shields.io/badge/schema-20-blue.svg)](#)
+[![Schema Version](https://img.shields.io/badge/schema-21-blue.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.11+-3776AB.svg)](#)
 [![CI](https://github.com/sandro1123/mimir-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/sandro1123/mimir-memory/actions)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -25,8 +25,9 @@
 > | **细粒度 ACL** | owner/可见性/外发策略三件套；联邦信封 Fernet 加密 |
 > | **诚实遥测** | 查询带 `recall_verdict ∈ {found, not_found, degraded}`——「没查到」和「通道坏了」永不混淆 |
 >
-> 当前版本 **1.0.0 — The Trust Baseline**：0.x 纪元收官，从本版起对兼容性
-> 负责（semver 承诺纪元，[版本纪元表](docs/VERSIONING.md)）。
+> 当前版本 **1.1.0 — Trust & Interop（信任与互通）**：承诺纪元第一个功能版
+> ——谱系哈希链 · MEX 记忆交换 · 联邦授权 · 公开基准 runner（
+> [版本纪元表](docs/VERSIONING.md)）。
 
 ---
 
@@ -255,6 +256,30 @@ cd mimir-memory
 
 ---
 
+## 评估与跑分 · Benchmarks
+
+> 数字必须可复现——报告含版本/schema/时间戳，重跑同数据同码得同数。
+
+**金标 24 条（生产活服务实测，standard 装配面，2026-09-18）**：
+
+| 指标 | 值 | 地板 |
+|---|---|---|
+| hit@3 | 0.833 | 0.65 |
+| hit@5 | 0.875 | — |
+| hit@10 | 0.875 | 0.83 |
+| MRR | 0.786 | — |
+
+金标=自建生产事实锚（24 条、四型配平、marker 全表唯一判据脚本可复跑），
+度量「你自己系统的检索质量」随版本回归；3 条已知近重复哨兵按诚实原则
+保留（floor 已按含哨兵实测重钉，理据见 CHANGELOG v1.1.0）。
+
+**外部公开基准（LOCOMO / LongMemEval）**：runner 与一键入口已入库
+（`scripts/run_benchmarks.py --locomo P --longmemeval P`），计分方法学=
+会话级检索 hit@K/recall@K/MRR + abstention 显式剔除 + degraded 三态
+不计分母；数据集因许可不随仓分发，数字待语料落盘后发布。
+
+---
+
 ## 版本史边界 · Pre-Open-Source Era
 
 公开 git 历史与 tag 自 **v12.0.0（2026-08-18 开源首发）** 起；v9~v11 为内部时代，
@@ -355,8 +380,8 @@ Engine Insight，「爱嘟优忆思」）：除了上述四个借鉴模式，其
 
 | 域 | 当前值 | 语义 | 在哪改 |
 |---|---|---|---|
-| **Release 版本** | `14.2.0` | 功能发布号（`MIMIR_VERSION`） | `mimir_v8/schema.py`——单一事实源，`pyproject.toml` 与 CI 对拍断言强制同步 |
-| **Schema 版本** | `20` | 数据库结构代数（迁移链盖章） | `mimir_v8/schema.py::SCHEMA_VERSION`——变更必须配迁移链 |
+| **Release 版本** | `1.1.0` | 功能发布号（`MIMIR_VERSION`） | `mimir_v8/schema.py`——单一事实源，`pyproject.toml` 与 CI 对拍断言强制同步 |
+| **Schema 版本** | `21` | 数据库结构代数（迁移链盖章） | `mimir_v8/schema.py::SCHEMA_VERSION`——变更必须配迁移链 |
 | **API 代数** | `v8`~`v13` | 端点路径前缀（`/v8/query`、`/v9/search-preview`、`/v12/search/trace`、`/v13/blackboard`）——保留历史代数是兼容承诺 | `mimir_v8/api.py` |
 | **包名** | `mimir-v8` | PyPI/包管理名（历史命名，函数性冻结） | `pyproject.toml` |
 | **仓库名** | `mimir-memory` | GitHub/Gitee 仓库名 | 平台侧 |

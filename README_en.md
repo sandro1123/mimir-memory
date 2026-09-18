@@ -5,7 +5,7 @@
 > and forget intelligently.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Schema Version](https://img.shields.io/badge/schema-20-blue.svg)](#)
+[![Schema Version](https://img.shields.io/badge/schema-21-blue.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.11+-3776AB.svg)](#)
 [![CI](https://github.com/sandro1123/mimir-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/sandro1123/mimir-memory/actions)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -28,8 +28,10 @@ and revocable**:
 - **Honest telemetry** — queries carry `recall_verdict ∈ {found, not_found,
   degraded}`: "nothing found" never masquerades as "channel broken"
 
-Current: **1.0.0 — The Trust Baseline**. The 0.x era is closed; from this
-version on we honor semver compatibility commitments ([versioning](docs/VERSIONING.md)).
+Current: **1.1.0 — Trust & Interop**. First feature release of the
+commitment era: lineage hash-chain · MEX memory interchange ·
+federation grants · public-benchmark runner
+([versioning](docs/VERSIONING.md)).
 
 ## The Name
 

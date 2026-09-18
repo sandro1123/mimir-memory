@@ -6,6 +6,76 @@
 
 ---
 
+## v1.1.0 — 2026-09-18 · Trust & Interop · 信任与互通
+
+> 承诺纪元第一个功能版（semver 加法不删法：schema 20→21 守卫式迁移，
+> 老库自动升级零接触）。四件全落（Roadmap 1.1.0 差距#1/#2/#5/#6）+
+> 两件计划外根因修复 + 金标 8→24。632 tests 零红。
+
+**生产实测（--golden 腿，活服务 standard 面，可复现）**：hit@3=0.833
+hit@5=0.875 hit@10=0.875 mrr=0.786（n=24；floor 0.65/0.83 未破）。
+复现：`python scripts/run_benchmarks.py --golden`（外部基准两腿待
+数据集落盘后一键跑，见下）。
+
+- **1.1 谱系哈希链（差距#6）** — `fact_versions.previous_version_hash`
+  链式咬合（lineage_hash(n)=sha256(prev:snapshot)），三写点补链
+  （genesis 空串）；**不可变触发器否决回填设计**——旧行留 NULL=
+  「1.1.0 前从未封存」，verify 三态判语 sealed_ok/broken/unsealed
+  如实披露（空≠完好，绿灯不制造虚假信心——aduMEI 审计元教训照抄修好
+  的终态）。`POST /v8/facts/verify` 链尾对账：broken 显式判语+
+  chain_head_hash 跨次对账锚，按条 can_read/全库 admin-only。schema
+  20→21 守卫式迁移（提版必配迁移段的真守卫落进 MIGRATABLE_* 常量，
+  5 处写死版本断言同修——「版本号断言禁写死」判例再实证）。
+- **1.1 MEX v1 记忆交换格式（差距#2）** — 六段信封
+  （facts/fact_versions/evidence/candidates/sources/legacy_sources）
+  + 段级 sha256 integrity（半包/篡改整包拒收）；导入三分法
+  同id同hash skip/异hash conflicts 点名绝不覆盖/新id 原样插（保谱系
+  链+依赖闭包 FK 序落库）；**v1 刻意不含 memory_events**（事件账本=
+  节点私有真相源，跨节点事件归联邦协议管——宁缺勿脏用在格式层）。
+  egress 诚实面：`--external` 只导 external_allowed。CLI
+  `mimir-migrate export/import`（路径不存在拒跑、冲突非零退出）。
+  COGX→Mímir 适配器（domain 落注册集，原 id 存 legacy_id 可回溯）。
+- **1.1 联邦授权 Grants（差距#5）** — federation_grants 表（守卫式）：
+  scope（`*`/前缀通配，语法校验拒中间 `*`）/action（read=outbound、
+  sync=inbound 双端对称独立决定权）/有效期（ttl 或绝对时刻，check
+  带复算时钟参数）/撤销（置位留行=审计，**撤销≠退回全放开时代**）。
+  强制开关 auto/force/off：装第一个 grant 即收紧、零策略 legacy 全通
+  （B2/B3 实测链不断）。ingest 信封内任一 key 缺授权→整包拒收不留残
+  （账本一致性>吞吐）。export 返回 exported_keys 明文审计面。
+- **1.1 LOCOMO/LongMemEval runner + 一键跑分入口（差距#1）** —
+  `benchmarks_external` 纯函数计分核（abstention 显式剔除计数、
+  query_fn 抛错案例 degraded 不计分母——三态判语的基准面应用；
+  全错时指标诚实缺席）；`scripts/run_benchmarks.py --golden
+  [--locomo P] [--longmemeval P]` 三条腿报告含版本/时间/engine 元
+  数据，README 数字必须出自这里。外部两腿走一次性临时库+FTS-only
+  挡位（engine 如实标注），绝不往生产灌基准料。
+- **1.1 金标 8→24（#35 用户裁定）+ marker 硬化** — 三条入池纪律
+  写进模块注释：①marker 全表恰命中 1 条（旧 8 条 5 处撞车已换，
+  "Heimdallr-EX" 曾命中 17 条）②锚必须落在 standard 装配面（4 条
+  project_config 属 L1 被层门设计性排除→缓入，deep 面候裁）③近重复
+  淹没的锚留作哨兵不换不删（内存过载/照片/飞书bot 三条 rank>10 是
+  真实产品行为——挑掉它们=反向工程让基准过）。floor 按实测重钉
+  0.75/0.875→0.65/0.83（哨兵之外再多一条即红，数学诚实）。判据
+  脚本改单一事实源（import GOLDEN_SET 不手抄）。
+- **【根因修复】1.0-C2 证据召回腿出生即死** — `_evidence_for` 查了不
+  存在的列（e.fact_id/e.quote_text；真名 quote_text_redacted 且须经
+  candidate_facts.committed_fact_id 二跳 JOIN），OperationalError 被
+  裸 except 吞成恒 []——生产 23 条证据、10 条已链到 facts 全被掩盖 6
+  天；test_c23 只断言「键在、列表形态」对空也判绿（夹具比生产宽的
+  镜像）。修=SQL 改对+去裸吞（degraded≠empty）；新测试
+  test_evidence_recall_live 用真实 fresh schema 三表链断言**非空**。
+- **【计划外】CLI/发布闸门两清** — migrate_cli export/import 路径
+  守卫（绝不凭空造库）；golden_candidate_scan 生产实例名触
+  payload_sample 面实拦实修（glob 定位+env 覆盖）。
+
+施工判例沉淀：①floor/基线断言同版本号禁写死（p18 锁 0.75 在重钉时
+考红，改守「r9 别名 is 同一性+数值健全」真不变式）②「顺手补的洞」
+要过威胁模型（export 预检 to_peer 注册无安全增量且拦了正当攻击构造
+测试——回退）③金标选题不挑软柿子（反向工程让基准过=拿可疑产物当
+基线同族）。
+
+---
+
 ## v1.0.0 — 2026-09-13 · The Trust Baseline · 信任基线
 
 > **承诺纪元第一版**：从本版起对 API/Schema 兼性负责（semver：加法不删法）。
