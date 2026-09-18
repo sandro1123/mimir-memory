@@ -61,28 +61,13 @@ def lineage_hash_for_new_version(
     return compute_lineage_hash(row["previous_version_hash"], row["snapshot_json"])
 
 
-def verify_lineage_chain(store: Any, fact_id: str) -> dict:
-    """逐版本重算链值，比对存值，定位破链版本号。
-
-    返回 ``{fact_id, chain_status, chain_intact, breaks, sealed_links,
-    versions}``：
-
-    * ``chain_status``：三态判语（sealed_ok / broken / unsealed）
-    * ``chain_intact``：仅当 sealed_ok 为真（unsealed 时**不为真**——无从
-      验证不等于完好）
-    * ``breaks``：对不上的版本号（该版存值与前一版重算值不符）
-    * ``sealed_links``：带链值的版本数（genesis 不计）
-    * ``versions``：总版本数
-
-    genesis（v1）与其后直至第一个带链值的版本之间的 NULL 段视为「未封存
-    前缀」，不计断裂；一旦遇到封存链接，其后逐环必须咬合。
-    """
-    with store.connect() as connection:
-        rows = connection.execute(
-            "SELECT version, snapshot_json, previous_version_hash "
-            "FROM fact_versions WHERE fact_id=? ORDER BY version",
-            (fact_id,),
-        ).fetchall()
+def _verify_one(connection: sqlite3.Connection, fact_id: str) -> dict:
+    """对单条事实重算链值并给出三态报告（单连接版，供全扫复用）。"""
+    rows = connection.execute(
+        "SELECT version, snapshot_json, previous_version_hash "
+        "FROM fact_versions WHERE fact_id=? ORDER BY version",
+        (fact_id,),
+    ).fetchall()
 
     breaks: list[int] = []
     sealed_links = 0
@@ -114,4 +99,38 @@ def verify_lineage_chain(store: Any, fact_id: str) -> dict:
         "breaks": breaks,
         "sealed_links": sealed_links,
         "versions": total,
+        # 链尾 = 末版 lineage_hash；跨次全扫聚合可作对账锚——链完好则
+        # 头恒定，任何追加/篡改都会移动它。空事实（理论不可能，防御）为 ""。
+        "chain_head": prev_lineage or "",
     }
+
+
+def verify_lineage_chain(store: Any, fact_id: str) -> dict:
+    """逐版本重算链值，比对存值，定位破链版本号。
+
+    返回 ``{fact_id, chain_status, chain_intact, breaks, sealed_links,
+    versions, chain_head}``：
+
+    * ``chain_status``：三态判语（sealed_ok / broken / unsealed）
+    * ``chain_intact``：仅当 sealed_ok 为真（unsealed 时**不为真**——无从
+      验证不等于完好）
+    * ``breaks``：对不上的版本号（该版存值与前一版重算值不符）
+    * ``sealed_links``：带链值的版本数（genesis 不计）
+    * ``versions``：总版本数
+
+    genesis（v1）与其后直至第一个带链值的版本之间的 NULL 段视为「未封存
+    前缀」，不计断裂；一旦遇到封存链接，其后逐环必须咬合。
+    """
+    with store.connect() as connection:
+        return _verify_one(connection, fact_id)
+
+
+def verify_all_facts(store: Any) -> list[dict]:
+    """全库链尾对账（admin 扫描用）：单连接遍历所有事实，逐条出报告。"""
+    with store.connect() as connection:
+        fact_ids = [
+            row["fact_id"] for row in connection.execute(
+                "SELECT fact_id FROM facts ORDER BY fact_id"
+            )
+        ]
+        return [_verify_one(connection, fact_id) for fact_id in fact_ids]

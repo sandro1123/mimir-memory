@@ -47,6 +47,8 @@ from .schema import (
     UpdateFact,
     ValidationError,
 )
+from .lineage import (STATUS_BROKEN, STATUS_SEALED_OK, STATUS_UNSEALED,
+                      verify_all_facts, verify_lineage_chain)
 from .store import CanonicalStore, ConflictError, NotFoundError, new_id, sha256_text, utc_now
 
 
@@ -144,6 +146,12 @@ class GrantBody(BaseModel):
     effect: str = "allow"
     expires_at: str | None = None
     idempotency_key: str | None = None
+
+
+class VerifyBody(BaseModel):
+    """1.1.0 谱系链对账请求：fact_ids 缺省=全库扫描（admin-only）。"""
+    model_config = ConfigDict(extra="forbid")
+    fact_ids: list[str] | None = None
 
 
 class CandidateBody(BaseModel):
@@ -952,6 +960,55 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         ):
             raise AuthError("fact is not readable by this principal", 403, "acl_denied")
         return fact
+
+    @app.post("/v8/facts/verify")
+    def verify_fact_chain(body: VerifyBody,
+                          identity: Principal = Depends(scoped("read"))):
+        """1.1.0 谱系链尾对账：逐事实重算链值，显式三态判语。
+
+        照抄 aduMEI 审计元教训——验证端点绿灯制造虚假信心。因此：
+        破链（HTTP 仍 200，但 status=chain_broken）、未封存（status=
+        unsealed，1.1.0 前的旧链**不得**并入完好）、空库（status=empty）
+        三种态各自诚实，worst-state 聚合（broken > unsealed > ok）。
+        全库扫描 admin-only（防枚举他人事实的存在性）；按条请求走
+        can_read ACL。chain_head_hash = 各事实链尾聚合哈希，链完好则
+        恒定——跨次报告对账的操作锚。
+        """
+        if body.fact_ids is None:
+            if not identity.is_admin:
+                raise AuthError("full-chain scan requires admin", 403,
+                                "admin_required")
+            reports = verify_all_facts(context.store)
+        else:
+            reports = []
+            for fact_id in body.fact_ids:
+                fact = context.store.get_fact(fact_id)
+                if not context.store.can_read(
+                    fact_id, identity.principal_id,
+                    is_admin=identity.is_admin, roles=set(identity.roles),
+                ):
+                    raise AuthError(
+                        "fact is not readable by this principal", 403,
+                        "acl_denied")
+                reports.append(verify_lineage_chain(context.store, fact_id))
+        broken = [{"fact_id": r["fact_id"], "breaks": r["breaks"]}
+                  for r in reports if r["chain_status"] == STATUS_BROKEN]
+        unsealed = [r["fact_id"] for r in reports
+                    if r["chain_status"] == STATUS_UNSEALED]
+        if broken:
+            status = "chain_broken"
+        elif not reports:
+            status = "empty"
+        elif unsealed:
+            status = "unsealed"
+        else:
+            status = "ok"
+        head = sha256_text("|".join(
+            r["fact_id"] + ":" + r["chain_head"]
+            for r in sorted(reports, key=lambda item: item["fact_id"])))
+        return {"status": status, "verified": len(reports),
+                "broken": broken, "unsealed": unsealed,
+                "chain_head_hash": head}
 
     @app.post("/v8/facts", status_code=201)
     def create_fact(body: CreateFactBody, request: Request,
