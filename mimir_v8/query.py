@@ -621,24 +621,34 @@ class QueryKernel:
         消费方注入 prompt 时「有据可查」。无证据（直写事实）返回空列表，
         键恒在（契约稳定）。
         """
-        try:
-            with contextlib.closing(self.store.connect()) as connection:
-                rows = connection.execute(
-                    """SELECT e.quote_text, s.title AS source_name,
-                              s.ingested_at AS message_ts
-                    FROM candidate_evidence e
-                    JOIN conversation_sources s ON s.source_id = e.source_id
-                    WHERE e.fact_id=? ORDER BY e.evidence_id LIMIT ?""",
-                    (fact_id, top_n),
-                ).fetchall()
-            return [
-                {"quote_text": (r["quote_text"] or "")[:200],
-                 "source_name": r["source_name"] or "",
-                 "message_ts": r["message_ts"] or ""}
-                for r in rows
-            ]
-        except Exception:
-            return []
+        # 1.1.0 根因修复：1.0-C2 出生即死——candidate_evidence 的列名是
+        # quote_text_redacted（脱敏后），且 fact↔evidence 没有直链列，要经
+        # candidate_facts.committed_fact_id 二跳 JOIN。旧查询用了不存在的
+        # e.fact_id/e.quote_text，OperationalError 被裸 except 吞成 []，
+        # 于是所有检索的 evidence 恒空、且被「键恒在」的测试判绿——夹具
+        # 比生产宽的镜像：它断言的是病态行为。
+        #
+        # 修复面两条：SQL 改对 + **不再裸吞**。吞异常正是死腿装绿的病根；
+        # SQL 修对后此处若再抛，是真故障（表被热迁砸了/文件损坏），必须
+        # 响亮上抛供检索降级面处理，不得伪装成「无证据」（degraded≠empty）。
+        with contextlib.closing(self.store.connect()) as connection:
+            rows = connection.execute(
+                """SELECT e.quote_text_redacted AS quote_text,
+                          s.title AS source_name,
+                          s.ingested_at AS message_ts
+                FROM candidate_evidence e
+                JOIN candidate_facts cf ON cf.candidate_id = e.candidate_id
+                JOIN conversation_sources s ON s.source_id = e.source_id
+                WHERE cf.committed_fact_id=?
+                ORDER BY e.evidence_id LIMIT ?""",
+                (fact_id, top_n),
+            ).fetchall()
+        return [
+            {"quote_text": (r["quote_text"] or "")[:200],
+             "source_name": r["source_name"] or "",
+             "message_ts": r["message_ts"] or ""}
+            for r in rows
+        ]
 
     def _layer_sweep_spec(self, request: QueryRequest) -> tuple[tuple[str, ...], int]:
         """Which non-anchor layers the progressive sweep covers.
