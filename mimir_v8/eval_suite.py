@@ -227,15 +227,28 @@ class SyntheticBenchmark:
 #: benchmark and the regression test share one source of truth. Marker
 #: substrings let a case survive fact_id churn: ids churn in
 #: production, distinctive content doesn't.
+#:
+#: 1.1.0 marker 硬化（#35 扩容第一步）：旧 8 条里 5 条 marker 在 active
+#: 全表撞多行（"Heimdallr-EX" 命中 17 条、"常见故障"撞结晶产物）——
+#: marker 兜底的本意是 fact_id churn 时仍可验证，撞车会让别的 fact 被
+#: 检索到也算命中（假绿）。本轮全换成唯一长串；判据
+#: scripts/golden_candidate_scan.py 可复跑，换 marker 后必重跑。
+#: 硬化后旧 8 条对生产实测 hit@10=0.875（踩线过 floor）。
+#:
+#: 扩容 8→24 的**另一半（新增 16 条）暂缓**：候选里 4 条 project_config
+#: 事实属 L1 型——standard 深度装配刻意不收 L1（v12.2.0 层化设计，
+#: test_p28 双测锁死「FTS 命中的 L1 也必须被门拦下」），金标跑在
+#: standard 面上，L1 锚结构性不可过。24 条版扩容须先裁测量面
+#: （金标改用 depth="deep" 重跑，见 ROADMAP 候裁项），不是检索病。
 GOLDEN_SET: tuple[tuple[str, str, str], ...] = (
     ("Mentor 的职责是什么", "dad7aea2-f7e9-4b86-b9ea-2e3591a3bb9f", "运维职责"),
     ("N100 内存过载怎么处理", "4389e49d-5c2b-4d18-a45a-e234de679709", "N100 内存过载"),
-    ("记忆系统有哪些常见故障", "4bddde4a-4c46-4370-a84f-5a7d0e1bd442", "常见故障"),
+    ("记忆系统有哪些常见故障", "4bddde4a-4c46-4370-a84f-5a7d0e1bd442", "Mímir维护需定期检查这些场景"),
     ("早间新闻要怎么呈现", "2de24c79-a228-442d-8d68-a0297f41bc75", "早间新闻"),
-    ("回复卡片 header 改成什么", "57f4c028-fa14-4aa4-b6c6-c7a449194280", "Heimdallr-EX"),
-    ("多个 agent 共享记忆池有什么风险", "789eb5c9-b45c-445e-b48b-10320bc5bb74", "共享记忆池"),
-    ("obsidian 笔记库乱了怎么重构", "7fce0a72-be1e-4fe1-b0fd-cc4b00897250", "obsidian笔记库"),
-    ("让所有 agent 都部署记忆系统", "8e2e6a41-087d-4dfa-970f-c05f97d9ba3c", "部署Mimir"),
+    ("回复卡片 header 改成什么", "57f4c028-fa14-4aa4-b6c6-c7a449194280", "回复卡片header改为Heimdallr-EX"),
+    ("多个 agent 共享记忆池有什么风险", "789eb5c9-b45c-445e-b48b-10320bc5bb74", "倾向于独立记忆管理"),
+    ("obsidian 笔记库乱了怎么重构", "7fce0a72-be1e-4fe1-b0fd-cc4b00897250", "总觉得我的obsidian笔记库乱七八糟"),
+    ("让所有 agent 都部署记忆系统", "8e2e6a41-087d-4dfa-970f-c05f97d9ba3c", "文件发送必须在当前会话中完成"),
 )
 
 #: Metric → floor for the golden run. Same semantics as the r9 baseline
