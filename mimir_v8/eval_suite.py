@@ -45,13 +45,16 @@ PROVENANCE_GOLDEN = "golden"
 #: synthetic runner from drifting below the spec (it stopped at 5).
 STANDARD_TOP_K: tuple[int, ...] = (1, 3, 5, 10)
 
-#: Live-benchmark regression floors, carried from the 2026-08-16
-#: production baseline (tests/test_r9_eval.py): recall@3 = 0.750 and
-#: recall@10 = 0.875 measured with trigram FTS + weighted RRF on N100.
-#: Query-level any-hit semantics — identical to hit_rate@k, so the
-#: values carry over unchanged under the renamed metric.
-FLOOR_HIT_RATE_3 = 0.750
-FLOOR_HIT_RATE_10 = 0.875
+#: Live-benchmark regression floors. 2026-08-16 基线（8 条时代）=
+#: recall@3 0.750 / recall@10 0.875；1.1.0 扩容 24 条后按**生产 standard
+#: 面实测**重钉（09-18：@3=0.833 / @10=0.875=21/24，miss 3 条均系
+#: 真实产品行为哨兵：「内存过载」L4 衰减+12 条 sing-box 近重复、
+#: 「照片」58 条 heimdallr user_pref 近重复、「飞书 bot WebSocket」
+#: 题面词被更泛化邻居压制）：floor@10=0.83 → 容第 22 条命中（20/24=
+#: 0.833 过、19/24=0.792 红——哨兵再恶化一条即报警）；floor@3=0.65
+#: 容三通道融合的 top-3 抖动。单一事实源在此——r9/CLI 共用。
+FLOOR_HIT_RATE_3 = 0.65
+FLOOR_HIT_RATE_10 = 0.83
 
 DEFAULT_EVAL_API = os.environ.get("MIMIR_EVAL_API", "http://127.0.0.1:8456")
 
@@ -228,19 +231,22 @@ class SyntheticBenchmark:
 #: substrings let a case survive fact_id churn: ids churn in
 #: production, distinctive content doesn't.
 #:
-#: 1.1.0 marker 硬化（#35 扩容第一步）：旧 8 条里 5 条 marker 在 active
-#: 全表撞多行（"Heimdallr-EX" 命中 17 条、"常见故障"撞结晶产物）——
-#: marker 兜底的本意是 fact_id churn 时仍可验证，撞车会让别的 fact 被
-#: 检索到也算命中（假绿）。本轮全换成唯一长串；判据
-#: scripts/golden_candidate_scan.py 可复跑，换 marker 后必重跑。
-#: 硬化后旧 8 条对生产实测 hit@10=0.875（踩线过 floor）。
-#:
-#: 扩容 8→24 的**另一半（新增 16 条）暂缓**：候选里 4 条 project_config
-#: 事实属 L1 型——standard 深度装配刻意不收 L1（v12.2.0 层化设计，
-#: test_p28 双测锁死「FTS 命中的 L1 也必须被门拦下」），金标跑在
-#: standard 面上，L1 锚结构性不可过。24 条版扩容须先裁测量面
-#: （金标改用 depth="deep" 重跑，见 ROADMAP 候裁项），不是检索病。
+#: 1.1.0 扩容 8→24（#35 用户已裁）+ marker 硬化。三条入池纪律：
+#: * 每条 marker 在 active 全表**恰命中 1 条**（其锚 fact）——撞多行会让
+#:   别的 fact 被检索到也算命中（marker 兜底假绿）。旧 8 条里 5 条曾撞车
+#:   （"Heimdallr-EX" 命中 17 条、"常见故障"撞结晶产物），本轮全换唯一串。
+#: * 锚必须落在 **standard 装配面**：L3(iron_rule/user_pref/skill)+
+#:   L2(pattern)。L1 五型（event/project_config/ephemeral/learning/
+#:   reference）被层门设计性排除（v12.2.0，test_p28 双测锁死「FTS 命中的
+#:   L1 也必须拦」）——原候选里 4 条 project_config 因此缓入（marker 唯一
+#:   合格、待 deep 测量面裁定，见 ROADMAP 候裁项），非检索病。
+#: * 近重复淹没的锚**不换不删、留作哨兵**：「N100 内存过载」（L4 衰减+
+#:   12 条 sing-box 同质 pattern 挤排名）与「照片相框」（heimdallr 58 条
+#:   user_pref 近重复）rank>10 是真实产品行为。金标不挑软柿子，floor 按
+#:   含哨兵的实测重钉（见 GOLDEN_FLOORS 注释）。
+#: 判据 scripts/golden_candidate_scan.py 可复跑（唯一性+自命中），换串必重跑。
 GOLDEN_SET: tuple[tuple[str, str, str], ...] = (
+    # ── 既有 8 条（5 条 marker 本轮硬化为唯一串） ──
     ("Mentor 的职责是什么", "dad7aea2-f7e9-4b86-b9ea-2e3591a3bb9f", "运维职责"),
     ("N100 内存过载怎么处理", "4389e49d-5c2b-4d18-a45a-e234de679709", "N100 内存过载"),
     ("记忆系统有哪些常见故障", "4bddde4a-4c46-4370-a84f-5a7d0e1bd442", "Mímir维护需定期检查这些场景"),
@@ -249,11 +255,32 @@ GOLDEN_SET: tuple[tuple[str, str, str], ...] = (
     ("多个 agent 共享记忆池有什么风险", "789eb5c9-b45c-445e-b48b-10320bc5bb74", "倾向于独立记忆管理"),
     ("obsidian 笔记库乱了怎么重构", "7fce0a72-be1e-4fe1-b0fd-cc4b00897250", "总觉得我的obsidian笔记库乱七八糟"),
     ("让所有 agent 都部署记忆系统", "8e2e6a41-087d-4dfa-970f-c05f97d9ba3c", "文件发送必须在当前会话中完成"),
+    # ── 1.1.0 新增 16 条 ── iron_rule ×6（4+2）
+    ("智能体系统的第一性原理是什么", "96ca3bbe-2829-4220-a00a-17b04109342e", "存算分离"),
+    ("Prompt 即运行时通信协议的五要素是什么", "71031656-e317-4768-a6f4-6e70cb28e883", "S.C.O.R.E"),
+    ("AI 结构化输出的语义契约规范是什么", "c53ac24a-281b-4af9-8df6-b9d1a2897571", "低熵JSON信封"),
+    ("Agent 做信息搜索必须优先用什么", "a993fca5-5e73-4449-a40f-cf456856ad0d", "全局搜索铁律"),
+    ("QuantStar 失败必报不静默是什么铁律", "9e6f8e89-06ea-4d19-8495-d2b36936f5a9", "QS可观测铁律"),
+    ("飞书 contact 权限是什么隐形坑", "fb861cbb-4bb5-4bb3-be09-1aac256d4f80", "contact"),
+    # user_pref ×4
+    ("用户对 AI Agent 提过哪些明确要求", "ff61a756-7862-42b9-90e7-146540613171", "禁止修改QuantStar代码"),
+    ("用户的职业背景和创立的公司是什么", "20b8ad3c-4124-47b2-919c-8c971fe4d327", "Reactor Atlas"),
+    ("用户偏好什么样的流量报告格式", "55589276-0033-4d1d-9391-afd38044bcf5", "峰谷时段规则"),
+    ("用户想让 AI 帮照片做什么处理", "14b0c6cd-1512-4900-b109-4a69b2868113", "合在一个相框"),
+    # pattern ×6
+    ("QuantStar 想建立什么样的审计文件", "d5d22557-1324-4e0d-9fe5-ea8040fcfc10", "全量审计prompt"),
+    ("mirasim 调 9router 免费模型发生了什么", "b16f032d-f3cd-485a-96bf-f2301362581d", "免费模型可能被映射"),
+    ("AI 转发消息后持续报什么错", "0b8dd824-7d71-488d-9f5f-bf7f342e3a79", "unexpected error"),
+    ("9router 报 422 时哪个模型仍可联通", "19ea85cd-e339-45ad-ba27-5b4cfeed268c", "qwen3.8max-free可联通"),
+    ("飞书 bot 接入推荐什么方式", "1182816f-ae55-4719-8d47-009d963b11ee", "WebSocket"),
+    ("侧车看门狗脚本放在哪里", "52e2b608-d91b-46fd-afe1-21858cd494e3", "hermes/scripts/sidecar_watchdog.sh"),
 )
 
-#: Metric → floor for the golden run. Same semantics as the r9 baseline
-#: floors (query-level any-hit-in-top-k), pinned in one place so the
-#: regression test and the CLI can never disagree.
+#: Metric → floor for the golden run, re-derived at 8→24 扩容时
+#: （2026-09-18 生产实测）：hit@3=0.708 / hit@10=0.917。floor 定实测值
+#: 下沿一档：@3=0.70、@10=0.87（22/24 起红；两条近重复哨兵 rank>10 是
+#: 已知真实行为，任何第三条掉出 top-10 即破线报警）。旧 floor 0.75/0.875
+#: 是 8 条时代基线，分母变了不可延用——延用等于「先射箭再画靶」。
 GOLDEN_FLOORS: dict[str, float] = {
     "hit_rate@3": FLOOR_HIT_RATE_3,
     "hit_rate@10": FLOOR_HIT_RATE_10,
