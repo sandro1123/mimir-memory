@@ -29,6 +29,19 @@ def build_parser() -> argparse.ArgumentParser:
     reproject.add_argument("--with-vector", action="store_true", help="also repair the chroma vector projection")
     reproject.add_argument("--collection", default=os.environ.get("MIMIR_V8_COLLECTION", ""),
                            help="chroma collection name (required with --with-vector)")
+    # 1.1.0 MEX：跨系统记忆交换（导出/导入开放信封，宁缺勿脏）
+    export = sub.add_parser("export", help="export canonical facts as a MEX v1 envelope (JSON)")
+    export.add_argument("--database", required=True, help="canonical.db 路径（只读，无需停服）")
+    export.add_argument("--node-id", required=True, help="导出节点标识（写入信封 source_node，审计用）")
+    export.add_argument("--since", default=None, help="iso8601 下界：只导 updated_at >= 该时刻")
+    export.add_argument("--external", action="store_true",
+                        help="外发模式：只导 egress_policy='external_allowed'（默认全量=本机管理员离线动作）")
+    export.add_argument("--out", default=None, help="输出文件（缺省打到 stdout）")
+    imp = sub.add_parser("import", help="import a MEX v1 envelope into a canonical database")
+    imp.add_argument("--database", required=True, help="目标 canonical.db")
+    imp.add_argument("--file", required=True, help="MEX 信封 JSON 文件")
+    imp.add_argument("--actor", default="admin", help="导入操作者 principal（写审计）")
+    imp.add_argument("--dry-run", action="store_true", help="只出报告不落库")
     return parser
 
 
@@ -81,6 +94,39 @@ def main(argv: list[str] | None = None) -> int:
         result, code = _reproject(args)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return code
+    elif args.command == "export":
+        from .mex import mex_export
+        from .store import CanonicalStore
+        if not Path(args.database).is_file():
+            raise SystemExit(f"export: 数据库不存在: {args.database}")
+        envelope = mex_export(
+            CanonicalStore(args.database), node_id=args.node_id,
+            since=args.since, external=args.external)
+        text = json.dumps(envelope, ensure_ascii=False, sort_keys=True)
+        if args.out:
+            Path(args.out).write_text(text, encoding="utf-8")
+            print(json.dumps({"status": "ok", "out": args.out,
+                              "counts": envelope["counts"]},
+                             ensure_ascii=False, sort_keys=True))
+        else:
+            print(text)
+        return 0
+    elif args.command == "import":
+        from .mex import mex_import
+        from .store import CanonicalStore
+        # 导入是写操作：路径打错绝不能凭空造一个新库（CanonicalStore 对
+        # 不存在路径会静默初始化 fresh schema）
+        if not Path(args.database).is_file():
+            raise SystemExit(f"import: 目标数据库不存在: {args.database}")
+        if not Path(args.file).is_file():
+            raise SystemExit(f"import: MEX 信封文件不存在: {args.file}")
+        payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        report = mex_import(CanonicalStore(args.database), payload,
+                            actor_principal=args.actor,
+                            dry_run=args.dry_run)
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+        # 非零退出=有冲突待人工裁决（脚本可据此阻断流水线）
+        return 1 if report["conflicts"] else 0
     else:
         result = restore_schema_backup(args.backup, args.destination)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
