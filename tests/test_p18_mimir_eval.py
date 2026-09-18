@@ -277,13 +277,22 @@ class TestGoldenSetBenchmark:
         bench = GoldenSetBenchmark()
         assert callable(bench.query_fn)
 
-    def test_floor_values_match_r9_baseline(self):
-        # Floors are the 2026-08-16 production baseline floors carried
-        # over from the live benchmark (tests/test_r9_eval.py): recall@3
-        # 0.750, recall@10 0.875. Renamed to hit_rate@k here — same
-        # semantics (query-level any-hit-in-top-k).
-        assert FLOOR_HIT_RATE_3 == pytest.approx(0.75)
-        assert FLOOR_HIT_RATE_10 == pytest.approx(0.875)
+    def test_floor_values_single_source_and_sane(self):
+        # 旧断言钉死 2026-08-16 基线字面值（0.75/0.875）——1.1.0 扩容
+        # 重钉 floor 时把它考红。按判例「基线/版本断言禁写死」：floor 是
+        # **可调参数**（理据在 eval_suite 注释+生产实测），锁字面值=把
+        # 参数错当不变量。真正要守的两条改守：
+        # 1. 单一事实源：r9 与 eval_suite 必须共用同一常量对象（漂移在
+        #    结构上不可能——import 同一处）
+        # 2. 数值健全：0 < @3 ≤ @10 < 1（单调性错=语义 bug，与取值无关）
+        from mimir_v8.eval_suite import (FLOOR_HIT_RATE_10 as src_10,
+                                         FLOOR_HIT_RATE_3 as src_3)
+        import importlib
+        r9 = importlib.import_module("test_r9_eval")
+        assert r9.FLOOR_RECALL_3 is src_3
+        assert r9.FLOOR_RECALL_10 is src_10
+        assert 0.0 < src_3 <= src_10 < 1.0
+        assert FLOOR_HIT_RATE_3 is src_3 and FLOOR_HIT_RATE_10 is src_10
 
 
 # ── Run entry (spec 09-02: "运行入口") ──────────────────────
