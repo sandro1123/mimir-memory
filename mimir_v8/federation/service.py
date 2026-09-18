@@ -13,7 +13,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
+import re
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -44,6 +47,18 @@ FEDERATION_STATEMENTS = (
         fingerprint TEXT NOT NULL,
         registered_at TEXT NOT NULL
     ) STRICT""",
+    """CREATE TABLE IF NOT EXISTS federation_grants (
+        grant_id TEXT PRIMARY KEY,
+        grantor_node TEXT NOT NULL,
+        grantee_node TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (action IN ('read','sync')),
+        expires_at TEXT,
+        revoked_at TEXT,
+        created_at TEXT NOT NULL
+    ) STRICT""",
+    """CREATE INDEX IF NOT EXISTS idx_federation_grants_lookup
+       ON federation_grants(grantor_node, grantee_node, action)""",
 )
 
 
@@ -82,14 +97,46 @@ def decrypt_envelope(token: str, key: str) -> dict:
 # P0-L（#5）：单 envelope 事件数上限——协议级载荷纪律。
 MAX_ENVELOPE_EVENTS = 5000
 
+#: grants scope 合法字符（路径式 key 命名空间 + 结尾通配）。`*` 只许整体
+#: 或作为末段一次（"shared/skill/*" 合法；"shared/*x"、"**"、中间 * 均拒）。
+_GRANT_SCOPE_RE = re.compile(r"^[A-Za-z0-9_\-./:*]+$")
+_GRANT_ACTIONS = ("read", "sync")
+
+
+def _scope_matches(scope: str, key: str) -> bool:
+    """scope ⊇ key 判据：'*' 全量；'前缀/*' 段前缀；否则精确相等。"""
+    if scope == "*":
+        return True
+    if scope.endswith("/*"):
+        return key.startswith(scope[:-1])  # 含 '/' 段边界："shared/skill/" 前缀
+    return scope == key
+
+
+def _scope_valid(scope: str) -> bool:
+    if not scope or not _GRANT_SCOPE_RE.match(scope):
+        return False
+    if "*" in scope:
+        return scope == "*" or (scope.endswith("/*")
+                                and "*" not in scope[:-1])
+    return True
+
 class FederationService:
     """One node's federation unit: ledger, peer registry, sync protocol."""
 
-    def __init__(self, store: CanonicalStore, *, node_id: str):
+    def __init__(self, store: CanonicalStore, *, node_id: str,
+                 grants_mode: str | None = None):
         if not node_id or not node_id.strip():
             raise FederationError("node_id is required")
         self.store = store
         self.node_id = node_id.strip()
+        # grants 强制开关："auto"（默认，有任何 grant 行才进强制）/
+        # "force"（零策略也全拒）/ "off"（永远 legacy 全通）。环境变量
+        # MIMIR_FEDERATION_GRANTS 提供部署期默认（参数优先）。
+        mode = (grants_mode or os.environ.get("MIMIR_FEDERATION_GRANTS")
+                or "auto")
+        if mode not in ("auto", "force", "off"):
+            raise FederationError(f"invalid grants_mode: {mode!r}")
+        self.grants_mode = mode
         # Each node holds one key pair for the federation: the private
         # half encrypts outgoing envelopes, the public half is what peers
         # register. (Symmetric Fernet: the "public" key IS the shared key —
@@ -156,6 +203,138 @@ class FederationService:
         """Stable human-verifiable fingerprint of a shared key."""
         digest = hashlib.sha256(public_key.encode("ascii")).digest()
         return base64.b64encode(digest[:9]).decode("ascii")
+
+    # ── grants（1.1.0 Roadmap 差距#5：授权即策略，配置可审计） ─────────
+
+    def create_grant(self, scope: str, action: str, *, grantee: str | None = None,
+                     grantor: str | None = None, ttl_hours: float | None = None,
+                     expires_at: str | None = None) -> dict:
+        """授予 grantor→grantee 对 scope 的 action 权限（sync=入站收）。
+
+        两个身份参数都缺省本节点，调用方只填**不是自己的那一端**：
+        * 出站读授权「让 desktop 读我的 skill/*」：`grantee="desktop"`（grantor 默认本节点）
+        * 入站同授权「接受 n100 sync skill/* 进来」：`grantor="n100"`（grantee 默认本节点）
+        action 语义：read=允许对方从本节点读（export 端判据）；sync=允许
+        本节点接收对方的 sync（ingest 端判据）。grantor==grantee 是退化自
+        授权，拒绝——跨节点授权的两端必须是不同节点。
+        有效期二选一：ttl_hours（自现在起算）或 expires_at（绝对时刻）；
+        都不给=永久（撤销即失效）。
+        """
+        scope = (scope or "").strip()
+        if not _scope_valid(scope):
+            raise FederationError(f"invalid grant scope: {scope!r}")
+        if action not in _GRANT_ACTIONS:
+            raise FederationError(f"invalid grant action: {action!r}"
+                                  f" (want one of {_GRANT_ACTIONS})")
+        # 空串是「显式传了个空」=调用方失误；None 才是「没传」→默认本节点。
+        if grantee is not None and not grantee.strip():
+            raise FederationError("grantee is required")
+        grantee = (grantee or self.node_id).strip()
+        grantor = (grantor or self.node_id).strip()
+        if grantor == grantee:
+            raise FederationError(
+                "grantor and grantee must differ — a cross-node grant to "
+                "yourself is a no-op that only hides a wiring mistake")
+        if expires_at is None and ttl_hours is not None:
+            if ttl_hours <= 0:
+                raise FederationError("ttl_hours must be > 0")
+            delta = timedelta(hours=float(ttl_hours))
+            expires_at = (datetime.now(timezone.utc) + delta).isoformat(
+                timespec="seconds")
+        grant_id = new_id()
+        now = utc_now()
+        with self.store.transaction() as connection:
+            self._ensure_tables(connection)
+            connection.execute(
+                """INSERT INTO federation_grants(
+                       grant_id, grantor_node, grantee_node, scope, action,
+                       expires_at, revoked_at, created_at
+                   ) VALUES(?,?,?,?,?,?,NULL,?)""",
+                (grant_id, grantor, grantee, scope, action, expires_at, now),
+            )
+        return {"grant_id": grant_id, "grantor_node": grantor,
+                "grantee_node": grantee, "scope": scope, "action": action,
+                "expires_at": expires_at, "revoked_at": None,
+                "created_at": now}
+
+    def revoke_grant(self, grant_id: str) -> dict:
+        """撤销即置 revoked_at（保留行=审计留痕，且库维持强制模式）。"""
+        grant_id = (grant_id or "").strip()
+        if not grant_id:
+            raise FederationError("grant_id is required")
+        now = utc_now()
+        with self.store.transaction() as connection:
+            self._ensure_tables(connection)
+            cursor = connection.execute(
+                "UPDATE federation_grants SET revoked_at=? "
+                "WHERE grant_id=? AND revoked_at IS NULL",
+                (now, grant_id),
+            )
+            if cursor.rowcount == 0:
+                raise FederationError(f"grant not found or already revoked: "
+                                      f"{grant_id!r}")
+        return {"grant_id": grant_id, "revoked_at": now}
+
+    def list_grants(self, *, include_revoked: bool = True) -> list[dict]:
+        with closing(self.store.connect()) as connection:
+            self._ensure_tables(connection)
+            query = ("SELECT grant_id, grantor_node, grantee_node, scope, "
+                     "action, expires_at, revoked_at, created_at "
+                     "FROM federation_grants")
+            if not include_revoked:
+                query += " WHERE revoked_at IS NULL"
+            rows = connection.execute(query + " ORDER BY created_at").fetchall()
+        return [dict(row) for row in rows]
+
+    def check_grant(self, grantor: str, grantee: str, key: str,
+                    action: str, *, at: str | None = None) -> bool:
+        """(grantor,grantee,action) 下 scope⊇key 且未过期未撤销的 grant 存在性。
+
+        ``at`` 是判定时钟（默认现在）：审计复算/测试可拨回历史时刻。
+        """
+        with closing(self.store.connect()) as connection:
+            self._ensure_tables(connection)
+            rows = self._grants_rows(connection, grantor.strip(),
+                                     grantee.strip(), action)
+        return self._grant_allows(rows, key, at or utc_now())
+
+    @staticmethod
+    def _grants_rows(connection: sqlite3.Connection, grantor: str,
+                     grantee: str, action: str) -> list[sqlite3.Row]:
+        return connection.execute(
+            """SELECT scope, expires_at, revoked_at FROM federation_grants
+            WHERE grantor_node=? AND grantee_node=? AND action=?""",
+            (grantor, grantee, action),
+        ).fetchall()
+
+    @staticmethod
+    def _grant_allows(rows, key: str, moment: str) -> bool:
+        for row in rows:
+            if row["revoked_at"]:
+                continue
+            if row["expires_at"] and row["expires_at"] < moment:
+                continue
+            if _scope_matches(row["scope"], key):
+                return True
+        return False
+
+    def _grants_enforced(self, connection: sqlite3.Connection) -> bool:
+        """本节点是否进强制模式：force/off 直通；auto=存在任何相关策略行才收紧。
+
+        「本节点相关」= grantor 或 grantee 是本节点（入站登记也算声明）。
+        注意「任何行」含过期/已撤销——策略声明过的库不退回全放开时代
+        （撤销语义=不再放行，不是=回到无策略）。
+        """
+        if self.grants_mode == "force":
+            return True
+        if self.grants_mode == "off":
+            return False
+        row = connection.execute(
+            "SELECT 1 FROM federation_grants "
+            "WHERE grantor_node=? OR grantee_node=? LIMIT 1",
+            (self.node_id, self.node_id),
+        ).fetchone()
+        return row is not None
 
     # ── CRDT ledger ───────────────────────────────────────────────────
 
@@ -230,29 +409,44 @@ class FederationService:
     # ── sync protocol ──────────────────────────────────────────────────
 
     def export_events(self, *, since: int = 0, to_peer: str) -> dict:
-        """Serialize the events after cursor `since`, encrypted to one peer."""
+        """Serialize the events after cursor `since`, encrypted to one peer.
+
+        1.1.0 grants：强制模式下只发对 to_peer 存在 outbound read grant
+        覆盖的 key（发送端独立决定权，与 ingest 端 inbound sync 对称）。
+        注：export 不校验 to_peer 是否注册——信封以**发送者自己的 key** 加密
+        （对称 Fernet），注册校验本就发生在 ingest（未注册 sender / 收件人
+        非本节点均 fail-closed），在这里预检只会抢在接收端拒收之前拦下
+        「构造攻击信封」的正当测试路径，且无额外安全收益。
+        """
         if not to_peer or not to_peer.strip():
             raise FederationError("to_peer is required")
         to_peer = to_peer.strip()
         with closing(self.store.connect()) as connection:
             self._ensure_tables(connection)
+            enforced = self._grants_enforced(connection)
+            allowed_rows = (self._grants_rows(
+                connection, self.node_id, to_peer, "read")
+                if enforced else [])
             rows = connection.execute(
                 """SELECT seq, crdt_key, lamport, node_id, op, value
                 FROM federation_events WHERE seq > ?
                 ORDER BY seq""",
                 (since,),
             ).fetchall()
-        events = [
-            {
+        moment = utc_now()
+        events = []
+        for row in rows:
+            key = row["crdt_key"]
+            if enforced and not self._grant_allows(allowed_rows, key, moment):
+                continue
+            events.append({
                 "seq": row["seq"],
-                "key": row["crdt_key"],
+                "key": key,
                 "lamport": row["lamport"],
                 "node_id": row["node_id"],
                 "op": row["op"],
                 "value": json.loads(row["value"]) if row["value"] is not None else None,
-            }
-            for row in rows
-        ]
+            })
         payload = {
             "from_node": self.node_id,
             "to_peer": to_peer,
@@ -268,6 +462,10 @@ class FederationService:
             "to_peer": to_peer,
             "since": since,
             "count": len(events),
+            # 运维诚实面：发了哪些 key 范围明文可见（key 名是元数据、
+            # 不含 value，且 grant 的 scope 本就是 key 名——本就可见）。
+            # 让「我到底同步了什么」不用解密密文就能审计。
+            "exported_keys": [e["key"] for e in events],
             "ciphertext": ciphertext,
         }
 
@@ -325,6 +523,25 @@ class FederationService:
                     f"event signer {signer!r} is neither a registered peer,"
                     " a previously seen node, nor the envelope sender"
                     " — forged signature")
+        # 1.1.0 grants：接收端独立决定权。本节点进强制模式（存在任何策略
+        # 行，或 force）时，入站按 inbound sync grant（grantor=发送者,
+        # grantee=本节点）验收；信封内任一事件 key 缺授权 → **整包拒收**
+        # ——部分接受会让两节点账本无声发散，账本一致性 > 吞吐。零策略
+        # 的 legacy 节点维持全通（B2/B3 实测链不在此断）。
+        with closing(self.store.connect()) as connection:
+            self._ensure_tables(connection)
+            enforced = self._grants_enforced(connection)
+            inbound_rows = (self._grants_rows(
+                connection, from_node, self.node_id, "sync")
+                if enforced else [])
+        if enforced:
+            moment = utc_now()
+            for event in events:
+                key = str(event.get("key") or "")
+                if not self._grant_allows(inbound_rows, key, moment):
+                    raise FederationError(
+                        f"grant_denied: no inbound sync grant from "
+                        f"{from_node!r} covers key {key!r}")
         applied = 0
         for event in events:
             result = self.append_event(event)
