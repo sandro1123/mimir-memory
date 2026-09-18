@@ -76,8 +76,18 @@ class TestKnowledgeLayerConfiguration(unittest.TestCase):
                     validate_vector_collection_name(name)
 
     def test_release_identity(self):
+        # MIMIR_VERSION 硬编码是**有意的发布闸门**：发版时必须回来改这一
+        # 行，从而强制审视发布身份（五件套对拍）。保留。
         self.assertEqual(MIMIR_VERSION, "1.0.0")
-        self.assertEqual(SCHEMA_VERSION, 20)
+        # 原 `SCHEMA_VERSION == 20` 已删：schema 提版是开发期常规动作，
+        # 硬编码在此产生的是必假红而非闸门。真守卫由 test_p0o 承担且更强
+        # （断言运行时 schema 已在迁移链目标集内，提版忘配迁移段即红）。
+
+    def test_schema_version_is_in_migration_chain(self):
+        """发布身份层复核：运行时 schema 必须是迁移链登记过的目标版本。"""
+        from mimir_v8.migration import MIGRATABLE_TARGET_VERSIONS
+
+        self.assertIn(SCHEMA_VERSION, MIGRATABLE_TARGET_VERSIONS)
 
     def test_pypi_packaging_metadata(self):
         root = Path(__file__).resolve().parent.parent

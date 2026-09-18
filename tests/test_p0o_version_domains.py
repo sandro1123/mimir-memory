@@ -33,8 +33,23 @@ class TestVersionSingleSource(unittest.TestCase):
         self.assertIn(f"## v{MIMIR_VERSION}", text,
                       "CHANGELOG 缺当前版本段——版本发布时五件套之一")
 
-    def test_schema_version_is_20(self):
-        self.assertEqual(SCHEMA_VERSION, 20, "schema 版本意外变更——需迁移链配套")
+    def test_schema_version_has_migration_segment(self):
+        """原意不是「版本号必须等于 20」，而是「版本提了必须配迁移段」。
+
+        旧写法硬编码 20，提版即假红；新写法断言运行时 schema 已在迁移链
+        目标集内，并断言源集覆盖历史全档——守卫加强而非放宽（提版忘记
+        登记迁移目标 / 删掉历史源档，两种都会红）。
+        """
+        from mimir_v8.migration import (MIGRATABLE_SOURCE_VERSIONS,
+                                        MIGRATABLE_TARGET_VERSIONS)
+
+        self.assertIn(SCHEMA_VERSION, MIGRATABLE_TARGET_VERSIONS,
+                      "SCHEMA_VERSION 提了但没在迁移链登记目标版本——迁移段缺失")
+        self.assertTrue(
+            {9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
+            <= MIGRATABLE_SOURCE_VERSIONS,
+            "迁移链源版本集缩水——历史库将无法升级",
+        )
 
 
 if __name__ == "__main__":

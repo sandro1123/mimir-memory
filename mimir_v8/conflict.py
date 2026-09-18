@@ -17,7 +17,8 @@ from typing import Any
 
 from .dedup import jaccard_similarity
 from .schema import PROJECTORS
-from .store import CanonicalStore, new_id, sha256_text, utc_now
+from .store import (CanonicalStore, _lineage_hash_for_new_version, new_id,
+                    sha256_text, utc_now)
 from contextlib import closing
 
 
@@ -231,12 +232,15 @@ class ConflictService:
         connection.execute(
             """INSERT INTO fact_versions(
                 fact_id, version, content_hash, snapshot_json, change_type,
-                change_reason, actor_principal, source_event_id, created_at
-            ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                change_reason, actor_principal, source_event_id, created_at,
+                previous_version_hash
+            ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
             (loser["fact_id"], new_version, loser["content_hash"],
              json.dumps({"status": "disputed", "reason": reason,
                          "previous_status": loser["status"]}),
-             "dispute", reason, actor_principal, new_id(), now),
+             "dispute", reason, actor_principal, new_id(), now,
+             _lineage_hash_for_new_version(connection, loser["fact_id"],
+                                           new_version)),
         )
         # Payload hash must cover the payload itself (immutable event stream
         # invariant — verify_canonical recomputes sha256(payload_json)), and

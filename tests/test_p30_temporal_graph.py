@@ -94,8 +94,10 @@ class TestTemporalRelations(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def test_schema_version_is_20(self):
-        self.assertEqual(SCHEMA_VERSION, 20)
+    def test_tkg_window_columns_are_at_runtime_schema(self):
+        """TKG 时间窗随运行时 schema 在位（原硬编码 20，提版即假红）。"""
+        self.assertGreaterEqual(SCHEMA_VERSION, 20,
+                                "运行时 schema 不得低于 TKG 时间窗引入版")
 
     def test_fresh_db_has_valid_columns(self):
         import contextlib
@@ -257,7 +259,8 @@ class TestMigrationV19ToV20(unittest.TestCase):
                 )
                 connection.commit()
             report = migrate_schema(root / "canonical.db", root / "backup.db")
-            self.assertEqual(report.target_version, 20)
+            # 目标必须是运行时 schema（提版后仍须能升到最新，故不硬编码 20）
+            self.assertEqual(report.target_version, SCHEMA_VERSION)
             with contextlib.closing(store.connect()) as connection:
                 columns = {
                     row[1] for row in connection.execute("PRAGMA table_info(relations)")

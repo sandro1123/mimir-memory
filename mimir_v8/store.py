@@ -55,6 +55,15 @@ def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _lineage_hash_for_new_version(
+    connection: sqlite3.Connection, fact_id: str, version: int
+) -> str:
+    """谱系链值取法（1.1.0）：委托 mimir_v8.lineage，局部导入避免循环依赖。"""
+    from .lineage import lineage_hash_for_new_version
+
+    return lineage_hash_for_new_version(connection, fact_id, version)
+
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_meta (
     key TEXT PRIMARY KEY,
@@ -100,6 +109,7 @@ CREATE TABLE IF NOT EXISTS fact_versions (
     source_event_id TEXT NOT NULL,
     created_at TEXT NOT NULL,
     content_hash TEXT NOT NULL,
+    previous_version_hash TEXT,
     PRIMARY KEY (fact_id, version)
 ) STRICT;
 
@@ -1041,8 +1051,9 @@ class CanonicalStore:
         connection.execute(
             """INSERT INTO fact_versions(
                 fact_id, version, snapshot_json, change_type, change_reason,
-                actor_principal, source_event_id, created_at, content_hash
-            ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                actor_principal, source_event_id, created_at, content_hash,
+                previous_version_hash
+            ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
             (
                 fact_id,
                 1,
@@ -1053,6 +1064,7 @@ class CanonicalStore:
                 event_id,
                 now,
                 content_hash,
+                "",  # genesis：链首无前驱
             ),
         )
 
@@ -1560,8 +1572,9 @@ class CanonicalStore:
         connection.execute(
             """INSERT INTO fact_versions(
                 fact_id, version, snapshot_json, change_type, change_reason,
-                actor_principal, source_event_id, created_at, content_hash
-            ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                actor_principal, source_event_id, created_at, content_hash,
+                previous_version_hash
+            ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
             (
                 fact_id,
                 version,
@@ -1571,7 +1584,8 @@ class CanonicalStore:
                 actor_principal,
                 event_id,
                 now,
-                content_hash,),
+                content_hash,
+                _lineage_hash_for_new_version(connection, fact_id, version)),
         )
         connection.execute(
             """INSERT INTO audit_log(

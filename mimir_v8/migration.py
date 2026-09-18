@@ -113,6 +113,20 @@ V13_ADDITIVE_STATEMENTS = (
 )
 
 
+#: 迁移链可接受的源版本（v9 起）。
+MIGRATABLE_SOURCE_VERSIONS = frozenset(
+    {9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21}
+)
+
+#: 迁移链可产出的目标版本。**刻意写成字面量、不由 SCHEMA_VERSION 派生**：
+#: 提 SCHEMA_VERSION 时若忘记在此登记（即忘了配迁移段），test_p0o 会红。
+#: 派生写法会让守卫自失效——版本提了、迁移没配、测试还绿，正是要防的事
+#: （v14 的 v11/v12 缺口、v15+ 连续缺口都是同一类事故）。
+MIGRATABLE_TARGET_VERSIONS = frozenset(
+    {11, 14, 15, 16, 17, 18, 19, 20, 21}
+)
+
+
 class MigrationError(RuntimeError):
     """Raised when data or schema cannot be migrated without losing meaning."""
 
@@ -509,6 +523,26 @@ def _ensure_relations_window(connection: sqlite3.Connection) -> None:
         )
 
 
+def _ensure_lineage_chain(connection: sqlite3.Connection) -> None:
+    """1.1.0 (schema 21): fact_versions 谱系哈希链列（只加列，不回填）。
+
+    守卫式 ALTER 的理由同 _ensure_relations_window：运行时 DDL 建出的库
+    再下调版本号（测试模拟旧库的标准手法）已带此列，盲 ALTER 会中断整条
+    迁移链。
+
+    **刻意不回填**：fact_versions 有 immutability 触发器（UPDATE 一律
+    ABORT），回填即篡改历史，破坏事件溯源不变量。旧行链值留 NULL，语义
+    是「此链在 1.1.0 之前从未封存」，由 verify 以 unsealed 三态如实披露
+    ——伪造一条看似完好的链，比承认无从验证更危险。
+    Must run inside the caller-owned transaction.
+    """
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(fact_versions)")}
+    if "previous_version_hash" not in columns:
+        connection.execute(
+            "ALTER TABLE fact_versions ADD COLUMN previous_version_hash TEXT"
+        )
+
+
 def migrate_schema(
     database: str | Path,
     backup: str | Path,
@@ -530,7 +564,8 @@ def migrate_schema(
         source_version = _read_schema_version(probe)
     if source_version == SCHEMA_VERSION:
         raise MigrationError("database is already at the runtime schema")
-    if source_version not in {9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19} or SCHEMA_VERSION not in {11, 14, 15, 16, 17, 18, 19, 20}:
+    if (source_version not in MIGRATABLE_SOURCE_VERSIONS
+            or SCHEMA_VERSION not in MIGRATABLE_TARGET_VERSIONS):
         raise MigrationError(
             f"unsupported schema migration: {source_version} -> {SCHEMA_VERSION}"
         )
@@ -602,6 +637,8 @@ def migrate_schema(
         # DDL plus a down-stamped version, the standard test-fixture
         # shape) are left alone.
         _ensure_relations_window(connection)
+        # v21 (1.1.0 谱系哈希链): fact_versions 链式咬合列 + 旧行回填。
+        _ensure_lineage_chain(connection)
         connection.execute(
             "UPDATE schema_meta SET value=? WHERE key='schema_version'",
             (str(SCHEMA_VERSION),),

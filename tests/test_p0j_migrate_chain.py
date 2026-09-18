@@ -78,7 +78,10 @@ class TestMigrateCliChaining(unittest.TestCase):
             version = sqlite3.connect(db).execute(
                 "SELECT value FROM schema_meta WHERE key='schema_version'"
             ).fetchone()[0]
-            self.assertEqual(int(version), 20)
+            # 升到运行时 schema（不硬编码 20——提版后此处应跟随，否则假红）
+            from mimir_v8.schema import SCHEMA_VERSION
+
+            self.assertEqual(int(version), SCHEMA_VERSION)
 
     def test_cli_route_sends_12_to_full_chain(self):
         """CLI 层：source=12 不再分流单腿——直接验证 CLI 输出报表的
