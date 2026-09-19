@@ -28,10 +28,11 @@ class TestFastTrackGate(unittest.TestCase):
         self.assertFalse(gov.GOVERNANCE_AUTO_APPROVE)
 
     def test_disabled_gate_blocks_commit(self):
-        with tempfile.TemporaryDirectory():
-            pass  # store fixture not needed: gate fires before any DB touch
-        store = CanonicalStore(Path(self.id().replace(":", "_") + ".db"))
-        result = fast_track_commit_all(store, None)
+        # 用临时目录+唯一名，避免 CWD 残留旧 schema 库在提版后引爆
+        # _validate_existing_schema（gate 仍在任何 DB 写入前触发，原意不变）。
+        with tempfile.TemporaryDirectory() as tmp:
+            store = CanonicalStore(Path(tmp) / (self.id().replace(":", "_") + ".db"))
+            result = fast_track_commit_all(store, None)
         self.assertEqual(result["committed"], 0)
         self.assertEqual(result["fast_track"], "disabled")
         self.assertIn("AUTO_APPROVE", result["message"])
