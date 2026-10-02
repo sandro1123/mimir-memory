@@ -78,7 +78,18 @@ NOISE_PATTERNS = (
     re.compile(r"^# ✅ 全流程验证", re.IGNORECASE),
 )
 SENSITIVE_PATTERNS = (
-    re.compile(r"api.?key|token|secret|password|sk-|pk-", re.IGNORECASE),
+    # P0-Q 判例「有规则≠规则对」: 裸 token 把「$x/1M tokens / per million
+    # token」等定价计量误标 risk=high，治理在 LLM 评估前短路（10-02 事故
+    # 42 条 human_review 里 20 条是此病）。收窄：token/secret/password 只在
+    # 真凭据形态出现（X= / X: / X-token / Bearer / 访问X）时才拦；
+    # api.?key 保留裸词（极少出现在自然定价文案）。
+    re.compile(
+        r"api.?key|access.?token|auth.?token|refresh.?token|id.?token|session.?token"
+        r"|api.?token|sk-[A-Za-z0-9]{6,}|pk-[A-Za-z0-9]{6,}|bearer\b"
+        r"|token\s*[:=]|token\s*:|token 的|带 token|访问 token"
+        r"|password\s*[:=]|secret\s*[:=]",
+        re.IGNORECASE,
+    ),
     re.compile(r"ssh|private.?key|pem|rsa", re.IGNORECASE),
     re.compile(r"交易|下单|仓位|资金|股票|金额", re.IGNORECASE),
 )
