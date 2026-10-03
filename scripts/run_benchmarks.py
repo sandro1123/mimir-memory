@@ -35,6 +35,7 @@ from mimir_v8.benchmarks_external import (load_json_path, load_locomo,  # noqa: 
 from mimir_v8.eval_suite import (FLOOR_HIT_RATE_3, FLOOR_HIT_RATE_10,  # noqa: E402
                                  GOLDEN_FLOORS, GoldenSetBenchmark,
                                  default_query_fn)
+from mimir_v8.query import MAX_QUERY_LIMIT  # noqa: E402  ← 引擎硬顶单一真相源
 from mimir_v8.schema import (CreateFact, MIMIR_VERSION, SCHEMA_VERSION,  # noqa: E402
                              register_agent)
 from mimir_v8.store import CanonicalStore  # noqa: E402
@@ -57,7 +58,8 @@ def _ingest_sessions(store: CanonicalStore, corpus) -> dict[str, str]:
     return key_to_fact
 
 
-def _local_query_fn(store: CanonicalStore, key_to_fact: dict[str, str]):
+def _local_query_fn(store: CanonicalStore, key_to_fact: dict[str, str],
+                    *, limit: int = 50):
     """FTS-only 本地检索：question → 有序 session_key 列表。"""
     from mimir_v8.projector import FTSProjector, ProjectorRunner
     from mimir_v8.query import QueryKernel, QueryRequest
@@ -76,14 +78,15 @@ def _local_query_fn(store: CanonicalStore, key_to_fact: dict[str, str]):
         # 不收 L1（v12.2.0 层门）——这里 deep 只是把基准与门语义对齐，
         # 金标腿照旧 standard（测量面不同，report.engine 分别标注）
         response = kernel.search(QueryRequest(
-            text=question, principal_id="benchmark", limit=50,
+            text=question, principal_id="benchmark", limit=limit,
             use_vector=False, use_graph=False, depth="deep"))
         return [fact_to_key[r["fact_id"]] for r in response["results"]
                 if r["fact_id"] in fact_to_key]
     return fn
 
 
-def run_corpus(corpus_name: str, path: str, *, top_k=(1, 3, 5, 10)):
+def run_corpus(corpus_name: str, path: str, *,
+                top_k=(1, 3, 5, 10), limit: int = 50):
     raw = load_json_path(path)
     corpus = (load_locomo(raw) if corpus_name == "locomo"
               else load_longmemeval(raw))
@@ -91,9 +94,35 @@ def run_corpus(corpus_name: str, path: str, *, top_k=(1, 3, 5, 10)):
         store = CanonicalStore(Path(tmp) / "bench.db")
         key_to_fact = _ingest_sessions(store, corpus)
         report = run_external_benchmark(corpus,
-                                        _local_query_fn(store, key_to_fact),
+                                        _local_query_fn(store, key_to_fact,
+                                                        limit=limit),
                                         top_k_list=top_k)
     return report
+
+
+def _parse_top_k(value: str) -> tuple[int, ...]:
+    """--top-k 1,3,5,10,20,50 → (1,3,5,10,20,50)。
+
+    宽 K 是刚需不是可选项：1.1.0 首跑 LoCoMo 时 median first_rank=9，
+    默认 K=10 把「召回到了但排在第 10~14 位」全切掉了——同一引擎
+    hit@10=0.46 而 hit@20/50 显著更高。不开这个开关就等于自己遮住上限。
+
+    上界 ``MAX_QUERY_LIMIT`` 取 QueryRequest 的硬顶（100），越过它引擎
+    逐条抛 ValueError——那会让 1977 个案例全变 degraded，报告指标段全 None，
+    白跑一轮。与其在报告里读失败，不如在这里报错。
+    """
+    try:
+        ks = tuple(sorted({int(part) for part in value.split(",") if part.strip()}))
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"--top-k 需为逗号分隔的正整数，收到 {value!r}")
+    if not ks or any(k <= 0 for k in ks):
+        raise argparse.ArgumentTypeError(f"--top-k 需全为正整数，收到 {value!r}")
+    if ks[-1] > MAX_QUERY_LIMIT:
+        raise argparse.ArgumentTypeError(
+            f"--top-k 上界 {ks[-1]} 超过引擎硬顶 {MAX_QUERY_LIMIT}，"
+            f"K 位拿不到结果（引擎会逐条抛错，报告全 None）")
+    return ks
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,7 +134,18 @@ def main(argv: list[str] | None = None) -> int:
                         help="LongMemEval JSON 路径")
     parser.add_argument("--out", default=None,
                         help="报告输出文件（缺省 stdout）")
+    parser.add_argument("--top-k", type=_parse_top_k, default=(1, 3, 5, 10),
+                        help="外部基准计分 K 列表，逗号分隔（默认 1,3,5,10）")
+    parser.add_argument("--limit", type=int, default=50,
+                        help=f"每次检索向引擎要多少条候选（默认 50，"
+                             f"引擎硬顶 {MAX_QUERY_LIMIT}）")
     args = parser.parse_args(argv)
+    if not 1 <= args.limit <= MAX_QUERY_LIMIT:
+        parser.error(f"--limit 必须在 1..{MAX_QUERY_LIMIT}（引擎硬顶）"
+                     f"，收到 {args.limit}")
+    if args.limit < max(args.top_k):
+        parser.error(f"--limit({args.limit}) 必须 >= max(--top-k)={max(args.top_k)}"
+                     "，否则 K 位被候选截断，测的不是引擎能力")
     if not (args.golden or args.locomo or args.longmemeval):
         parser.error("至少要选一条腿：--golden / --locomo / --longmemeval")
 
@@ -126,13 +166,17 @@ def main(argv: list[str] | None = None) -> int:
                        ("longmemeval", args.longmemeval)):
         if not path:
             continue
-        report["results"][name] = run_corpus(name, path)
+        report["results"][name] = run_corpus(name, path,
+                                              top_k=args.top_k,
+                                              limit=args.limit)
     engine = report["results"].get("locomo") or \
         report["results"].get("longmemeval")
     if engine:
         report["engine"] = {"external": "fts-only trigram + RRF "
                                         "(no vector lane)",
-                            "golden": "live /v8/query full lanes"}
+                            "golden": "live /v8/query full lanes",
+                            "external_top_k": list(args.top_k),
+                            "external_candidate_limit": args.limit}
 
     text = json.dumps(report, ensure_ascii=False, sort_keys=True, indent=1)
     if args.out:

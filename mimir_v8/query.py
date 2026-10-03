@@ -109,6 +109,13 @@ INJECTION_SAFE_WRAP = (
 )
 
 
+#: 单次检索返回条目的硬顶。QueryKernel.search 直接按它判越界并抛错——
+#: 命名成常量是为了让外部调用方（跑分脚本、benchmark 工具）能**导入**这个
+#: 真相，而不是各自抄一份字面量然后被引擎逐条打脸。1.1.0 首跑 LoCoMo 时
+#: 传了 limit=120，1977 个案例全变 degraded、指标段全 None，白跑一轮。
+MAX_QUERY_LIMIT = 100
+
+
 class QueryKernel:
     #: RRF channel weights — vector (bge-m3) carries the primary semantic
     #: signal, fts is strong for exact terminology, graph is weakest until
@@ -230,8 +237,9 @@ class QueryKernel:
                 "results": [], "total": 0, "filtered": {"acl": 0, "status": 0},
                 "gate": {"skipped": True, "reason": reason},
             }
-        if not 1 <= request.limit <= 100:
-            raise ValueError("limit must be between 1 and 100")
+        if not 1 <= request.limit <= MAX_QUERY_LIMIT:
+            raise ValueError(
+                f"limit must be between 1 and {MAX_QUERY_LIMIT}")
         if request.depth not in self.DEPTHS:
             raise ValueError(f"depth must be one of {self.DEPTHS}")
         candidate_limit = max(request.limit, min(request.candidate_limit, 500))
