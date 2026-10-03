@@ -6,7 +6,7 @@
 
 内部形态：
     BenchmarkCorpus {benchmark, sessions: [SessionRecord], cases: [Case]}
-    SessionRecord  {session_key, owner, text}
+    SessionRecord  {session_key, owner, text, occurred_at}
     Case           {question, golden_session_keys, group}
 
 计分协议（会话级检索命中率，公开基准同款语义）：
@@ -27,11 +27,12 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Callable, Iterable, Sequence
 
 __all__ = ["SessionRecord", "Case", "BenchmarkCorpus",
            "load_locomo", "load_longmemeval", "run_external_benchmark",
-           "load_json_path"]
+           "load_json_path", "parse_locomo_date"]
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,10 @@ class SessionRecord:
     session_key: str
     owner: str
     text: str
+    # 会话发生时间（ISO-8601 日期）。基准语料原本不读时间字段，时序面
+    # 无数据可读——见 docs/plans/1.2.0-card2-temporal-lane.md §二。
+    # None = 解析不出或源里没有；**不猜**。
+    occurred_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +60,9 @@ class BenchmarkCorpus:
     cases: list[Case] = field(default_factory=list)
     n_skipped_no_evidence: int = 0
     n_samples: int = 0
+    # 解析不出发生时间的 session 数。恒等式：解析成功数 + 本数 == session
+    # 总数（不得有第四种去向）。**解析率本身是结论的一部分**，必须留痕。
+    n_sessions_without_date: int = 0
 
 
 def load_json_path(path: str) -> Any:
@@ -66,6 +74,47 @@ def load_json_path(path: str) -> Any:
 
 _SESSION_RE = re.compile(r"^session_\d+$")
 
+_MONTHS = {m.lower(): i for i, m in enumerate(
+    ("January", "February", "March", "April", "May", "June", "July",
+     "August", "September", "October", "November", "December"), start=1)}
+
+# LoCoMo 的真实时间格式是自然语言：'1:56 pm on 8 May, 2023'。
+# 允许缺时刻（'8 May, 2023'）与纯 ISO（'2023-05-08'）。
+_LOCOMO_DATE_RE = re.compile(
+    r"(?:\d{1,2}:\d{2}\s*(?:[ap]m)\s+on\s+)?"
+    r"(\d{1,2})\s+([A-Za-z]{3,9}),?\s+(\d{4})")
+_ISO_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
+
+
+def parse_locomo_date(raw: Any) -> str | None:
+    """LoCoMo `session_N_date_time` → ISO-8601 日期串；解析不出返回 None。
+
+    **解析不出来就是解析不出来**——本函数绝不猜。猜出来的日期会进排序
+    且没人看得见它被猜了（判例：反向钉 7）。相对表达（"next tuesday"）、
+    缺年份、月份名不认识，一律 None，由调用方计数留痕。
+    """
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    iso = _ISO_DATE_RE.match(text)
+    if iso:
+        try:
+            return date(int(iso[1]), int(iso[2]), int(iso[3])).isoformat()
+        except ValueError:  # 2023-02-30 这类：判非法，不修
+            return None
+    m = _LOCOMO_DATE_RE.search(text)
+    if not m:
+        return None
+    month = _MONTHS.get(m[2].lower())
+    if month is None:  # "8 Foo, 2023"：月份不认识 = 不认识
+        return None
+    try:
+        return date(int(m[3]), month, int(m[1])).isoformat()
+    except ValueError:  # 2 月 30 日：判非法，不修
+        return None
+
 
 def load_locomo(raw: Sequence[dict]) -> BenchmarkCorpus:
     """LOCOMO（快照或包裹形态）→ 统一 corpus。
@@ -74,6 +123,9 @@ def load_locomo(raw: Sequence[dict]) -> BenchmarkCorpus:
     qa.evidence 的 dia_id（"D{n}:m"）映射到 session_{n}——会话级检索
     判定（证据精确到 turn 的粒度 v1 不展开，展开属 deep 面）。
     evidence 为空的 qa（abstention，category 5）剔除计数。
+
+    `session_N_date_time` 是会话发生时间，解析进 `occurred_at`；
+    **解析失败计数留痕，session 照常入库**（丢整批会让检索面静默变窄）。
     """
     if isinstance(raw, dict):  # 兼容 {"data": [...]} 包裹形态
         raw = raw.get("data") or []
@@ -102,10 +154,15 @@ def load_locomo(raw: Sequence[dict]) -> BenchmarkCorpus:
                     if m:
                         keys_by_dia[dia] = (
                             f"locomo:{sample_id}:session_{m.group(1)}")
+            occurred_at = parse_locomo_date(
+                conversation.get(f"{field_name}_date_time"))
+            if occurred_at is None:
+                corpus.n_sessions_without_date += 1
             corpus.sessions.append(SessionRecord(
                 session_key=f"locomo:{sample_id}:{field_name}",
                 owner=str(conversation.get("speaker_a", "")),
-                text="\n".join(lines)))
+                text="\n".join(lines),
+                occurred_at=occurred_at))
         for qa in sample["qa"] or []:
             evidence = qa.get("evidence") or []
             if not evidence:

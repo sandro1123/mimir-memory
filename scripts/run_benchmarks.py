@@ -56,7 +56,13 @@ class BenchmarkLaneUnavailable(RuntimeError):
 
 
 def _ingest_sessions(store: CanonicalStore, corpus) -> dict[str, str]:
-    """SessionRecord → canonical facts（legacy_id=session_key）。返回 key→fact_id。"""
+    """SessionRecord → canonical facts（legacy_id=session_key）。返回 key→fact_id。
+
+    `occurred_at` 落进 `valid_from`（列与写入路径早已存在，零迁移）：
+    时序面没有这条数据就无从读起——见 docs/plans/1.2.0-card2-temporal-lane.md。
+    解析不出日期的 session 照常入库，`valid_from=None`，在
+    `corpus.n_sessions_without_date` 留痕；**不猜日期**。
+    """
     register_agent("benchmark")  # owner 白名单校验：基准写入身份先登记
     key_to_fact: dict[str, str] = {}
     for record in corpus.sessions:
@@ -67,6 +73,7 @@ def _ingest_sessions(store: CanonicalStore, corpus) -> dict[str, str]:
             visibility="all", sensitivity="internal",
             egress_policy="local_only", human_status="confirmed",
             confidence_score=0.5, legacy_id=record.session_key,
+            valid_from=record.occurred_at,
         ), actor_principal="benchmark")
         key_to_fact[record.session_key] = result["fact_id"]
     return key_to_fact
@@ -213,6 +220,15 @@ def run_corpus(corpus_name: str, path: str, *,
         "disabled": list(profile.disabled),
         "unavailable": list(profile.unavailable),
         "degraded": list(profile.degraded),
+    }
+    # 解析率本身是结论的一部分：时序面读到多少数据，先摆出来再谈数字
+    n_sessions = len(corpus.sessions)
+    n_dated = n_sessions - corpus.n_sessions_without_date
+    report["temporal_data"] = {
+        "n_sessions": n_sessions,
+        "n_sessions_with_date": n_dated,
+        "n_sessions_without_date": corpus.n_sessions_without_date,
+        "parse_rate": (n_dated / n_sessions) if n_sessions else None,
     }
     return report
 
