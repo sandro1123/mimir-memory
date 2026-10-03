@@ -204,6 +204,26 @@ LoCoMo 全部 272 条会话日期解析成功。此前 `load_locomo` **从不读
 - **作废**：`SIMILARITY_LANES` 加 temporal、`QueryRequest.use_temporal`、
   `Kernel.temporal_candidates`、B-004 消融腿。相关 TDD 钉已随车道一并撤下。
 
+### 可比性守卫：valid_from 写入不改既有排序（PARITY_OK，2026-10-04）
+
+`occurred_at` 落进 `valid_from` 并非天然无害——`query.py` 的 `_decay_factor(...)`
+与 `_not_yet_effective(valid_from)` **都读这一列**。对照腿（B-002 原参数：
+`--top-k 1,3,5,10,20,50,100 --limit 100`，fts-only）结果：
+
+- 15 项指标（hit/recall@1~100 + mrr）**逐位相同**；
+- 五个类目 h@1/h@10/mrr **逐位相同**；
+- **1965 个案例的 `first_rank` 一条未动**（最硬的一项：排序零挪动）。
+
+**结论**：loader 时间面是纯数据面交付——写入 `valid_from` 后既有 fts 腿的
+数字与 B-002 完全一致，`parse_rate=1.0` 的收益不付任何回归代价。
+
+**对照腿 #1 作废记录**：首腿误用 `--limit 50` + top-k 少 100，
+`hit@1` 因此假动（0.0668→0.0607）。候选池深度不同 = 进排名的 fact 集合
+不同，根本不构成对拍；`hit_rate@100=None` 也是同一根因（K 列表不同）。
+对拍脚本已改为**参数不一致即中止比较**（先对参数再对数字）。
+另：`ps` 瞬时采样把满载进程读成 0.0% CPU，`top` 快照才见 100%——
+判活看 `top`/`TIME+`，别信单次 `ps`。
+
 ### 本轮新增判例
 
 **靶子要量「可寻址条数」，不是量「类目缺口」**：cat2 的 h@10 缺口 0.09 看着像
