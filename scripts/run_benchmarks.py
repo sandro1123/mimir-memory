@@ -3,7 +3,7 @@
 """1.1.0 一键跑分入口（可复现方法论的载体）。
 
     python scripts/run_benchmarks.py --golden \
-        [--locomo PATH] [--longmemeval PATH] [--out report.json]
+        [--locomo PATH] [--longmemeval PATH] [--vector] [--out report.json]
 
 三条腿，各司其职：
 * --golden      打活服务（默认 http://127.0.0.1:8456，MIMIR_EVAL_API 可
@@ -11,11 +11,16 @@
 * --locomo/--longmemeval
                 **一次性本地库**跑公开基准：语料 session → canonical
                 create_fact 写入（session_key 存 legacy_id），QueryKernel
-                挂真 FTSProjector 检索（无向量挡位——方法学如实标注在
-                report.engine）。绝不往生产库灌基准语料。
-* 数据集 JSON 不进仓（许可面），路径自备。
+                挂真 FTSProjector 检索。绝不往生产库灌基准语料。
+* --vector      给外部腿**接上向量道**（离线 bge-m3 + chroma，collection
+                落 TemporaryDirectory）。给了却加载不上 → **非零退出**，
+                绝不悄悄退回 fts-only 出数：换了引擎的数字配着旧描述，
+                比明着失败危险得多（见卡一 SPEC 反向钉 7）。
 
-输出：JSON 报告含 版本/时间/engine 元数据 + 各基准指标 + 逐案例面，
+输出：JSON 报告含 版本/时间/engine 元数据 + 各基准指标 + 逐案例面。
+**engine 段的车道描述取自 QueryKernel.lane_profile().describe()**——
+1.2.0 卡一切掉了原来那句手写的 `"fts-only trigram + RRF (no vector lane)"`：
+它是散文，与引擎行为无绑定，接上向量道后仍会这么写，且永不暴露。
 发布到 README 的数字必须出自这里（可复现=同数据+同码→同数）。
 """
 from __future__ import annotations
@@ -41,6 +46,15 @@ from mimir_v8.schema import (CreateFact, MIMIR_VERSION, SCHEMA_VERSION,  # noqa:
 from mimir_v8.store import CanonicalStore  # noqa: E402
 
 
+class BenchmarkLaneUnavailable(RuntimeError):
+    """请求了向量道但给不了。
+
+    单独一个类型，是为了让 CLI 能**显式**接住它并非零退出，而不是让它混进
+    某一层通用 except 里被吞掉。悄悄退回 fts-only 出数是本卡最坏的结局：
+    报告写着「vector+fts+RRF」，数字其实只经过 fts。
+    """
+
+
 def _ingest_sessions(store: CanonicalStore, corpus) -> dict[str, str]:
     """SessionRecord → canonical facts（legacy_id=session_key）。返回 key→fact_id。"""
     register_agent("benchmark")  # owner 白名单校验：基准写入身份先登记
@@ -59,8 +73,8 @@ def _ingest_sessions(store: CanonicalStore, corpus) -> dict[str, str]:
 
 
 def _local_query_fn(store: CanonicalStore, key_to_fact: dict[str, str],
-                    *, limit: int = 50):
-    """FTS-only 本地检索：question → 有序 session_key 列表。"""
+                    *, limit: int = 50, vector=None, embedder=None):
+    """本地检索：question → 有序 session_key 列表。挡位由 vector 决定。"""
     from mimir_v8.projector import FTSProjector, ProjectorRunner
     from mimir_v8.query import QueryKernel, QueryRequest
 
@@ -70,33 +84,136 @@ def _local_query_fn(store: CanonicalStore, key_to_fact: dict[str, str],
         drained = runner.run_once(limit=200)
         if not drained["processed"] or drained["failed"]:
             break
-    kernel = QueryKernel(store, fts=projector)
+    kernel = QueryKernel(store, fts=projector, vector=vector,
+                         embedder=embedder)
     fact_to_key = {fid: key for key, fid in key_to_fact.items()}
+    profiles: list = []
 
     def fn(question: str) -> list[str]:
         # depth=deep：基准锚是 reference（L1 型），standard 装配层设计性
         # 不收 L1（v12.2.0 层门）——这里 deep 只是把基准与门语义对齐，
         # 金标腿照旧 standard（测量面不同，report.engine 分别标注）
-        response = kernel.search(QueryRequest(
+        request = QueryRequest(
             text=question, principal_id="benchmark", limit=limit,
-            use_vector=False, use_graph=False, depth="deep"))
+            use_vector=vector is not None, use_graph=False, depth="deep")
+        if not profiles:
+            # 首次调用即采样挡位：查询参数恒定，采样一次即可代表全腿。
+            # 放在函数内是为了让「点了 --vector 却因断路器/缺依赖没点亮」
+            # 这类事实在 engine 段里显形，而不是被用户事后从数字里猜。
+            profiles.append(kernel.lane_profile(request))
+        response = kernel.search(request)
         return [fact_to_key[r["fact_id"]] for r in response["results"]
                 if r["fact_id"] in fact_to_key]
+
+    fn.lane_profile = lambda: profiles[0] if profiles else None
     return fn
 
 
+def _build_vector_lane(root: Path, corpus, key_to_fact: dict[str, str]):
+    """离线 bge-m3 + chroma，投影基准语料。**给不了就抛，绝不退回 fts-only。**
+
+    设备实测（2026-10-03）：加载 4.5s、1024 维、0.469 s/条、272 条 ≈ 128s。
+
+    异常一律转成 :class:`BenchmarkLaneUnavailable`——CLI 捕获后非零退出。
+    悄悄退回 fts-only 出数是最坏结局：engine 段会写「vector+fts+RRF」
+    而数字其实只经过 fts，两者来自两套引擎却共用一份报告。
+    """
+    import os
+
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+    try:
+        import chromadb
+        from chromadb.config import Settings
+        from sentence_transformers import SentenceTransformer
+
+        model_name = os.environ.get("MIMIR_V8_MODEL", "BAAI/bge-m3")
+        client = chromadb.PersistentClient(
+            path=str(root / "chroma"),
+            settings=Settings(anonymized_telemetry=False))
+        # staging 前缀：validate_vector_collection_name 认得的非 prod 命名，
+        # 与生产 collection 物理隔离——基准语料绝不进生产向量库。
+        collection = client.get_or_create_collection(
+            name="mimir_v8_bench_shadow",
+            metadata={"hnsw:space": "cosine", "projection": "staging"})
+        model = SentenceTransformer(model_name, device="cpu",
+                                    local_files_only=True)
+    except Exception as exc:  # noqa: BLE001 — 一律归一成「车道不可用」
+        raise BenchmarkLaneUnavailable(
+            f"已请求 --vector 但向量道不可用：{exc!r}") from exc
+
+    texts_by_key = {record.session_key: record.text for record in corpus.sessions}
+    ids, texts, metadatas = [], [], []
+    for key, fact_id in key_to_fact.items():
+        text = texts_by_key.get(key)
+        if not text:
+            continue
+        # 三张表同一次循环里推进：分两次拼时任一条被跳过就会错位，
+        # 而 chroma 的 ids/embeddings/metadatas 长度不齐只在 upsert 时才炸。
+        ids.append(fact_id)
+        texts.append(text)
+        metadatas.append({"session_key": key})
+    if not ids:
+        raise BenchmarkLaneUnavailable(
+            "已请求 --vector 但语料投影为空——向量道将恒空，等于没接")
+    try:
+        embeds = _encode_batches(model, texts)
+        collection.upsert(ids=ids, embeddings=embeds, documents=texts,
+                          metadatas=metadatas)
+    except Exception as exc:  # noqa: BLE001
+        raise BenchmarkLaneUnavailable(
+            f"已请求 --vector 但语料投影失败：{exc!r}") from exc
+    return collection, _embedder_callable(model)
+
+
+def _embedder_callable(model):
+    """把 SentenceTransformer 包成生产同款 LockedEmbedder 语义（归一化 + tolist）。"""
+    import threading
+
+    lock = threading.RLock()
+
+    def embed(text: str):
+        with lock:
+            out = model.encode(text, normalize_embeddings=True)
+        return out.tolist() if hasattr(out, "tolist") else list(out)
+
+    return embed
+
+
+def _encode_batches(model, texts: list[str], batch: int = 16) -> list[list[float]]:
+    """分批编码。一次性 encode 272 条会让内部批处理退化成单条，还容易顶到默认批上限。"""
+    vectors: list[list[float]] = []
+    for start in range(0, len(texts), batch):
+        out = model.encode(texts[start:start + batch], normalize_embeddings=True)
+        if hasattr(out, "tolist"):
+            out = out.tolist()
+        vectors.extend(out)
+    return vectors
+
+
 def run_corpus(corpus_name: str, path: str, *,
-                top_k=(1, 3, 5, 10), limit: int = 50):
+                top_k=(1, 3, 5, 10), limit: int = 50, use_vector: bool = False):
     raw = load_json_path(path)
     corpus = (load_locomo(raw) if corpus_name == "locomo"
               else load_longmemeval(raw))
     with tempfile.TemporaryDirectory() as tmp:
-        store = CanonicalStore(Path(tmp) / "bench.db")
+        tmp = Path(tmp)
+        store = CanonicalStore(tmp / "bench.db")
         key_to_fact = _ingest_sessions(store, corpus)
-        report = run_external_benchmark(corpus,
-                                        _local_query_fn(store, key_to_fact,
-                                                        limit=limit),
-                                        top_k_list=top_k)
+        vector = embedder = None
+        if use_vector:
+            vector, embedder = _build_vector_lane(tmp, corpus, key_to_fact)
+        query_fn = _local_query_fn(store, key_to_fact, limit=limit,
+                                   vector=vector, embedder=embedder)
+        report = run_external_benchmark(corpus, query_fn, top_k_list=top_k)
+        profile = getattr(query_fn, "lane_profile", lambda: None)()
+    report["engine_lanes"] = None if profile is None else {
+        "description": profile.describe(),
+        "active": list(profile.active),
+        "disabled": list(profile.disabled),
+        "unavailable": list(profile.unavailable),
+        "degraded": list(profile.degraded),
+    }
     return report
 
 
@@ -139,6 +256,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=50,
                         help=f"每次检索向引擎要多少条候选（默认 50，"
                              f"引擎硬顶 {MAX_QUERY_LIMIT}）")
+    parser.add_argument("--vector", action="store_true",
+                        help="给外部腿接上向量道（离线 bge-m3 + chroma）。"
+                             "加载不上则非零退出，绝不悄悄退回 fts-only 出数")
     args = parser.parse_args(argv)
     if not 1 <= args.limit <= MAX_QUERY_LIMIT:
         parser.error(f"--limit 必须在 1..{MAX_QUERY_LIMIT}（引擎硬顶）"
@@ -166,17 +286,28 @@ def main(argv: list[str] | None = None) -> int:
                        ("longmemeval", args.longmemeval)):
         if not path:
             continue
-        report["results"][name] = run_corpus(name, path,
-                                              top_k=args.top_k,
-                                              limit=args.limit)
+        # 反向钉 7：--vector 说了要向量道，给不了就在出任何数字**之前**死。
+        # 绝不让它落进通用 except 被吞——吞掉等于出一份「看起来测过」的报告。
+        try:
+            report["results"][name] = run_corpus(
+                name, path, top_k=args.top_k, limit=args.limit,
+                use_vector=args.vector)
+        except BenchmarkLaneUnavailable as exc:
+            parser.exit(2, f"跑分中止（未产出任何数字）：{exc}\n")
     engine = report["results"].get("locomo") or \
         report["results"].get("longmemeval")
     if engine:
-        report["engine"] = {"external": "fts-only trigram + RRF "
-                                        "(no vector lane)",
-                            "golden": "live /v8/query full lanes",
-                            "external_top_k": list(args.top_k),
-                            "external_candidate_limit": args.limit}
+        # engine 段的车道描述**只从 lane_profile 取**：1.2.0 卡一切掉了原来
+        # 手写的 "fts-only trigram + RRF (no vector lane)" 散文——它与引擎
+        # 行为无绑定，接上向量道后仍会照写，且永远不会有人发现。
+        lanes = engine.get("engine_lanes") or {}
+        report["engine"] = {
+            "external": lanes.get("description") or "unknown (no lane profile)",
+            "external_lanes": lanes.get("active", []),
+            "golden": "live /v8/query full lanes",
+            "external_top_k": list(args.top_k),
+            "external_candidate_limit": args.limit,
+        }
 
     text = json.dumps(report, ensure_ascii=False, sort_keys=True, indent=1)
     if args.out:

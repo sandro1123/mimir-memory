@@ -116,6 +116,69 @@ INJECTION_SAFE_WRAP = (
 MAX_QUERY_LIMIT = 100
 
 
+#: 相似度车道全集。新增车道必须登记在这里——LaneProfile 的三分恒等式
+#: （active+disabled+unavailable）以它为全集，加了忘登记 = 车道静默漏出报告。
+SIMILARITY_LANES = ("vector", "fts", "graph")
+
+#: 各车道的接线依赖：QueryKernel 上必须有对应属性才可能点亮。
+#: 由它驱动 LaneProfile 的 unavailable——「请求要但根本没接线」是第三态，
+#: 不能和「请求不要」混成同一个 off，否则报告会谎称「没开这条道」，
+#: 而真相是「要了但给不了」。
+LANE_WIRING = {"vector": ("vector", "embedder"),
+               "fts": ("fts",),
+               "graph": ("graph",)}
+
+
+@dataclass(frozen=True)
+class LaneProfile:
+    """引擎挡位的一等对象：某次检索**实际**有哪些车道可用。
+
+    1.2.0 卡一的病机：挡位此前是「请求字段 × 接线状态」隐式算出来的，
+    而跑分报告里那句 `"fts-only trigram + RRF (no vector lane)"` 是人手写
+    的散文——两边无绑定，接上向量道后报告会继续撒谎且永不暴露。
+
+    挡位必须由引擎算出来、引擎自己序列化。散文会撒谎，算法的输出不会。
+
+    三分互斥且穷尽，恒有::
+
+        len(active) + len(disabled) + len(unavailable) == len(SIMILARITY_LANES)
+
+    ``degraded`` 另立一态：车道**跑过了**但本轮断路器降级。跑过 ≠ 降级 ≠
+    关闭——三态塌成一态，正是「报告说 degraded 读者以为是没这能力」那类
+    静默失真。降级的道仍在 ``active`` 里（它确实参与了候选池）。
+
+    ``anchor`` 不是相似度车道（直查 canonical，不走断路器），故不入三分，
+    只在 :meth:`describe` 里单列。
+    """
+
+    active: tuple[str, ...]
+    disabled: tuple[str, ...]
+    unavailable: tuple[str, ...]
+    degraded: tuple[str, ...]
+    weights: tuple[tuple[str, float], ...]
+    anchor: str = "closed"
+
+    def lanes(self) -> list[str]:
+        """参与本次候选池的车道名（机器可读，供报告与下游对拍）。"""
+        return list(self.active)
+
+    def describe(self) -> str:
+        """一行人类可读描述。**报告里那句车道描述只能从这里取。**"""
+        if not self.active:
+            return "no similarity lane (anchor only)"
+        parts = ["+".join(self.active) + " + RRF"]
+        # B-003 实跑暴露：首版这里写成 f"{primary} + RRF" 而 primary 自身
+        # 已含 " + "，拼出 "vector+fts + RRF  + anchor" 的双空格——描述是
+        # 要给人读和给下游正则匹配的，排版瑕疵会变成对拍时的假差异。
+        parts.append("+ anchor" if self.anchor == "closed" else "(anchor off)")
+        if self.degraded:
+            parts.append(f"[degraded: {','.join(self.degraded)}]")
+        if self.unavailable:
+            parts.append(f"[requested-but-unavailable: "
+                         f"{','.join(self.unavailable)}]")
+        return " ".join(parts)
+
+
 class QueryKernel:
     #: RRF channel weights — vector (bge-m3) carries the primary semantic
     #: signal, fts is strong for exact terminology, graph is weakest until
@@ -216,6 +279,45 @@ class QueryKernel:
         channels["anchor"] = anchor
         channels["layer"] = "closed" if layer else "off"
         return channels
+
+    # ── 1.2.0 卡一：引擎挡位一等化 ───────────────────────────
+    def lane_profile(self, request: QueryRequest) -> LaneProfile:
+        """推导某次请求**实际**点亮的车道。
+
+        唯一推导入口。报告、health、跑分工具的车道描述都必须取自这里——
+        人手写的描述会与实际行为脱节并永久撒谎（卡一病机）。
+
+        三分互斥穷尽：请求不要 → disabled；请求要但依赖没接线 → unavailable；
+        其余 → active。**断路器降级不改变 active**（它确实参与了候选池），
+        降级另记 ``degraded``。
+        """
+        wants = {"vector": request.use_vector,
+                 "fts": request.use_fts,
+                 "graph": request.use_graph}
+        active: list[str] = []
+        disabled: list[str] = []
+        unavailable: list[str] = []
+        for lane in SIMILARITY_LANES:
+            if not wants[lane]:
+                disabled.append(lane)
+                continue
+            if any(getattr(self, attr, None) is None
+                   for attr in LANE_WIRING[lane]):
+                unavailable.append(lane)
+                continue
+            active.append(lane)
+        degraded = tuple(lane for lane in active
+                         if self.breakers[lane].state != "closed")
+        weights = tuple((lane, self.CHANNEL_WEIGHTS[lane])
+                        for lane in active if lane in self.CHANNEL_WEIGHTS)
+        return LaneProfile(
+            active=tuple(active),
+            disabled=tuple(disabled),
+            unavailable=tuple(unavailable),
+            degraded=degraded,
+            weights=weights,
+            anchor="closed" if request.use_anchor else "off",
+        )
 
     def search(self, request: QueryRequest) -> dict:
         query = request.text.strip()
