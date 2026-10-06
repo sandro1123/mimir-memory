@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .learning import ConversationEnvelope, ConversationMessage, LearningService
@@ -117,6 +118,19 @@ class HermesStateCDC:
         for session_id, messages in groups.items():
             first_rowid = int(messages[0]["_rowid"])
             final_rowid = int(messages[-1]["_rowid"])
+            # ③-3 时序采集：从分组内消息的 timestamp 推 session 事件时间。
+            # 源列是 Unix 浮点秒（UTC 语义）；解析不出就留 None——不猜。
+            def _ts_to_iso(raw) -> str | None:
+                if raw is None:
+                    return None
+                try:
+                    return datetime.fromtimestamp(float(raw), tz=timezone.utc).isoformat()
+                except (TypeError, ValueError, OSError):
+                    return None
+
+            _stamps = [s for s in (_ts_to_iso(item["_created"]) for item in messages) if s]
+            started_at = _stamps[0] if _stamps else None
+            ended_at = _stamps[-1] if _stamps else None
             envelope = ConversationEnvelope(
                 connector_type="hermes_cdc",
                 connector_id=self.connector_id,
@@ -138,6 +152,8 @@ class HermesStateCDC:
                 ),
                 metadata={"first_message_rowid": first_rowid, "last_message_rowid": final_rowid},
                 idempotency_key=f"hermes-cdc:{self.connector_id}:{session_id}:{first_rowid}:{final_rowid}",
+                started_at=started_at,
+                ended_at=ended_at,
             )
             if not envelope.messages:
                 continue
