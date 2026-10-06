@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 
+from .dedup import check_duplicate
 from .schema import CreateFact
 from .store import CanonicalStore, ConflictError, NotFoundError, canonical_json, new_id, sha256_text, utc_now
+
+
+logger = logging.getLogger(__name__)
 
 
 class CandidatePolicyError(ValueError):
@@ -115,6 +120,9 @@ class CandidateService:
                 "status": "review_required",
                 "idempotent_replay": True,
                 "extraction_id": payload.get("extraction_id"),
+                # 两处 return 同形态：重放不重跑判重（判重结果不入指纹，
+                # 重跑不保证同值），键在但值恒为 None。
+                "duplicate_hint": None,
             }
         if command.source_id:
             source = connection.execute(
@@ -150,6 +158,27 @@ class CandidateService:
         now = utc_now()
         candidate_id = new_id()
         event_id = new_id()
+        # ③-4 判重接通（观察期）：标记疑似重复，不阻断、不改写。
+        # 判重从未在生产验证过——直接阻断写入是拿生产做实验；异常必须
+        # fail-open（判重是观察件，不是 lineage gate 那种安全件）。
+        # 注意：判重结果绝不进下面的 payload（幂等指纹），否则同一
+        # 幂等键的重放会因判重结果漂移而误报冲突。
+        duplicate_hint = None
+        try:
+            hint = check_duplicate(self.store, validated_fact.content,
+                                   validated_fact.owner_principal)
+            if hint.get("is_duplicate"):
+                duplicate_hint = {
+                    "match_type": hint["match_type"],
+                    "similarity": hint["similarity"],
+                    "matched_fact_id": hint["matched_fact_id"],
+                }
+        except Exception as exc:  # noqa: BLE001 - 观察件 fail-open，绝不阻断写入
+            # 观测件静默失败 = 与「没有重复」不可区分，观察数据会失真——
+            # 必须留 log 痕（但不阻断）。
+            logger.warning("dedup check skipped for candidate write: %s: %s",
+                           type(exc).__name__, exc)
+            duplicate_hint = None
         payload = {
             "candidate_id": candidate_id,
             "status": "review_required",
@@ -181,11 +210,47 @@ class CandidateService:
                 command.supersedes_fact_id, now, now,
             ),
         )
+        if duplicate_hint:
+            # 标记并入 uncertainty_json（追加一条 reason，不改既有内容）
+            # + audit_log 留痕。观察期语义：只标记，候选照常创建。
+            #
+            # 整段裹在 SAVEPOINT 里：写入失败（如 hint 值不可序列化）只回滚
+            # 标记本身，不把候选写入一起拖死——观察件 fail-open 的对象不只是
+            # 「判重调用」，还包括「标记落库」这一步。
+            try:
+                connection.execute("SAVEPOINT dedup_marker")
+                existing = list(command.uncertainty_reasons)
+                existing.append(
+                    f"possible_duplicate:{duplicate_hint['match_type']}:{duplicate_hint['similarity']}")
+                connection.execute(
+                    "UPDATE candidate_facts SET uncertainty_json=? WHERE candidate_id=?",
+                    (canonical_json(existing), candidate_id),
+                )
+                connection.execute(
+                    """INSERT INTO audit_log(
+                        audit_id, occurred_at, actor_principal, action, resource_type,
+                        resource_id, request_id, outcome, detail_json
+                    ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (new_id(), now, actor_principal, "dedup.candidate_check",
+                     "v10", candidate_id, new_id(), "success",
+                     canonical_json({"candidate_id": candidate_id, **duplicate_hint})),
+                )
+                connection.execute("RELEASE dedup_marker")
+            except Exception as exc:  # noqa: BLE001 - 标记失败不得拖死候选写入
+                try:
+                    connection.execute("ROLLBACK TO dedup_marker")
+                    connection.execute("RELEASE dedup_marker")
+                except Exception:  # noqa: BLE001 - SAVEPOINT 都没开成：无残留可回滚
+                    pass
+                logger.warning("dedup marker write failed (candidate kept): %s: %s",
+                               type(exc).__name__, exc)
+                duplicate_hint = None
         return {
             "candidate_id": candidate_id,
             "event_seq": event_seq,
             "status": "review_required",
             "idempotent_replay": False,
+            "duplicate_hint": duplicate_hint,
         }
 
     def review_candidate(self, command: ReviewCandidate, reviewer_principal: str) -> dict:
