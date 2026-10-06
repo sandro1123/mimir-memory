@@ -53,7 +53,7 @@ def _tokenize(text: str) -> set[str]:
 
 
 def _recall_pool(store: CanonicalStore, content: str, owner: str, *,
-                 limit: int = 50) -> list[dict]:
+                 limit: int = 50, allow_full_scan: bool = True) -> list[dict]:
     """Candidate pool for exact dedup: distinctive-token LIKE prefilter.
 
     Uses the longest tokens of the incoming content as recall probes
@@ -88,7 +88,7 @@ def _recall_pool(store: CanonicalStore, content: str, owner: str, *,
                 (owner, f"%{probe}%", limit),
             ).fetchall())
         pool = list(seen.values())[:limit]
-        if not pool:
+        if not pool and allow_full_scan:
             count = connection.execute(
                 "SELECT COUNT(*) FROM facts WHERE status='active' AND owner_principal=?",
                 (owner,),
@@ -115,8 +115,14 @@ def jaccard_similarity(a: str, b: str) -> float:
     return len(intersection) / len(union)
 
 
-def check_duplicate(store: CanonicalStore, content: str, owner: str) -> dict:
+def check_duplicate(store: CanonicalStore, content: str, owner: str, *,
+                    allow_full_scan: bool = True) -> dict:
     """Check if content is a duplicate of an existing active fact or committed candidate.
+
+    ``allow_full_scan=False`` 关闭「probe 落空则全表扫描」的正确性回退：
+    观察期调用方（候选写入热路径）用它在「召回不到」与「扫全表」之间选前者——
+    LIKE '%probe%' 无索引可用，重复内容多时全扫可达数百毫秒，观察件不值得
+    让生产写入等它。默认 True 保持既有语义（独立调用方的正确性优先）。
 
     Returns:
         {
@@ -140,7 +146,8 @@ def check_duplicate(store: CanonicalStore, content: str, owner: str) -> dict:
     # only that pool. Degradation rule: if the pool somehow comes back
     # empty AND the owner has facts, fall back to the full scan —
     # correctness beats performance.
-    pool = _recall_pool(store, content, owner, limit=50)
+    pool = _recall_pool(store, content, owner, limit=50,
+                        allow_full_scan=allow_full_scan)
 
     for row in pool:
         score = jaccard_similarity(content, row["content"])

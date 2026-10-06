@@ -202,6 +202,32 @@ class TestDedupActivation(unittest.TestCase):
         self.assertIn("duplicate_hint", r2, "重放路径也必须有该键（值 None）")
         self.assertIn("duplicate_hint", r1)
 
+    def test_hot_path_disables_full_scan_fallback(self):
+        """热路径必须关全扫——probe 落空即视为无重复，不扫全表。
+
+        实测：全扫在 3000 条重复语料上可达 ~290ms；观察件不值得让
+        生产写入等它。行为钉：内容与库中事实无共同 probe 时，
+        allow_full_scan=False 下不得报告重复（且必须快速返回）。
+        """
+        import time
+        from mimir_v8.dedup import check_duplicate
+        # 造一条与候选**完全无共同长 token** 的事实
+        _seed_fact(self.store, "zzzz yyyy xxxx wwww vvvv uuuu")
+        t0 = time.monotonic()
+        r = check_duplicate(self.store, "aaaa bbbb cccc dddd eeee ffff",
+                            "mentor", allow_full_scan=False)
+        elapsed = time.monotonic() - t0
+        self.assertFalse(r["is_duplicate"], "probe 落空+禁全扫 → 不报重复")
+        self.assertLess(elapsed, 0.1, f"热路径必须快（实测 {elapsed:.3f}s）")
+
+    def test_full_scan_default_still_available(self):
+        """默认仍 True——独立调用方的正确性语义不变。"""
+        import inspect
+        from mimir_v8.dedup import check_duplicate
+        sig = inspect.signature(check_duplicate)
+        self.assertTrue(sig.parameters["allow_full_scan"].default,
+                        "默认必须保持 True（既有语义不变）")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -165,8 +165,12 @@ class CandidateService:
         # 幂等键的重放会因判重结果漂移而误报冲突。
         duplicate_hint = None
         try:
+            # allow_full_scan=False：候选写入是热路径，LIKE '%probe%' 无索引，
+            # 全表回退实测可到 ~290ms（3000 条重复语料）。观察期宁可漏报
+            # （probe 落空即视为无重复）也不让生产写入等它。
             hint = check_duplicate(self.store, validated_fact.content,
-                                   validated_fact.owner_principal)
+                                   validated_fact.owner_principal,
+                                   allow_full_scan=False)
             if hint.get("is_duplicate"):
                 duplicate_hint = {
                     "match_type": hint["match_type"],
