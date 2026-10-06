@@ -409,5 +409,35 @@ class TestReflectionLedger(unittest.TestCase):
         self.assertEqual(r["runs"]["catchup"], 1, "欠账必须可证")
 
 
+
+class TestReflectWorkerWiring(unittest.TestCase):
+    """③-5 Task 2：worker 接线 + 默认关闭闸门。
+
+    「装了定时器 ≠ 该跑 LLM」——默认关闭必须由代码实现，不能靠运维自觉。
+    """
+
+    def test_reflect_subcommand_registered(self):
+        import inspect
+        import mimir_v8.worker as w
+        self.assertIn('sub.add_parser("reflect")', inspect.getsource(w),
+                      "worker 必须有 reflect 子命令")
+
+    def test_reflect_dispatch_guarded_by_env_gate(self):
+        """默认关闭闸门必须在 dispatch 分支里（读到命令就查开关）。"""
+        import inspect
+        import mimir_v8.worker as w
+        src = inspect.getsource(w)
+        self.assertIn("MIMIR_REFLECT_ENABLED", src, "必须有显式开关闸门")
+        self.assertIn('"skipped": True', src, "关闭时必须空转而非静默跑")
+
+    def test_default_env_is_off(self):
+        """未设变量时默认值必须是 "0"（关闭）。"""
+        import inspect
+        import mimir_v8.worker as w
+        src = inspect.getsource(w)
+        self.assertIn('os.environ.get("MIMIR_REFLECT_ENABLED", "0")', src,
+                      '默认值必须是 "0"——装了不等于该跑')
+
+
 if __name__ == "__main__":
     unittest.main()

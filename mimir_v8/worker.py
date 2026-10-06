@@ -110,6 +110,12 @@ def build_parser() -> argparse.ArgumentParser:
     crystallize.add_argument("--min-freq", type=int, default=3)
     crystallize.add_argument("--actor", default=os.environ.get("MIMIR_CRYSTALLIZE_ACTOR", "service:crystallize"))
 
+    # ── ③-5 Reflect: LLM 跨事实提炼 → 走治理管线（默认关闭）────────────
+    reflect = sub.add_parser("reflect")
+    reflect.add_argument("--window-days", type=int, default=None)
+    reflect.add_argument("--max-domains", type=int, default=None)
+    reflect.add_argument("--actor", default=os.environ.get("MIMIR_REFLECT_ACTOR", "service:reflect"))
+
     # ── P0-1 fix: requeue stuck human_review candidates ────────────────
     requeue = sub.add_parser("review-requeue")
     requeue.add_argument("--actor", default=os.environ.get("MIMIR_REQUEUE_ACTOR", "service:maintenance"))
@@ -1025,6 +1031,17 @@ def main(argv=None) -> int:
         )
     elif args.command == "review-requeue":
         result = review_requeue(store, args.actor, dry_run=args.dry_run)
+    elif args.command == "reflect":
+        # ③-5 默认关闭：未显式设 MIMIR_REFLECT_ENABLED=1 时直接空转，
+        # 绝不因为「装了定时器」就开始烧 LLM 调用。
+        if os.environ.get("MIMIR_REFLECT_ENABLED", "0") != "1":
+            result = {"skipped": True, "reason": "reflect disabled (set MIMIR_REFLECT_ENABLED=1)"}
+        else:
+            from .reflect import ReflectionService
+            result = ReflectionService(store).scan(
+                window_days=args.window_days, max_domains=args.max_domains,
+                actor_principal=args.actor,
+            )
     else:
         result = extract_once(store, args.actor, limit=20)
     print(json.dumps(result, ensure_ascii=False, default=str))
