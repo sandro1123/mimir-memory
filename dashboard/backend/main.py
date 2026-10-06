@@ -45,6 +45,25 @@ FRONTEND_DIR = Path(os.environ.get("FRONTEND_DIR", str(Path(__file__).parent.par
 CACHE_TTL = 30  # seconds
 STATIC_DIR = FRONTEND_DIR
 
+# ── PULSE 面板：版本代号单一事实源（2026-10-04）──────────
+# 版本号是活的（/health 报 MIMIR_VERSION），代号必须跟着版本走，不能另立
+# 一个手写常量——否则「版本升了代号没升」会在面板上撒谎。故此处维护
+# 版本→代号的登记表，未登记版本落 fallback 并显式标注，绝不猜。
+CODENAMES = {
+    "1.0.0": "The Trust Baseline · 信任基线",
+    "1.1.0": "Trust & Interop · 信任与互通",
+    "1.2.0": "Entity & Profile · 实体与画像",
+    "1.3.0": "Ecosystem · 生态",
+}
+CODENAME_FALLBACK = "未登记（版本代号表缺此号）"
+
+
+def _codename_for(version: str | None) -> str:
+    """按版本号查代号；未登记版本如实标注，不猜。"""
+    v = (version or "").strip()
+    return CODENAMES.get(v, CODENAME_FALLBACK)
+
+
 # ── 监控水位阈值 (P0-2) ──────────────────────────────
 # 投影器 checkpoint 落后 event head 的事件数水位。
 # 注意：conversation/candidate/opinion/observation 类事件本就不投影，
@@ -281,6 +300,16 @@ def _db_query(query: str, params: tuple = (), database: Path | None = None) -> l
 def _db_query_one(query: str, params: tuple = ()) -> dict | None:
     rows = _db_query(query, params)
     return rows[0] if rows else None
+
+
+def _sql_tuple(values: tuple[str, ...]) -> str:
+    """字面量元组 → SQL IN 列表。
+
+    注意：单元素元组的 repr 是 `('pattern',)` —— 那个尾逗号在 SQL 里是
+    语法错误（`IN ('pattern',)` 直接 near ")" syntax error）。此处的职责
+    就是把值列表渲染成合法的 `('a','b')`，别让 Python 的 repr 决定 SQL。
+    """
+    return "(" + ", ".join(f"'{v}'" for v in values) + ")"
 
 
 # ── API 端点 ──────────────────────────────────────────
@@ -1099,6 +1128,22 @@ async def api_system():
         "SELECT event_type, COUNT(*) as cnt FROM memory_events GROUP BY event_type ORDER BY cnt DESC"
     )
 
+    # 三层存量（PULSE）：分层定义必须与检索内核逐位一致
+    # （mimir_v8/query.py LAYER{1,2,3}_FACT_TYPES）。dashboard 刻意不依赖
+    # mimir_v8，故此处硬编码同一组字符串；两处漂移由测试兜住。
+    layer3 = ("iron_rule", "user_pref", "skill")
+    layer2 = ("pattern",)
+    layer1 = ("event", "project_config", "ephemeral", "learning", "reference")
+    layer_rows = _db_query(
+        "SELECT CASE "
+        f"WHEN fact_type IN {_sql_tuple(layer3)} THEN 'l3' "
+        f"WHEN fact_type IN {_sql_tuple(layer2)} THEN 'l2' "
+        f"WHEN fact_type IN {_sql_tuple(layer1)} THEN 'l1' "
+        "ELSE 'other' END AS layer, COUNT(*) AS cnt "
+        "FROM facts WHERE status='active' GROUP BY layer"
+    )
+    layer_counts = {r["layer"]: r["cnt"] for r in layer_rows}
+
     # 投影器
     projectors = []
     if projectors_data:
@@ -1106,8 +1151,11 @@ async def api_system():
     elif ready:
         projectors = ready.get("projectors", [])
 
+    version = health.get("version") if health else "?"
+
     return {
-        "version": health.get("version") if health else "?",
+        "version": version,
+        "codename": _codename_for(version),
         "schema_version": health.get("schema_version") if health else "?",
         "service": health.get("service") if health else "?",
         "status": health.get("status") if health else "?",
@@ -1119,6 +1167,7 @@ async def api_system():
         "projectors": projectors,
         "db_files": db_files,
         "event_types": {r["event_type"]: r["cnt"] for r in event_types},
+        "layer_counts": layer_counts,
     }
 
 

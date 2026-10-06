@@ -934,6 +934,67 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
     <h1 style="font-size:1.3rem">系统</h1>
     <button class="btn btn-outline btn-sm" @click="loadSystem()">刷新</button>
   </div>
+  <!-- PULSE 健康面板：版本/代号 + 三层存量水位。
+       分层集合与检索内核同源（mimir_v8/query.py LAYER{1,2,3}_FACT_TYPES），
+       后端分类好 l3/l2/l1/other 直接消费——前端不重算分层。 -->
+  <div class="card" style="margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+        <span style="font-size:.8rem;font-weight:600">PULSE</span>
+        <span class="badge badge-gray">三层记忆存量</span>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+        <span style="font-family:var(--serif);font-size:1.05rem;font-weight:600" x-text="'v' + (systemData.version||'?')"></span>
+        <span style="font-size:.74rem;color:var(--muted)" x-text="systemData.codename||''"></span>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px">
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:.72rem;color:var(--muted)">
+          <span>L3 · 铁律/偏好/技能</span>
+          <span style="font-weight:600;color:var(--text)" x-text="(systemData.layer_counts||{}).l3||0"></span>
+        </div>
+        <div class="progress-bar" style="margin-top:5px">
+          <div class="progress-bar-fill" style="background:var(--accent)"
+               :style="'width:' + pulsePct('l3') + '%'"></div>
+        </div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:.72rem;color:var(--muted)">
+          <span>L2 · 结晶模式</span>
+          <span style="font-weight:600;color:var(--text)" x-text="(systemData.layer_counts||{}).l2||0"></span>
+        </div>
+        <div class="progress-bar" style="margin-top:5px">
+          <div class="progress-bar-fill" style="background:var(--blue)"
+               :style="'width:' + pulsePct('l2') + '%'"></div>
+        </div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:.72rem;color:var(--muted)">
+          <span>L1 · 原子事实</span>
+          <span style="font-weight:600;color:var(--text)" x-text="(systemData.layer_counts||{}).l1||0"></span>
+        </div>
+        <div class="progress-bar" style="margin-top:5px">
+          <div class="progress-bar-fill" style="background:var(--green)"
+               :style="'width:' + pulsePct('l1') + '%'"></div>
+        </div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:.72rem;color:var(--muted)">
+          <span>其他（未分层）</span>
+          <span style="font-weight:600" x-text="(systemData.layer_counts||{}).other||0"></span>
+        </div>
+        <div class="progress-bar" style="margin-top:5px">
+          <div class="progress-bar-fill" style="background:var(--muted)"
+               :style="'width:' + pulsePct('other') + '%'"></div>
+        </div>
+      </div>
+    </div>
+    <div style="font-size:.68rem;color:var(--muted);margin-top:10px">
+      存量按 active 事实计数；条宽为各层占最大层的比例（非容量水位）。
+    </div>
+  </div>
+
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
     <div class="card">
       <div style="font-size:.8rem;font-weight:600;margin-bottom:10px">服务信息</div>
@@ -1854,6 +1915,15 @@ function dashboard() {
       const p = this.projData || {};
       if (!p.budget) return 0;
       return Math.min(100, Math.round((p.estimated_tokens||0) / p.budget * 100));
+    },
+
+    // PULSE 存量条宽度：各层相对最大层归一（后端未给总量水位，不假造分母）。
+    // 全零库返回 0 而不是除以零。
+    pulsePct(layer) {
+      const c = this.systemData.layer_counts || {};
+      const max = Math.max(c.l3||0, c.l2||0, c.l1||0, c.other||0);
+      if (!max) return 0;
+      return Math.round((c[layer]||0) / max * 100);
     },
 
     async loadConflicts() {
