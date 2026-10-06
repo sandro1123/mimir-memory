@@ -2,12 +2,16 @@
 """RECALL funnel trace — Task 1 (Part A): RecallStage / RecallTrace value objects.
 Task 2 (Part B): search() instrumentation — six stages, trace only when
 include_trace=True.
+Task 3 (Part C): POST /v8/query?trace=true — API-level opt-in, default
+response shape byte-identical to before.
 
 TDD RED -> GREEN. Per-stage verdict vocabulary locked to
 found|not_found|degraded (spec section 5-2).
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import sys
 import tempfile
 import unittest
@@ -15,6 +19,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from fastapi.testclient import TestClient
+
+from mimir_v8.api import ServiceContext, create_app
+from mimir_v8.auth import TokenStore
+from mimir_v8.knowledge import FeedbackLoop, KnowledgeService, UnifiedSearch
 from mimir_v8.query import QueryKernel, QueryRequest
 from mimir_v8.schema import CreateFact
 from mimir_v8.store import CanonicalStore
@@ -155,6 +164,100 @@ class RecallFunnelTracePartBTest(unittest.TestCase):
         self.assertTrue(t["skipped"])
         self.assertEqual(t["stages"][0]["stage"], "RelevanceGate")
         self.assertEqual(t["stages"][0]["verdict"], "not_found")
+
+
+class _ApiFixture:
+    """Task 3 API fixture — client/auth 构造克隆自 test_r7_api.R7APIFixture。
+
+    额外种入一条 mentor 可读的事实，保证召回 verdict=found。
+    """
+
+    QUERY_TEXT = "生产库 API 写入 铁律"
+
+    def __init__(self, root: Path):
+        self.store = CanonicalStore(root / "canonical.db")
+        self.query = QueryKernel(self.store)
+        self.knowledge = KnowledgeService(self.store)
+        self.unified = UnifiedSearch(
+            self.query, self.knowledge, enabled_layers=("memory", "learning")
+        )
+        self.feedback = FeedbackLoop(self.store, self.knowledge)
+        self.tokens = {"mentor": "funnel-api-mentor-token"}
+        token_path = root / "tokens.json"
+        token_path.write_text(
+            json.dumps({
+                "principals": [
+                    {
+                        "id": "mentor",
+                        "token_sha256": hashlib.sha256(
+                            self.tokens["mentor"].encode("utf-8")
+                        ).hexdigest(),
+                        "scopes": ["read", "write", "ingest"],
+                        "roles": [],
+                        "admin": False,
+                    }
+                ]
+            }),
+            encoding="utf-8",
+        )
+        context = ServiceContext(
+            store=self.store,
+            token_store=TokenStore(token_path),
+            query=self.query,
+            knowledge=self.knowledge,
+            unified_search=self.unified,
+            feedback_loop=self.feedback,
+        )
+        self.client = TestClient(create_app(context), raise_server_exceptions=False)
+        _seed(self.store, "生产库只允许经 API 写入", fact_type="iron_rule")
+
+    def headers(self, principal="mentor"):
+        return {"Authorization": f"Bearer {self.tokens[principal]}"}
+
+
+class RecallTraceApiPartCTest(unittest.TestCase):
+    """Task 3: POST /v8/query?trace=true — 漏斗 trace API 级 opt-in。"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.fixture = _ApiFixture(Path(self._tmp.name))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _query_body(self):
+        return {"text": _ApiFixture.QUERY_TEXT, "limit": 5}
+
+    def test_query_trace_param_returns_trace(self):
+        r = self.fixture.client.post(
+            "/v8/query?trace=true",
+            json=self._query_body(),
+            headers=self.fixture.headers(),
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertIn("recall_trace", body)
+        self.assertEqual(body["recall_trace"]["verdict"], "found")
+        self.assertEqual(body["recall_trace"]["verdict"],
+                         body["recall_verdict"])
+
+    def test_query_without_trace_param_unchanged(self):
+        r = self.fixture.client.post(
+            "/v8/query",
+            json=self._query_body(),
+            headers=self.fixture.headers(),
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn("recall_trace", r.json())
+
+    def test_query_trace_false_param_unchanged(self):
+        r = self.fixture.client.post(
+            "/v8/query?trace=false",
+            json=self._query_body(),
+            headers=self.fixture.headers(),
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn("recall_trace", r.json())
 
 
 if __name__ == "__main__":

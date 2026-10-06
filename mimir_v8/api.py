@@ -718,7 +718,8 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                 break
         return visible
 
-    def execute_query(body: QueryBody, identity: Principal) -> dict:
+    def execute_query(body: QueryBody, identity: Principal,
+                      *, include_trace: bool = False) -> dict:
         if body.depth not in ("standard", "deep"):
             raise HTTPException(422, "depth must be one of ('standard', 'deep')")
         if body.owner_principal and not identity.can_act_as(body.owner_principal):
@@ -741,6 +742,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             include_provisional=body.include_provisional,
             use_anchor=body.use_anchor,
             depth=body.depth,
+            include_trace=include_trace,
         ))
         try:
             context.store.write_audit(
@@ -904,8 +906,9 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         return {"projectors": projector_status(), "event_head": context.store.event_head()}
 
     @app.post("/v8/query")
-    def query_v8(body: QueryBody, identity: Principal = Depends(scoped("read"))):
-        return execute_query(body, identity)
+    def query_v8(body: QueryBody, identity: Principal = Depends(scoped("read")),
+                 trace: bool = Query(default=False)):
+        return execute_query(body, identity, include_trace=trace)
 
     @app.get("/v8/memories/recent")
     def memories_recent(
