@@ -128,9 +128,17 @@ class HermesStateCDC:
                 except (TypeError, ValueError, OSError):
                     return None
 
-            _stamps = [s for s in (_ts_to_iso(item["_created"]) for item in messages) if s]
-            started_at = _stamps[0] if _stamps else None
-            ended_at = _stamps[-1] if _stamps else None
+            def _finite(value: float) -> bool:
+                """NaN/±inf 会被 min/max 传播成垃圾时间——必须挡在门外。"""
+                return value == value and value not in (float("inf"), float("-inf"))
+
+            # 取 min/max 而非首尾：分组顺序按 rowid，时间戳未必单调——
+            # 首尾会把乱序会话的 started_at 报成非最早（名不副实）。
+            _raw_stamps = [float(item["_created"]) for item in messages
+                           if item["_created"] is not None]
+            _raw_stamps = [v for v in _raw_stamps if _finite(v)]
+            started_at = _ts_to_iso(min(_raw_stamps)) if _raw_stamps else None
+            ended_at = _ts_to_iso(max(_raw_stamps)) if _raw_stamps else None
             envelope = ConversationEnvelope(
                 connector_type="hermes_cdc",
                 connector_id=self.connector_id,

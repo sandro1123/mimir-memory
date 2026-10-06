@@ -82,3 +82,36 @@ class TestCdcTemporalCapture(unittest.TestCase):
             self.assertIsNotNone(row)
             self.assertIsNone(row[0], "无时间戳必须留 NULL——解析不了绝不猜")
             self.assertIsNone(row[1])
+
+    def test_out_of_order_timestamps_use_min_max_not_row_order(self):
+        """乱序消息：started_at 必须是真最早，不得取分组首条（名不副实）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state.db"
+            # rowid 顺序：晚(21:30) → 早(17:30) → 中(19:00)
+            self._make_state_db(state, [
+                ("s3", "user", "晚发的消息", 1791322219.16407),   # 21:30
+                ("s3", "user", "早的消息", 1791307819.16407),     # 17:30
+                ("s3", "user", "中间的消息", 1791315600.0),       # 19:00
+            ])
+            store = CanonicalStore(Path(tmp) / "canonical.db")
+            _run(_cdc(store, state, "test3"))
+            with contextlib.closing(sqlite3.connect(Path(tmp) / "canonical.db")) as c:
+                row = c.execute("SELECT started_at, ended_at FROM conversation_sources").fetchone()
+            self.assertIn("17:30", row[0], "started_at 必须是真最早（取 min）")
+            self.assertIn("21:30", row[1], "ended_at 必须是真最晚（取 max）")
+
+    def test_nan_timestamp_does_not_poison_session_time(self):
+        """NaN 会被 min/max 传播成垃圾——必须挡在门外，其余有效值照常。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state.db"
+            self._make_state_db(state, [
+                ("s4", "user", "正常消息", 1791307819.16407),
+                ("s4", "user", "坏时间戳", float("nan")),
+            ])
+            store = CanonicalStore(Path(tmp) / "canonical.db")
+            _run(_cdc(store, state, "test4"))
+            with contextlib.closing(sqlite3.connect(Path(tmp) / "canonical.db")) as c:
+                row = c.execute("SELECT started_at, ended_at FROM conversation_sources").fetchone()
+            self.assertIsNotNone(row[0], "有效时间戳必须仍被采用")
+            self.assertIn("17:30", row[0], "NaN 不得污染——取有效值")
+            self.assertNotIn("nan", str(row[0]).lower())
