@@ -94,6 +94,9 @@ class QueryRequest:
     #: evidence-grade tracebacks. L0 conversations are never assembled by
     #: retrieval — they are reached only via explicit trace endpoints.
     depth: str = "standard"
+    #: 1.3.0 ③-1 RECALL funnel: attach per-stage trace to the response.
+    #: Default off (perf) — API exposes via ?trace=true.
+    include_trace: bool = False
 
 
 # ── 1.0-C3 出口包裹（The Trust Baseline）────────────────────────
@@ -320,12 +323,29 @@ class QueryKernel:
         )
 
     def search(self, request: QueryRequest) -> dict:
+        from .recall_trace import RecallStage, RecallTrace
+        _t0 = time.monotonic() if request.include_trace else 0.0
+        _stages: list = []
+
+        def _stage(name: str, verdict: str, hits: int, detail: dict | None = None) -> None:
+            _stages.append(RecallStage(
+                name=name, verdict=verdict, hits=hits,
+                elapsed_ms=round((time.monotonic() - _t0) * 1000, 2),
+                detail=detail or {}))
+
         query = request.text.strip()
         if not query:
-            return {
+            base = {
                 "results": [], "total": 0, "filtered": {"acl": 0, "status": 0},
                 "gate": {"skipped": True, "reason": "empty query"},
             }
+            if request.include_trace:
+                base["recall_trace"] = RecallTrace(
+                    skipped=True, verdict="not_found", degraded=False,
+                    lanes={}, stages=[RecallStage(
+                        name="RelevanceGate", verdict="not_found", hits=0,
+                        elapsed_ms=0.0, detail={"reason": "empty query"})]).to_dict()
+            return base
         should_search = True
         reason = ""
         try:
@@ -335,10 +355,17 @@ class QueryKernel:
             should_search = True
             reason = "gate-error-fallback"
         if not should_search:
-            return {
+            base = {
                 "results": [], "total": 0, "filtered": {"acl": 0, "status": 0},
                 "gate": {"skipped": True, "reason": reason},
             }
+            if request.include_trace:
+                base["recall_trace"] = RecallTrace(
+                    skipped=True, verdict="not_found", degraded=False,
+                    lanes={}, stages=[RecallStage(
+                        name="RelevanceGate", verdict="not_found", hits=0,
+                        elapsed_ms=0.0, detail={"reason": reason})]).to_dict()
+            return base
         if not 1 <= request.limit <= MAX_QUERY_LIMIT:
             raise ValueError(
                 f"limit must be between 1 and {MAX_QUERY_LIMIT}")
@@ -395,6 +422,23 @@ class QueryKernel:
             sweep_ids = self._layer_sweep_ids(request, ranked, sweep_types, sweep_budget)
             sweep_injected = len(sweep_ids)
             self._add_ranked(ranked, "layer", sweep_ids)
+
+        if request.include_trace:
+            _pool_degraded = any(s == "degraded" or s == "open"
+                                 for s in channel_states.values())
+            _stage("RelevanceGate",
+                   "degraded" if reason == "gate-error-fallback" else "found",
+                   1, {"reason": reason})
+            _stage("CandidatePool",
+                   "degraded" if _pool_degraded
+                   else ("found" if ranked else "not_found"),
+                   len(ranked), {"channels": dict(channel_states)})
+            _stage("AnchorChannel",
+                   "found" if anchor_injected else "not_found",
+                   anchor_injected)
+            _stage("LayerSweep",
+                   "found" if sweep_injected else "not_found",
+                   sweep_injected, {"depth": request.depth})
 
         results = []
         filtered = {"acl": 0, "status": 0, "missing": 0, "layer": 0}
@@ -488,10 +532,19 @@ class QueryKernel:
         # P0-A：诚实判语一词定论，与 degraded 布尔同源但语义更细
         verdict = self._recall_verdict(degraded, len(results[: request.limit]))
         # 1.0-C2：每结果挂 evidence 引文 + verbatim_overlap 标
+        # 1.0-C2：每结果挂 evidence 引文 + verbatim_overlap 标
         top_results = results[: request.limit]
         for r in top_results:
             r["evidence"] = self._evidence_for(r["fact_id"], top_n=2)
             r["verbatim_overlap"] = _verbatim_overlap(query, r.get("content", ""))
+        if request.include_trace:
+            _stage("HydrationFilter",
+                   "degraded" if degraded
+                   else ("found" if results else "not_found"),
+                   len(results), {"filtered": dict(filtered)})
+            _stage("TopK",
+                   "found" if top_results else "not_found",
+                   len(top_results), {"limit": request.limit})
         # 1.0-C3：出口包裹官方模板
         return {
             "query": query,
@@ -510,6 +563,10 @@ class QueryKernel:
             },
             "channels": channels,
             "degraded": degraded,
+            **({"recall_trace": RecallTrace(
+                skipped=False, verdict=verdict, degraded=degraded,
+                lanes={"profile": self.lane_profile(request).describe()},
+                stages=_stages).to_dict()} if request.include_trace else {}),
             "anchor": {"injected": anchor_injected},
             "layers": {"injected": sweep_injected,
                        "l1_dropped": filtered["layer"],
