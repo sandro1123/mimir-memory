@@ -1182,6 +1182,32 @@ async def api_search_trace(body: dict):
         return {"status": "error", "error": str(e)}
 
 
+@app.post("/api/query/trace")
+async def api_query_trace(body: dict):
+    """③-1 RECALL 漏斗（代理 POST /v8/query?trace=true）。
+
+    与 /api/search/trace 并列而非替换：旧通道供今天页「问我的助手」，
+    新通道供「检索洞察」漏斗面板，消费六阶段 + 每步 verdict。
+    """
+    text = (body or {}).get("text", "")
+    if not text:
+        return {"status": "error", "error": "text required"}
+    limit = int((body or {}).get("limit", 10))
+    token = _get_admin_token()
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload = {"text": text, "limit": limit, "candidate_limit": 50}
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                f"{MIMIR_API}/v8/query?trace=true", headers=headers, json=payload,
+            )
+            if resp.status_code in (200, 201):
+                return resp.json()
+            return {"status": "error", "error": f"API: {resp.text[:300]}"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 @app.get("/api/quality")
 @_cached("quality")
 async def api_quality():

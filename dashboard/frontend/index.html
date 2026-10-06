@@ -1092,43 +1092,47 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
   <div class="card" style="margin-bottom:12px;padding:16px">
     <div style="font-size:.85rem;font-weight:600;margin-bottom:10px">召回漏斗 Trace</div>
     <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-      <input x-model="traceQuery" placeholder="输入检索词，观测五阶段漏斗..." style="flex:1;min-width:220px">
-      <select x-model="traceThreshold" style="width:110px">
-        <option value="0.3">去重阈值 0.3</option>
-        <option value="0.5">去重阈值 0.5</option>
-        <option value="0.6">去重阈值 0.6</option>
-        <option value="0.8">去重阈值 0.8</option>
-      </select>
+      <input x-model="traceQuery" placeholder="输入检索词，观测六阶段漏斗与每步判语..." style="flex:1;min-width:220px">
       <button class="btn btn-primary btn-sm" @click="runTrace()" :disabled="traceBusy" x-text="traceBusy?'追踪中...':'开始追踪'"></button>
     </div>
     <div x-show="traceErr" style="font-size:.75rem;color:var(--red);margin-bottom:8px" x-text="traceErr"></div>
 
-    <div x-show="traceData.stages && traceData.stages.length" style="display:flex;flex-direction:column;gap:8px">
-      <template x-for="(s,idx) in traceData.stages" :key="s.stage">
+    <!-- 总判语：与各阶段同源（/v8/query?trace=true 的 recall_verdict + recall_trace）。
+         degraded 必须与 not_found 分开显示，绝不允许只报命中数。 -->
+    <div x-show="traceData.recall_verdict" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:.78rem">
+      <span class="badge"
+            :class="((traceData.recall_trace && traceData.recall_trace.degraded) || traceData.degraded) ? 'badge-red' : (traceData.recall_verdict==='found'?'badge-green':'badge-gray')"
+            x-text="'总判语: ' + traceData.recall_verdict + ((((traceData.recall_trace && traceData.recall_trace.degraded) || traceData.degraded)) ? '（降级运行）' : '')"></span>
+      <span class="badge badge-red" x-show="traceData.recall_trace && traceData.recall_trace.skipped">未执行（查询为空）</span>
+      <span style="color:var(--muted)" x-show="traceData.recall_trace && traceData.recall_trace.lanes && traceData.recall_trace.lanes.profile"
+            x-text="'车道: ' + (traceData.recall_trace && traceData.recall_trace.lanes ? traceData.recall_trace.lanes.profile : '')"></span>
+    </div>
+
+    <!-- 阶段列表在 recall_trace.stages（v8/query?trace=true 嵌套结构），非顶层 -->
+    <div x-show="traceData.recall_trace && traceData.recall_trace.stages && traceData.recall_trace.stages.length" style="display:flex;flex-direction:column;gap:8px">
+      <template x-for="(s,idx) in (traceData.recall_trace ? traceData.recall_trace.stages : [])" :key="s.stage">
         <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
             <div style="display:flex;align-items:center;gap:8px">
-              <span class="badge" :class="s.hit>0?'badge-green':'badge-red'" x-text="idx+1 + '. ' + s.stage"></span>
+              <span class="badge badge-gray" x-text="idx+1 + '. ' + s.stage"></span>
+              <span class="badge"
+                    :class="s.verdict==='degraded'?'badge-red':(s.verdict==='found'?'badge-green':'badge-gray')"
+                    x-text="s.verdict"></span>
               <span style="font-size:.75rem;color:var(--muted)" x-text="s.elapsed_ms + 'ms'"></span>
             </div>
             <div style="font-size:.8rem">
-              <span style="color:var(--green);font-weight:600" x-text="s.hit"></span>
-              <span style="color:var(--muted)"> / </span>
-              <span x-text="s.total"></span>
-              <span style="color:var(--red);font-size:.7rem" x-show="s.dropped>0" x-text="' （丢弃 ' + s.dropped + '）'"></span>
+              <span style="color:var(--muted)">命中 </span>
+              <span style="font-weight:600"
+                    :style="'color:' + (s.verdict==='degraded'?'var(--red)':(s.verdict==='found'?'var(--green)':'var(--muted)'))"
+                    x-text="s.hits"></span>
             </div>
           </div>
-          <div style="height:6px;background:var(--card2);border-radius:3px;margin-top:8px;overflow:hidden">
-            <div style="height:100%;border-radius:3px"
-                 :style="'width:' + (s.total? Math.round(s.hit/s.total*100):0) + '%;background:' + (s.hit>0?'var(--green)':'var(--red)')"></div>
-          </div>
           <div style="margin-top:6px;font-size:.7rem;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap">
-            <span x-show="s.reason" x-text="'理由: ' + s.reason"></span>
-            <span x-show="s.threshold" x-text="'阈值: ' + s.threshold"></span>
-            <span x-show="s.avg_decay_factor" x-text="'平均衰减: ' + s.avg_decay_factor"></span>
-            <span x-show="s.expired" x-text="'已过期: ' + s.expired"></span>
-            <span x-show="s.k" x-text="'Top-K: ' + s.k"></span>
-            <span x-show="s.channels" x-text="'通道: ' + Object.keys(s.channels).join(', ')"></span>
+            <span x-show="s.detail && s.detail.reason" x-text="'理由: ' + s.detail.reason"></span>
+            <span x-show="s.detail && s.detail.limit" x-text="'limit: ' + s.detail.limit"></span>
+            <span x-show="s.detail && s.detail.depth" x-text="'深度: ' + s.detail.depth"></span>
+            <span x-show="s.detail && s.detail.channels" x-text="'通道: ' + Object.keys(s.detail.channels).join(', ')"></span>
+            <span x-show="s.detail && s.detail.filtered" x-text="'滤除: ' + JSON.stringify(s.detail.filtered)"></span>
           </div>
         </div>
       </template>
@@ -1139,9 +1143,10 @@ aside{position:fixed;left:0;top:0;bottom:0;width:172px;background:var(--card);bo
           <div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:.78rem">
             <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="r.content"></div>
             <div style="display:flex;gap:8px;flex-shrink:0">
-              <span x-show="r.decay_factor<1" class="badge badge-yellow" x-text="'衰减 ' + r.decay_factor"></span>
-              <span x-show="r.not_yet_effective" class="badge badge-blue">未生效</span>
-              <span style="color:var(--muted);font-family:monospace;font-size:.7rem" x-text="r.score.toFixed(4)"></span>
+              <span x-show="r.score_explanation && r.score_explanation.decay_factor<1" class="badge badge-yellow"
+                    x-text="'衰减 ' + (r.score_explanation ? r.score_explanation.decay_factor : '')"></span>
+              <span x-show="r.score_explanation && r.score_explanation.not_yet_effective" class="badge badge-blue">未生效</span>
+              <span style="color:var(--muted);font-family:monospace;font-size:.7rem" x-text="typeof r.score==='number' ? r.score.toFixed(4) : r.score"></span>
             </div>
           </div>
         </template>
@@ -1601,7 +1606,6 @@ function dashboard() {
     projErr: '',
     projData: {},
     traceQuery: '',
-    traceThreshold: '0.8',
     traceBusy: false,
     traceErr: '',
     traceData: {},
@@ -1920,14 +1924,17 @@ function dashboard() {
     },
 
     async runTrace() {
+      // ③-2：漏斗面板改走新通道 /api/query/trace（核心 POST /v8/query?trace=true，
+      // 六阶段 + 每步 verdict）。旧通道 /api/search/trace 仍供「问我的助手」，
+      // 两处互不影响；新通道无 dedup_threshold 参数。
       if (!this.traceQuery.trim()) { this.traceErr = '请输入检索词'; return; }
       this.traceBusy = true;
       this.traceErr = '';
       try {
-        const d = await this.fetchJSON('/api/search/trace', {
+        const d = await this.fetchJSON('/api/query/trace', {
           method:'POST',
           headers: this.authHeaders({'Content-Type':'application/json'}),
-          body: JSON.stringify({text:this.traceQuery.trim(), limit:10, dedup_threshold:parseFloat(this.traceThreshold)}),
+          body: JSON.stringify({text:this.traceQuery.trim(), limit:10}),
         });
         if (d && d.status==='error') this.traceErr = d.error || '追踪失败';
         else this.traceData = d || {};
