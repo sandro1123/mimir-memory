@@ -6,6 +6,93 @@
 
 ---
 
+## v1.3.0 — 2026-10-08 · Ecosystem · 生态（吸纳 aiduMEI 首批）
+
+> 对标 aiduMEI f0.3+ 后的第一批吸纳（设计见
+> `docs/superpowers/specs/2026-10-04-mimir-aidumei-adoption-design.md`）。
+> 路线裁定：**守住护城河（治理/账本/联邦/诚实遥测），只吸纳"看得见"与
+> "变聪明"两类**——不做 aiduMEI 复刻。五件全落，n100 权威 **741 passed / 0 failed**。
+>
+> **本版三件在动工前经实测定型，spec 原文范围被推翻**（「先量后写」纪律）：
+> ③-3 的"双时间轴缺失"实为 v12 已有、只缺采集层；③-4 的"需 LLM 判重"
+> 实为重复率仅 0.5%、治理管线已在拦；③-5 的"落库成一等公民"改为进候选队列。
+> 三处合计省下约 5 倍工作量，且避免了两处重装备误判。
+
+- **③-1 RECALL 召回漏斗** — `POST /v8/query?trace=true` 返回六阶段 trace
+  （RelevanceGate → CandidatePool → AnchorChannel → LayerSweep →
+  HydrationFilter → TopK），**每阶段带诚实判语** found|not_found|degraded。
+  默认不返（性能零影响）。与 aiduMEI 漏斗的关键差异：它只给命中数，
+  Mímir 每步给判语——"没查到"与"通道坏了"永不混淆。新模块
+  `recall_trace.py`（`RecallStage`/`RecallTrace` frozen dataclass，词表
+  在 `__post_init__` 强校验）。
+- **③-2 控制台升级** — dashboard 新增窄代理 `POST /api/query/trace`；
+  「检索洞察 → 召回漏斗」面板切到新通道并渲染 verdict 徽章（degraded
+  标红）。「系统」tab 增 PULSE 卡：版本 + 代号（登记表驱动，未登记不猜）
+  + 三层存量条（L3 铁律/偏好/技能 · L2 结晶模式 · L1 原子事实）。
+  旧 `/api/search/trace` 保留（今天页「问我的助手」在用）。**顺带修掉
+  一处既存缺口**：`mimir-dashboard.service` 缺 `MIMIR_DATA_DIR`，导致
+  `_db_query` 静默返回空、PULSE/overview/quality 多个面板长期无数据。
+- **③-3 时序采集补齐** — Hermes CDC 此前从不填 session 事件时间
+  （生产实测 `conversation_sources.started_at` **0/7270**），使 v12 就
+  已完整的 Chronos 检索逻辑（过期降权 50% / 未生效排后 / L0_never
+  永不过期）空转。修：从已取到的消息时间戳推 session 起止（取 min/max
+  而非首尾——分组顺序按 rowid，时间戳未必单调；NaN/±inf 挡在门外），
+  解析不出留 NULL——**不猜**。检索侧与写入侧零改动。**已生产验证**：
+  `started_at` 7/7287，样例含真实时间窗口。
+- **③-4 判重接通（观察期）** — `dedup.py:check_duplicate` 实现完整但
+  **全项目零调用**。接通为观察件：命中即标进 `uncertainty_json` +
+  `audit_log` 留痕，**不阻断、不改写**。判重异常 fail-open（观察件不是
+  安全件）；幂等指纹不含判重结果（否则重放会漂移）。热路径加
+  `allow_full_scan=False`——LIKE 预筛在 3000 条重复语料上全表回退实测
+  289.6ms，观察件不值得让生产写入等它。**实测靶子**：重复率 ≈0.5%
+  （360 抽样 2 对），故不做 LLM 语义判重。
+- **③-5 Reflect 主动反思** — 新模块 `mimir_v8/reflect.py`：按 domain
+  聚类 active facts → 复用 `governance._call_llm` 提炼跨事实的模式/
+  矛盾/知识缺口 → 每条洞察经 `CandidateService.create_candidate` **进
+  候选队列**（绝不直写 facts——LLM 只能建议不能 commit）。账本
+  `reflect_runs` 照抄 crystallize 的 `_open_run`/`_close_run`（含
+  catchup 断供探测 + closing 直写降级显式 commit）。**默认关闭**：
+  `MIMIR_REFLECT_ENABLED=0`，装了定时器 ≠ 该跑 LLM；开启后 ≤6 次
+  LLM/轮（按 domain），6h 一轮。
+
+**判例沉淀**：①**spec 写范围前必须先量现状**（三件中三件被实测修正）
+②**「半张交付」要查交付到哪**（卡二 loader"已完工"属实，但它在
+`benchmarks_external.py` 基准模块，从未接入生产链路）③**docstring
+声称 ≠ 实现**（`_env_int` 写着"畸形配置响亮报错（铁律#12）"，代码却
+`return default` 静默取默认——自相矛盾的代码会骗过 reviewer）
+④**探测先于断言**（HTML 源字符串测试抓不到 `traceData.stages` vs
+`recall_trace.stages` 的嵌套 shape 错——面板会静默空白而测试全绿；
+真载荷契约测试 + 显式反向钉才守得住）。
+
+---
+
+## v1.2.0 — 2026-10-04 · Entity & Profile · 实体与画像（部分）
+
+> 1.2.0 排程为「实体链接 → TKG 通电 → 结构化画像」。本版交付**卡一
+> （引擎挡位一等化）**并完成**卡二侦察（时序道靶子证伪后作废）**；
+> 实体链接/画像未动，留待后续。
+
+- **卡一 · 引擎挡位一等化（LaneProfile）** — 病机不是需求：`report.engine`
+  里那句手写的 `"fts-only trigram + RRF (no vector lane)"` 与引擎行为
+  **无任何绑定**——接上向量道后它仍会照写，且永远不会有人发现（判例：
+  描述不许手写成散文，须由引擎自述派生 + AST 反向钉）。
+  `query.py` 新增 `LaneProfile(frozen)` + `QueryKernel.lane_profile(request)`：
+  三分 active/disabled/unavailable **互斥穷尽**（恒等式以 `SIMILARITY_LANES`
+  为全集），`degraded` 另立一态（降级的道仍在 active——它确实参与了
+  候选池，三态塌成一态即静默失真）；anchor 不入相似度三分，单列。
+  `run_benchmarks.py` 的 engine 段改由 `lane_profile.describe()` 派生。
+  **效果（B-003 向量道腿）**：hit@1 **0.067 → 0.586**、mrr **0.18 → 0.714**
+  （涨在头部，K=20 后不动 = 排序机制对症）。全量 655P/0F。
+- **卡二 · 时序道侦察（靶子证伪，车道作废）** — 施工前枚举实测：
+  时序类目 320 条里**只有 40 条（12.5%）带可寻址时间表达**，85.9% 是
+  裸 `When did X …?`——问题里根本没有时间信息可读，**时序道在该类目上
+  无靶**。SPEC 写作时未量这一点（判例：**靶子要量「可寻址条数」不是量
+  「类目缺口」**）。**保留**：loader 侧 `occurred_at`（parse_rate
+  272/272 = 1.0），时间数据从此不再进不了库；**作废**：temporal 车道
+  与 B-004。
+
+---
+
 ## v1.1.0 — 2026-09-18 · Trust & Interop · 信任与互通
 
 > 承诺纪元第一个功能版（semver 加法不删法：schema 20→21 守卫式迁移，

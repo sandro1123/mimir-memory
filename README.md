@@ -25,8 +25,9 @@
 > | **细粒度 ACL** | owner/可见性/外发策略三件套；联邦信封 Fernet 加密 |
 > | **诚实遥测** | 查询带 `recall_verdict ∈ {found, not_found, degraded}`——「没查到」和「通道坏了」永不混淆 |
 >
-> 当前版本 **1.1.0 — Trust & Interop（信任与互通）**：承诺纪元第一个功能版
-> ——谱系哈希链 · MEX 记忆交换 · 联邦授权 · 公开基准 runner（
+> 当前版本 **1.3.0 — Ecosystem（生态）**：吸纳 aiduMEI 首批 ——
+> RECALL 召回漏斗（每阶段诚实判语）· 控制台 PULSE/漏斗面板 · 时序采集 ·
+> 判重接通 · Reflect 主动反思（默认关闭）（
 > [版本纪元表](docs/VERSIONING.md)）。
 
 ---
@@ -380,7 +381,7 @@ Engine Insight，「爱嘟优忆思」）：除了上述四个借鉴模式，其
 
 | 域 | 当前值 | 语义 | 在哪改 |
 |---|---|---|---|
-| **Release 版本** | `1.1.0` | 功能发布号（`MIMIR_VERSION`） | `mimir_v8/schema.py`——单一事实源，`pyproject.toml` 与 CI 对拍断言强制同步 |
+| **Release 版本** | `1.3.0` | 功能发布号（`MIMIR_VERSION`） | `mimir_v8/schema.py`——单一事实源，`pyproject.toml` 与 CI 对拍断言强制同步 |
 | **Schema 版本** | `21` | 数据库结构代数（迁移链盖章） | `mimir_v8/schema.py::SCHEMA_VERSION`——变更必须配迁移链 |
 | **API 代数** | `v8`~`v13` | 端点路径前缀（`/v8/query`、`/v9/search-preview`、`/v12/search/trace`、`/v13/blackboard`）——保留历史代数是兼容承诺 | `mimir_v8/api.py` |
 | **包名** | `mimir-v8` | PyPI/包管理名（历史命名，函数性冻结） | `pyproject.toml` |

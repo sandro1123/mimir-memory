@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-MIMIR_VERSION = "1.1.0"
+MIMIR_VERSION = "1.3.0"
 SCHEMA_VERSION = 21
 
 DECAY_TIERS = frozenset({"L0_never", "L1_preference", "L2_config", "L3_event", "L4_temporary", "L5_ephemeral"})

@@ -78,7 +78,7 @@ class TestKnowledgeLayerConfiguration(unittest.TestCase):
     def test_release_identity(self):
         # MIMIR_VERSION 硬编码是**有意的发布闸门**：发版时必须回来改这一
         # 行，从而强制审视发布身份（五件套对拍）。保留。
-        self.assertEqual(MIMIR_VERSION, "1.1.0")
+        self.assertEqual(MIMIR_VERSION, "1.3.0")
         # 原 `SCHEMA_VERSION == 20` 已删：schema 提版是开发期常规动作，
         # 硬编码在此产生的是必假红而非闸门。真守卫由 test_p0o 承担且更强
         # （断言运行时 schema 已在迁移链目标集内，提版忘配迁移段即红）。
