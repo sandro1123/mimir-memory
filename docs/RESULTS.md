@@ -1,5 +1,66 @@
 # 基准结果（Baseline）
 
+## B-005 · 1.3.0 生产实测（活服务 + 部署验收，2026-10-07/08）
+
+1.3.0 无检索算法改动，故无新跑分腿；本条目记录**部署验收实测**（同样要求
+可复现：命令 + 观测值 + 判定）。
+
+### ③-1 RECALL 漏斗（活服务实弹）
+
+| 项 | 值 |
+|---|---|
+| 跑法 | `curl -X POST 'http://127.0.0.1:8456/v8/query?trace=true' -d '{"text":"生产库 API 写入 铁律","limit":5}'`（带 admin token） |
+| 六阶段 | RelevanceGate → CandidatePool → AnchorChannel → LayerSweep → HydrationFilter → TopK |
+| 命中数 | 1 / 113 / 20 / 9 / 52 / 5 |
+| 判语 | 六阶段全 `found`；trace verdict = 顶层 `recall_verdict` = `found` |
+| 车道 | `vector+fts+graph + RRF + anchor` |
+| 默认面 | 不带 `?trace=true` 时响应无 `recall_trace` 键（形状不变，零性能影响） |
+
+### ③-2 控制台 PULSE（活服务实弹）
+
+| 项 | 值 |
+|---|---|
+| `/api/system` | `version=1.1.0`→（部署后）`1.3.0`、`codename` 由登记表派生、`layer_counts` |
+| 三层存量 | L1 **461** / L2 **54** / L3 **179**（active facts，与库内 SQL 直查一致） |
+| 顺带修复 | `mimir-dashboard.service` 缺 `MIMIR_DATA_DIR` → `_db_query` 静默返空（影响 PULSE/overview/quality 多面板）；drop-in 修复后 `facts_by_domain` 恢复（infrastructure 108 / knowledge 160 / personal 85 / quant 49 / system 141 / tech_support 151） |
+
+### ③-3 时序采集（生产 CDC 验证）
+
+| 项 | 值 |
+|---|---|
+| 基线 | `conversation_sources.started_at` **0/7270**（从未采集） |
+| 部署后 | **7/7287** —— 7 条新 source 带事件时间 |
+| 样例 | session `20260926_233256_b196f619`：`21:09:42 → 21:14:24`（跨度 ~5min，证明 min/max 推导正确，非单值抄两遍） |
+| 生效范围 | **只向前**——历史 7263 条不追溯（ingest 时未采，回填=猜） |
+
+### ③-4 判重接通（观察期，实测靶子）
+
+| 测量 | 结果 |
+|---|---|
+| `content_hash` 精确重复 | **0 条** |
+| 全库分层抽样 360 条 Jaccard ≥0.70 | **2 对**（0.762 / 0.821） |
+| 重复率 | **≈0.5%** |
+| 性能 | 热路径 `allow_full_scan=False`——LIKE 预筛全表回退实测 289.6ms（3000 条重复语料），关掉后走快路径 |
+
+结论：重复率极低（上游治理管线已在拦），故**不做 LLM 语义判重**，仅接通已有函数观察。
+
+### ③-5 Reflect（部署验证）
+
+| 项 | 值 |
+|---|---|
+| 默认闸门 | `MIMIR_REFLECT_ENABLED` 未设 → `{"skipped": true, "reason": "reflect disabled ..."}`（生产 venv 实测） |
+| LLM 调用量（开启后） | ≤ `max_domains`（默认 6）次/轮，6h 一轮 = ≤24 次/天 |
+
+### 1.3.0 测试与闸门
+
+| 项 | 值 |
+|---|---|
+| 全量测试 | **741 passed / 0 failed**（315 subtests，n100 Linux/Python 3.11 权威环境） |
+| 发布闸门 | 脱敏扫描 203 文件 clean |
+| 版本对拍 | `schema.py` / `pyproject.toml` / `test_r8_release.py` 三处一致 |
+
+---
+
 **规矩：发布到 README 的每个数字都必须出自本目录的某份 report JSON，且同数据 + 同码能复现同数字。**
 口径（engine）必须与数字同行——同一个 hit_rate 在 FTS-only 与全通道下不是同一个数。
 

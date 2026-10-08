@@ -28,10 +28,13 @@ and revocable**:
 - **Honest telemetry** — queries carry `recall_verdict ∈ {found, not_found,
   degraded}`: "nothing found" never masquerades as "channel broken"
 
-Current: **1.1.0 — Trust & Interop**. First feature release of the
-commitment era: lineage hash-chain · MEX memory interchange ·
-federation grants · public-benchmark runner
-([versioning](docs/VERSIONING.md)).
+Current: **1.3.0 — Ecosystem**. First batch of adoption from
+[aiduMEI](https://github.com/monkey2jack/aiduMEI): RECALL funnel trace
+(honest per-stage verdicts) · console PULSE/funnel panels · temporal
+capture · dedup wiring (observation-only) · Reflect (off by default)
+([versioning](docs/VERSIONING.md)). · 1.2.0 (engine lane-profile + vector
+lane) and 1.1.0 (lineage hash-chain · MEX · federation grants) ship in
+the same line — see [CHANGELOG](CHANGELOG.md).
 
 ## The Name
 
@@ -154,6 +157,22 @@ All embeddings (bge-m3) and reranking (ms-marco) run **locally on CPU** — embe
 
 ---
 
+## Quick Start (30 seconds) · TL;DR
+
+```bash
+# One-shot init (pre-fetches the bge-m3 embedding model)
+./scripts/init.sh
+# Start the API (defaults to 127.0.0.1:8456; a token is required)
+python -m mimir_v8.server --data-dir ./var/mimir-v8
+# Hook up Claude Code / any MCP host
+claude mcp add mimir -- mimir-mcp    # 27 mimir_* tools
+cp -r skills/mimir ~/.claude/skills/ # scenario-routing skill
+```
+
+Full path below, plus [skills/mimir/INSTALL.md](skills/mimir/INSTALL.md).
+
+---
+
 ## Quick Start (Out of the Box)
 
 **One command** — installs dependencies, bootstraps config & tokens, and starts the server:
@@ -207,6 +226,10 @@ Then hit `curl http://127.0.0.1:8456/health` to confirm.
 | MCP server (27 tools) | ✅ |
 | Hermes MemoryProvider plugin | ✅ |
 | Dashboard (3-tab customer view + 14-panel developer mode) | ✅ |
+| **RECALL funnel trace (per-stage honest verdicts)** | ✅ 1.3.0: `POST /v8/query?trace=true` |
+| **Engine lane profile (active/disabled/unavailable, first-class)** | ✅ 1.2.0 |
+| **Session event-time capture (started_at/ended_at)** | ✅ 1.3.0 |
+| **Reflect: LLM cross-fact insight distillation** | ✅ 1.3.0 (governance-routed; off by default) |
 | PyPI + Docker packaging | ✅ |
 
 ---

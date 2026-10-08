@@ -39,12 +39,29 @@
 8. **引擎挡位一等化**（差距#7）：MIMIR_ENGINE_GEAR=cloud/auto/local，
    local=关键词+确定性抽取+ONNX 本地嵌入（aduMEI 同思路）。
 
-## 1.3.0 生态（11 月）
-9. **Harness 家族**（按用户密度）：Claude Code skill → MCP 打磨 →
+## 1.3.0 生态（✅ 2026-10-08 发布 —— 路线经 10-04 aiduMEI 对标后改道）
+> **改道说明**：2026-10-04 对 aiduMEI f0.3+ 深度对标后，裁定吸纳其
+> 「看得见 + 变聪明」两类能力（设计文档
+> `docs/superpowers/specs/2026-10-04-mimir-aidumei-adoption-design.md`）。
+> 原 1.3.0 三件（Harness 家族/任务交接/控制台 v2）**顺延**——它们
+> 仍有效，但优先序让位于"把已有护城河变得可见"。
+> 交付五件：RECALL 召回漏斗（每阶段诚实判语）· 控制台 PULSE/漏斗面板 ·
+> 时序采集补齐 · 判重接通（观察期）· Reflect 主动反思（默认关闭）。
+> 三件经实测定型（先量后写），详见 CHANGELOG v1.3.0。
+
+9. **Harness 家族**（顺延）：Claude Code skill → MCP 打磨 →
    Cursor/Zed（MCP-only 便宜）→ Codex。
-10. **任务交接协议**（差距#9）：POST /v12/handoff 任务上下文包
+10. **任务交接协议**（顺延）：POST /v12/handoff 任务上下文包
     （目标/已试路径/开放问题/相关事实引用）→ MEX 子格式。
-11. **控制台 v2**：联邦 tab + 实体图可视化 + 谱系链浏览器。
+11. **控制台 v2**（部分交付）：1.3.0 已交付 PULSE 面板 + RECALL 漏斗
+    面板；余下联邦 tab / 实体图可视化 / 谱系链浏览器待做。
+
+## 1.4.0 跑得轻 · 收得拢（规划中）
+12. **轻量化 lean 挡位**：FTS-only / 可选嵌入式向量库（接
+    `Dockerfile.lean` 雏形）——给"不要 Chroma 重部署"的用户一条路径。
+13. **递归精炼**：后台把相关多条碎记忆递归合并为高层抽象，
+    对抗记忆熵增；产物 soft-superseded（不物理删除）+ 一键回滚 +
+    LLM 只建议不 commit。与 retention 衰减互补。
 
 ## 2.0+（方向题，立而不排）
 多用户团队化 · 强不可抵赖谱系（签名/WORM）· 本体定义 · 情感衰减轨。
