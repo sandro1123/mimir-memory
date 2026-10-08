@@ -172,6 +172,27 @@ class MimirAPIClient:
                             body={"text": text, "limit": limit,
                                   "candidate_limit": candidate_limit})
 
+    def query_trace(self, text: str, *, limit: int = 10,
+                    candidate_limit: int = 50, owner_principal: str | None = None,
+                    domain: str | None = None, fact_type: str | None = None,
+                    depth: str = "standard") -> dict:
+        """1.3.0 RECALL funnel trace：六阶段 + 每阶段诚实判语。
+
+        与 ``search_trace`` 的区别：那条是 v12 老五阶段腿（Jaccard 去重/
+        Chronos 衰减），这条是主检索路径（search()）的仪表，阶段为
+        RelevanceGate → CandidatePool → AnchorChannel → LayerSweep →
+        HydrationFilter → TopK，每阶段带 verdict ∈ found|not_found|degraded。
+        """
+        body: dict = {"text": text, "limit": limit,
+                      "candidate_limit": candidate_limit, "depth": depth}
+        if owner_principal:
+            body["owner_principal"] = owner_principal
+        if domain:
+            body["domain"] = domain
+        if fact_type:
+            body["fact_type"] = fact_type
+        return self.request("POST", "/v8/query", params={"trace": "true"}, body=body)
+
     def evolve_feedback(self, query_text: str, fact_id: str, signal: str,
                         user_principal: str | None = None) -> dict:
         """v12 EvolveMem: submit a useful/useless/correction signal."""

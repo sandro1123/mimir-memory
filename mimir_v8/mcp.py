@@ -164,6 +164,19 @@ def tool_definitions() -> list[dict]:
             }, "required": ["text"], "additionalProperties": False},
         },
         {
+            "name": "mimir_query_trace",
+            "description": ("1.3.0 RECALL funnel: six stages with honest per-stage "
+                            "verdicts (found|not_found|degraded) — 'nothing found' "
+                            "never masquerades as 'channel broken'. Prefer this "
+                            "over mimir_search_trace (v12 five-stage leg)."),
+            "inputSchema": {"type": "object", "properties": {
+                "text": {"type": "string"}, "limit": {"type": "integer", "default": 10},
+                "candidate_limit": {"type": "integer", "default": 50},
+                "domain": {"type": "string"}, "fact_type": {"type": "string"},
+                "depth": {"type": "string", "default": "standard"},
+            }, "required": ["text"], "additionalProperties": False},
+        },
+        {
             "name": "mimir_evolve_feedback",
             "description": "v12 EvolveMem: submit a useful / useless / correction signal on a search result.",
             "inputSchema": {"type": "object", "properties": {
@@ -368,6 +381,13 @@ class MimirMCPServer:
                     args["text"], limit=args.get("limit", 10),
                     dedup_threshold=args.get("dedup_threshold", 0.8),
                     candidate_limit=args.get("candidate_limit", 50),
+                )
+            elif name == "mimir_query_trace":
+                data = self.api.query_trace(
+                    args["text"], limit=args.get("limit", 10),
+                    candidate_limit=args.get("candidate_limit", 50),
+                    domain=args.get("domain"), fact_type=args.get("fact_type"),
+                    depth=args.get("depth", "standard"),
                 )
             elif name == "mimir_evolve_feedback":
                 data = self.api.evolve_feedback(
