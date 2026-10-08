@@ -1,6 +1,8 @@
 # Mímir Architecture · 架构设计
 
-> 同步版本 · Synced version：v14.1.0 · Schema 20 · 代号 Codename Insight · 2026-09-08
+> 同步版本 · Synced version：**1.3.0** · Schema 21 · 代号 Codename Ecosystem · 2026-10-08
+>
+> 版本纪元表见 [docs/VERSIONING.md](docs/VERSIONING.md)（0.x 史前纪元 → 1.x 承诺纪元）。
 >
 > English · 中文双语
 

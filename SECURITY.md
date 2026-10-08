@@ -6,9 +6,15 @@
 
 | Version 版本 | Schema | Supported 支持 |
 |---------|--------|-----------|
-| 14.1.x  | 20     | ✅        |
-| 12.1 – 14.0 | 19–20 | ⚠️ upgrade to 14.1 |
+| 1.3.x   | 21     | ✅        |
+| 1.0 – 1.2 | 21   | ⚠️ upgrade to 1.3 |
+| 14.1 – 14.2 | 20  | ⚠️ upgrade to 1.3 |
+| 12.1 – 14.0 | 19–20 | ❌ |
 | < 12.1  | < 19   | ❌        |
+
+> 版本纪元说明见 [docs/VERSIONING.md](docs/VERSIONING.md)：0.x 为史前纪元
+> （v9~v14.2.1），1.x 起为承诺纪元（semver 纪律）。schema 21 自 1.1.0 起
+> 沿用至 1.3.0（本版无 schema 迁移）。
 
 ## Reporting a Vulnerability · 报告漏洞
 
