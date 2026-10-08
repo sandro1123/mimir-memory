@@ -1,0 +1,43 @@
+# 行尾规范化（2026-10-08 整理时新增）
+#
+# 背景：仓库历史上无此文件，导致 51/210 文件为 CRLF、其余 LF 的混乱
+# 状态（含 LICENSE/.gitignore/CONTRIBUTING.md）。此处**只声明规范、不
+# 改写历史文件**——全仓转换会产生 51 文件的巨大 diff 淹没真实改动，
+# 且这些文件在生产运行正常（判例：CRLF 域墙勿动）。
+#
+# 效果：此后新增/修改的文件按此规范化；历史文件保持原样，等到它们
+# 因其他原因被改动时自然归一到 LF。
+
+# 默认：文本文件自动检测，检出为 LF
+* text=auto eol=lf
+
+# 显式声明（防自动检测误判）
+*.py    text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.toml  text eol=lf
+*.sh    text eol=lf
+*.cfg   text eol=lf
+*.ini   text eol=lf
+
+# 二进制：不做任何转换
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.db    binary
+*.sqlite binary
+*.sqlite3 binary
+*.pyc   binary
+
+# Git 内部
+.gitattributes text
+.gitignore     text
