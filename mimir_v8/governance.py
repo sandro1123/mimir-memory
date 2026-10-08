@@ -349,13 +349,16 @@ def fast_track_commit_all(store: CanonicalStore, candidate_service: CandidateSer
         return {"status": "ok", "committed": 0, "message": "无 provisional 候选可自动提交"}
     committed = 0
     errors = []
+    skipped_below_threshold = []
     for row in rows:
         cid = row["candidate_id"]
         if (row["confidence_score"] or 0) < GOVERNANCE_FAST_TRACK_THRESHOLD:
             content = row["content"] or row["summary"] or ""
             assessment = assess_candidate(content, cid)
             if assessment.confidence < GOVERNANCE_FAST_TRACK_THRESHOLD:
-                errors.append({"candidate_id": cid, "error": "confidence below threshold"})
+                # 设计内去向: 置信度未过线 → 留 provisional 待人审, 不是故障.
+                # 只留痕 (skipped_below_threshold), 不进 errors, 不触发 exit 1.
+                skipped_below_threshold.append({"candidate_id": cid})
                 continue
         try:
             candidate_service.review_candidate(
@@ -366,7 +369,8 @@ def fast_track_commit_all(store: CanonicalStore, candidate_service: CandidateSer
             committed += 1
         except Exception as e:
             errors.append({"candidate_id": cid, "error": str(e)})
-    return {"status": "ok", "committed": committed, "errors": errors}
+    return {"status": "ok", "committed": committed, "errors": errors,
+            "skipped_below_threshold": skipped_below_threshold}
 
 
 def utc_now() -> str:

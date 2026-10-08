@@ -926,8 +926,11 @@ def _exit_code(result) -> int:
     """
     if not isinstance(result, dict):
         return 0
-    if result.get("errors") or result.get("failed") or result.get("fast_track_errors"):
+    if result.get("errors") or result.get("failed"):
         return 1
+    for entry in result.get("fast_track_errors") or []:
+        if entry.get("error") != "confidence below threshold":
+            return 1
     if result.get("llm_failures"):
         return 1
     if result.get("status") == "error":
@@ -995,6 +998,8 @@ def main(argv=None) -> int:
             result["fast_track_committed"] = ft.get("committed", 0)
             if ft.get("errors"):
                 result["fast_track_errors"] = ft["errors"]
+            if ft.get("skipped_below_threshold"):
+                result["fast_track_skipped"] = ft["skipped_below_threshold"]
     elif args.command == "conflict-detect":
         from .conflict import ConflictService
         result = ConflictService(store).detect(threshold=args.threshold, actor_principal=args.actor)
