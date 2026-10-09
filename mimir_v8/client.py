@@ -115,11 +115,15 @@ class MimirAPIClient:
         return self.request("GET", "/v8/ready", authenticated=False)
 
     def query(self, text: str, *, limit: int = 10, owner_principal=None,
-              domain=None, fact_type=None, use_vector=True, use_fts=True, use_graph=True) -> dict:
+              domain=None, fact_type=None, use_vector=True, use_fts=True,
+              use_graph=True, depth: str = "deep") -> dict:
+        # depth 默认 deep: standard 档的 L1 gate 会把 event/project_config/
+        # reference 等原子事实整条丢弃, 而它们占生产库 67%。客户端是调用方,
+        # 由调用方表达真实意图 —— 服务端 spec 与默认值不动。
         return self.request("POST", "/v8/query", body={
             "text": text, "limit": limit, "owner_principal": owner_principal,
             "domain": domain, "fact_type": fact_type, "use_vector": use_vector,
-            "use_fts": use_fts, "use_graph": use_graph,
+            "use_fts": use_fts, "use_graph": use_graph, "depth": depth,
         })
 
     def create_fact(self, body: dict) -> dict:
@@ -175,7 +179,7 @@ class MimirAPIClient:
     def query_trace(self, text: str, *, limit: int = 10,
                     candidate_limit: int = 50, owner_principal: str | None = None,
                     domain: str | None = None, fact_type: str | None = None,
-                    depth: str = "standard") -> dict:
+                    depth: str = "deep") -> dict:
         """1.3.0 RECALL funnel trace：六阶段 + 每阶段诚实判语。
 
         与 ``search_trace`` 的区别：那条是 v12 老五阶段腿（Jaccard 去重/

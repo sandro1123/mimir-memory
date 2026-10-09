@@ -173,7 +173,7 @@ def tool_definitions() -> list[dict]:
                 "text": {"type": "string"}, "limit": {"type": "integer", "default": 10},
                 "candidate_limit": {"type": "integer", "default": 50},
                 "domain": {"type": "string"}, "fact_type": {"type": "string"},
-                "depth": {"type": "string", "default": "standard"},
+                "depth": {"type": "string", "default": "deep"},
             }, "required": ["text"], "additionalProperties": False},
         },
         {
@@ -387,7 +387,7 @@ class MimirMCPServer:
                     args["text"], limit=args.get("limit", 10),
                     candidate_limit=args.get("candidate_limit", 50),
                     domain=args.get("domain"), fact_type=args.get("fact_type"),
-                    depth=args.get("depth", "standard"),
+                    depth=args.get("depth", "deep"),
                 )
             elif name == "mimir_evolve_feedback":
                 data = self.api.evolve_feedback(
