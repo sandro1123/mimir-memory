@@ -43,7 +43,10 @@ jobs:
       - name: Install ruff
         run: pip install ruff
       - name: Lint
-        run: ruff check mimir_v8/ || true
+        # 第一期只查 E9,F821（见 ruff.toml 注释里的分期与反向验证记录）。
+        # 原为 `ruff check mimir_v8/ || true` —— 永不失败的装饰作业。
+        # 去 || true 的前提是实测基线为 0，且反向验证双向通过。
+        run: ruff check mimir_v8/
 
   release-scan:
     runs-on: ubuntu-latest
