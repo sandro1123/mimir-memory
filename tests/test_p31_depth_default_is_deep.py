@@ -15,12 +15,22 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mimir_v8.client import MimirAPIClient
+from mimir_v8.client import ClientConfig, MimirAPIClient
+
+
+def _client() -> MimirAPIClient:
+    """构造一个不读机器凭据的客户端。
+
+    本卡只考 depth 默认值，与 token 加载无关；CI 机器上没有
+    ~/.hermes/mimir/secrets/heimdallr.token，裸构造 MimirAPIClient()
+    会抛 token_unavailable（测试夹具耦合了环境——2026-10-12 修）。
+    """
+    return MimirAPIClient(ClientConfig(token="test-token"))
 
 
 class TestClientDepthDefault(unittest.TestCase):
     def _capture_body(self, **kw):
-        client = MimirAPIClient()
+        client = _client()
         captured = {}
 
         def fake_request(method, path, *, params=None, body=None, **k):
@@ -42,7 +52,7 @@ class TestClientDepthDefault(unittest.TestCase):
         self.assertEqual(cap["body"]["depth"], "standard")
 
     def test_query_trace_defaults_to_deep(self):
-        client = MimirAPIClient()
+        client = _client()
         captured = {}
 
         def fake_request(method, path, *, params=None, body=None, **k):
