@@ -10,9 +10,18 @@ from __future__ import annotations
 
 import re
 import sys
-import tomllib
 import unittest
 from pathlib import Path
+
+import pytest
+
+# 采集守卫（roadmap #24）：tomllib 是 Python 3.11+ 标准库，本仓
+# pyproject.toml 声明 requires-python >=3.11。裸 import 在 3.10 上
+# 表现为 collection error——那是"假红"，与真实失败混在一起，每次
+# 分型都要付一次成本。importorskip 把它变成**明确的 skip**。
+tomllib = pytest.importorskip(
+    "tomllib", reason="tomllib 需 Python >=3.11（见 pyproject requires-python）"
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

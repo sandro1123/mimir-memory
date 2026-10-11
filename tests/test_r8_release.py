@@ -1,9 +1,17 @@
 import json
 import tempfile
-import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
+
+# 采集守卫（roadmap #24）：tomllib 是 Python 3.11+ 标准库，本仓声明
+# requires-python >=3.11。裸 import 在 3.10 上是 collection error（假红），
+# 换成明确的 skip 原因。
+tomllib = pytest.importorskip(
+    "tomllib", reason="tomllib 需 Python >=3.11（见 pyproject requires-python）"
+)
 
 from mimir_v8.runtime import RuntimeConfigurationError, build_runtime, normalize_knowledge_layers
 from mimir_v8.schema import MIMIR_VERSION, SCHEMA_VERSION
