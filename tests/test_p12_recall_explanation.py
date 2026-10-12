@@ -189,5 +189,67 @@ class TestSearchAttachesExplanation(unittest.TestCase):
         )
 
 
+class TestApiSurface(unittest.TestCase):
+    """#12：agent 经 API 消费——POST /v8/query?trace=true 必须挂出
+    recall_explanation，且默认（不带 trace）不得挂。
+
+    fixture 克隆自 test_recall_funnel_trace._ApiFixture（同源，免漂移）。
+    """
+
+    def setUp(self):
+        import hashlib
+        import json
+        import tempfile
+        from fastapi.testclient import TestClient
+        from mimir_v8.api import ServiceContext, create_app
+        from mimir_v8.auth import TokenStore
+        from mimir_v8.knowledge import FeedbackLoop, KnowledgeService, UnifiedSearch
+        from mimir_v8.query import QueryKernel
+        from mimir_v8.store import CanonicalStore
+
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        self.store = CanonicalStore(root / "canonical.db")
+        self.query = QueryKernel(self.store)
+        knowledge = KnowledgeService(self.store)
+        unified = UnifiedSearch(self.query, knowledge,
+                                enabled_layers=("memory", "learning"))
+        feedback = FeedbackLoop(self.store, knowledge)
+        self.token = "p12-api-mentor-token"
+        token_path = root / "tokens.json"
+        token_path.write_text(json.dumps({"principals": [{
+            "id": "mentor",
+            "token_sha256": hashlib.sha256(self.token.encode()).hexdigest(),
+            "scopes": ["read", "write", "ingest"],
+            "roles": [], "admin": False,
+        }]}), encoding="utf-8")
+        ctx = ServiceContext(
+            store=self.store, token_store=TokenStore(token_path), query=self.query,
+            knowledge=knowledge, unified_search=unified, feedback_loop=feedback,
+        )
+        self.client = TestClient(create_app(ctx), raise_server_exceptions=False)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _headers(self):
+        return {"Authorization": f"Bearer {self.token}"}
+
+    def test_default_api_response_has_no_explanation(self):
+        r = self.client.post("/v8/query", json={"text": "probe", "limit": 5},
+                             headers=self._headers())
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("recall_explanation", r.json())
+
+    def test_trace_api_response_has_explanation(self):
+        r = self.client.post("/v8/query?trace=true",
+                             json={"text": "probe", "limit": 5},
+                             headers=self._headers())
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertIn("recall_explanation", body)
+        self.assertIn("schema_version", body["recall_explanation"])
+
+
 if __name__ == "__main__":
     unittest.main()
