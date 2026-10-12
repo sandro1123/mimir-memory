@@ -567,11 +567,76 @@ class QueryKernel:
                 skipped=False, verdict=verdict, degraded=degraded,
                 lanes={"profile": self.lane_profile(request).describe()},
                 stages=_stages).to_dict()} if request.include_trace else {}),
+            **({"recall_explanation": self._recall_explanation(
+                request, top_results, ranked, filtered)} if request.include_trace else {}),
             "anchor": {"injected": anchor_injected},
             "layers": {"injected": sweep_injected,
                        "l1_dropped": filtered["layer"],
                        "depth": request.depth},
         }
+
+    def _recall_explanation(self, request, top_results: list,
+                            ranked: dict, filtered: dict) -> dict:
+        """roadmap #12：agent 消费的机器可读召回解释。
+
+        与 recall_trace（人读漏斗）**共用同一份真相**——逐条 fact 的
+        来源层/通道/排序理由直接取自既有的 score_explanation，不另造
+        语义。
+
+        roadmap #14：预算诚实。declared = 调用方声明的 limit；
+        used = 实际返回条数；超预算的部分**显式枚举**在 dropped 里，
+        绝不静默丢弃。
+        """
+        from .recall_explanation import RecallExplanation
+
+        declared = request.limit
+        facts = []
+        for rank, r in enumerate(top_results, start=1):
+            se = r.get("score_explanation", {})
+            channels = se.get("channels", {})
+            # 命中它的主通道 = rrf 贡献最大的那个；无则记 "unknown"。
+            primary = max(
+                channels.items(), key=lambda kv: kv[1].get("rrf_contribution", 0.0)
+            )[0] if channels else "unknown"
+            facts.append({
+                "fact_id": r["fact_id"],
+                "rank": rank,
+                "layer": self._layer_of(r.get("fact_type", "")),
+                "channel": primary,
+                "rank_reason": f"{primary} 通道命中，RRF={se.get('rrf')}",
+                "rrf": se.get("rrf"),
+                "confidence": se.get("confidence"),
+                "freshness": se.get("freshness"),
+                "decay_factor": se.get("decay_factor"),
+            })
+
+        # 预算诚实：候选池里被过滤掉的，按原因枚举（不静默）。
+        dropped = [
+            {"reason": f"filtered:{reason}", "count": count}
+            for reason, count in sorted(filtered.items()) if count
+        ]
+        used = len(top_results)
+        # used 超过 declared 时（candidate 多于 limit 且未过滤）补显式丢弃项
+        if len(ranked) > declared and not dropped:
+            dropped = [{"reason": "budget_exceeded", "count": len(ranked) - declared}]
+
+        return RecallExplanation(
+            declared_budget=declared,
+            used=min(used, declared),
+            dropped=dropped,
+            facts=facts,
+        ).to_dict()
+
+    @staticmethod
+    def _layer_of(fact_type: str) -> str:
+        """fact_type → L0~L3 层标签（与既有分层映射同源）。"""
+        if fact_type in QueryKernel.LAYER3_FACT_TYPES:
+            return "L3"
+        if fact_type in QueryKernel.LAYER2_FACT_TYPES:
+            return "L2"
+        if fact_type in QueryKernel.LAYER1_FACT_TYPES:
+            return "L1"
+        return "unknown"
 
     def trace(self, request: QueryRequest, *, dedup_threshold: float = 0.8) -> dict:
         """v12 recall funnel trace: candidate pool → gate → Jaccard dedup →
