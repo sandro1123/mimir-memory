@@ -442,15 +442,20 @@ class QueryKernel:
 
         results = []
         filtered = {"acl": 0, "status": 0, "missing": 0, "layer": 0}
+        # roadmap #14：逐条记录被丢的 fact_id + 原因，供 recall_explanation
+        # 的 dropped 明细使用（不只报计数——调用方要能定位具体哪条）。
+        dropped_items: list[dict] = []
         roles = set(request.roles)
         for fact_id, score in ranked.items():
             try:
                 fact = self.store.get_fact(fact_id)
             except Exception:
                 filtered["missing"] += 1
+                dropped_items.append({"fact_id": fact_id, "reason": "filtered:missing"})
                 continue
             if fact["status"] not in ("active", "provisional") if request.include_provisional else fact["status"] != "active":
                 filtered["status"] += 1
+                dropped_items.append({"fact_id": fact_id, "reason": "filtered:status"})
                 continue
             if request.owner_principal and fact["owner_principal"] != request.owner_principal:
                 continue
@@ -468,11 +473,13 @@ class QueryKernel:
                 and fact["fact_type"] in self.LAYER1_FACT_TYPES
             ):
                 filtered["layer"] += 1
+                dropped_items.append({"fact_id": fact_id, "reason": "filtered:layer"})
                 continue
             if not self.store.can_read(
                 fact_id, request.principal_id, is_admin=request.is_admin, roles=roles
             ):
                 filtered["acl"] += 1
+                dropped_items.append({"fact_id": fact_id, "reason": "filtered:acl"})
                 continue
             confidence = fact["confidence_score"] if fact["confidence_score"] is not None else 0.5
             decay = self._decay_factor(fact.get("decay_tier"), fact.get("valid_to"), fact.get("updated_at"), fact.get("valid_from"))
@@ -568,7 +575,7 @@ class QueryKernel:
                 lanes={"profile": self.lane_profile(request).describe()},
                 stages=_stages).to_dict()} if request.include_trace else {}),
             **({"recall_explanation": self._recall_explanation(
-                request, top_results, ranked, filtered)} if request.include_trace else {}),
+                request, top_results, ranked, filtered, dropped_items)} if request.include_trace else {}),
             "anchor": {"injected": anchor_injected},
             "layers": {"injected": sweep_injected,
                        "l1_dropped": filtered["layer"],
@@ -576,7 +583,8 @@ class QueryKernel:
         }
 
     def _recall_explanation(self, request, top_results: list,
-                            ranked: dict, filtered: dict) -> dict:
+                            ranked: dict, filtered: dict,
+                            dropped_items: list | None = None) -> dict:
         """roadmap #12：agent 消费的机器可读召回解释。
 
         与 recall_trace（人读漏斗）**共用同一份真相**——逐条 fact 的
@@ -584,7 +592,9 @@ class QueryKernel:
         语义。
 
         roadmap #14：预算诚实。declared = 调用方声明的 limit；
-        used = 实际返回条数；超预算的部分**显式枚举**在 dropped 里，
+        used = 实际返回条数；被丢的部分**显式枚举**在 dropped 里
+        ——既有**聚合计数**（按原因），也有**逐条明细**
+        （fact_id + reason），调用方要能定位具体哪条、为什么，
         绝不静默丢弃。
         """
         from .recall_explanation import RecallExplanation
@@ -610,11 +620,16 @@ class QueryKernel:
                 "decay_factor": se.get("decay_factor"),
             })
 
-        # 预算诚实：候选池里被过滤掉的，按原因枚举（不静默）。
-        dropped = [
+        # 预算诚实：先给**聚合计数**（按原因），再附**逐条明细**
+        # （fact_id + reason）。两者并存——大结果集不必被迫逐条展开，
+        # 但需要定位时拿得到具体条目。
+        dropped: list[dict] = [
             {"reason": f"filtered:{reason}", "count": count}
             for reason, count in sorted(filtered.items()) if count
         ]
+        for item in (dropped_items or []):
+            dropped.append({"fact_id": item["fact_id"], "reason": item["reason"]})
+
         used = len(top_results)
         # used 超过 declared 时（candidate 多于 limit 且未过滤）补显式丢弃项
         if len(ranked) > declared and not dropped:
