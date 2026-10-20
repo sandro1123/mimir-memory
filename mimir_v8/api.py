@@ -89,6 +89,16 @@ class QueryBody(BaseModel):
     #: v12.2.0 layered assembly depth: "standard" keeps L3+L2, "deep"
     #: drills into L1 atom facts.
     depth: str = "standard"
+    #: 1.4.0 #13 三段式渐进披露档位。**默认 "full" = 与从前一致**；
+    #: 显式 "index" 才只回索引段并下发 recall_cursor。
+    detail: str = "full"
+
+
+class ExpandBody(BaseModel):
+    """1.4.0 #13：按游标 + 选中 ID 展开全文（三段式第三段）。"""
+    model_config = ConfigDict(extra="forbid")
+    cursor: str = Field(min_length=1, max_length=8192)
+    fact_ids: list[str] = Field(min_length=1, max_length=100)
 
 
 class CreateFactBody(BaseModel):
@@ -743,6 +753,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             use_anchor=body.use_anchor,
             depth=body.depth,
             include_trace=include_trace,
+            detail=body.detail,
         ))
         try:
             context.store.write_audit(
@@ -909,6 +920,20 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
     def query_v8(body: QueryBody, identity: Principal = Depends(scoped("read")),
                  trace: bool = Query(default=False)):
         return execute_query(body, identity, include_trace=trace)
+
+    @app.post("/v8/query/expand")
+    def query_expand(body: ExpandBody,
+                     identity: Principal = Depends(scoped("read"))):
+        """1.4.0 #13 三段式第三段：按游标 + 选中 ID 展开全文。
+
+        游标由 `/v8/query?detail=index` 下发；只允许展开该次召回
+        发放过的条目（任意 ID 即拒 —— 见 recall_cursor 的结构性保证）。
+        """
+        from .recall_cursor import CursorError
+        try:
+            return context.query.expand(body.cursor, body.fact_ids)
+        except CursorError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.get("/v8/memories/recent")
     def memories_recent(

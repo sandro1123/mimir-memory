@@ -175,5 +175,106 @@ class TestInvalidDetail(unittest.TestCase):
                                        detail="bogus"))
 
 
+class TestHttpEndpoints(unittest.TestCase):
+    """#13 必须**经 HTTP 可用**——否则就是"建了没接线"。"""
+
+    def setUp(self):
+        import hashlib
+        import json
+        from fastapi.testclient import TestClient
+        from mimir_v8.api import ServiceContext, create_app
+        from mimir_v8.auth import TokenStore
+        from mimir_v8.knowledge import FeedbackLoop, KnowledgeService, UnifiedSearch
+        from mimir_v8.projector import FTSProjector, ProjectorRunner
+        from mimir_v8.schema import CreateFact
+        from mimir_v8.store import CanonicalStore
+
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        store = CanonicalStore(root / "canonical.db")
+        fts = FTSProjector(root / "fts.db")
+        self.kernel = QueryKernel(store, fts=fts)
+        self.ids = []
+        for i in range(3):
+            self.ids.append(store.create_fact(CreateFact(
+                content=f"alpha beta gamma item{i} " + ("lorem ipsum " * 40),
+                summary=f"idx summary {i}", owner_principal="mentor",
+                domain="knowledge", fact_type="pattern",
+                visibility="all", sensitivity="internal",
+                egress_policy="local_only",
+                confidence_score=0.9, human_status="confirmed",
+            ), actor_principal="mentor")["fact_id"])
+        ProjectorRunner(store, fts).run_once(limit=100)
+
+        knowledge = KnowledgeService(store)
+        unified = UnifiedSearch(self.kernel, knowledge,
+                                enabled_layers=("memory", "learning"))
+        feedback = FeedbackLoop(store, knowledge)
+        self.token = "p13-http-mentor"
+        token_path = root / "tokens.json"
+        token_path.write_text(json.dumps({"principals": [{
+            "id": "mentor",
+            "token_sha256": hashlib.sha256(self.token.encode()).hexdigest(),
+            "scopes": ["read", "write", "ingest"],
+            "roles": [], "admin": False,
+        }]}), encoding="utf-8")
+        ctx = ServiceContext(store=store, token_store=TokenStore(token_path),
+                             query=self.kernel, knowledge=knowledge,
+                             unified_search=unified, feedback_loop=feedback)
+        self.client = TestClient(create_app(ctx), raise_server_exceptions=False)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _h(self):
+        return {"Authorization": f"Bearer {self.token}"}
+
+    def test_query_detail_index_over_http(self):
+        r = self.client.post("/v8/query",
+                             json={"text": "alpha beta gamma", "limit": 5,
+                                   "detail": "index"},
+                             headers=self._h())
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertIn("recall_cursor", body)
+        self.assertNotIn("content", body["results"][0])
+
+    def test_query_default_detail_stays_full_over_http(self):
+        r = self.client.post("/v8/query",
+                             json={"text": "alpha beta gamma", "limit": 5},
+                             headers=self._h())
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertNotIn("recall_cursor", body)
+        self.assertIn("content", body["results"][0])
+
+    def test_expand_endpoint_returns_full_text(self):
+        r = self.client.post("/v8/query",
+                             json={"text": "alpha beta gamma", "limit": 5,
+                                   "detail": "index"},
+                             headers=self._h())
+        cursor = r.json()["recall_cursor"]
+        r2 = self.client.post("/v8/query/expand",
+                              json={"cursor": cursor,
+                                    "fact_ids": [self.ids[0]]},
+                              headers=self._h())
+        self.assertEqual(r2.status_code, 200, r2.text)
+        self.assertEqual(r2.json()["results"][0]["fact_id"], self.ids[0])
+        self.assertGreater(len(r2.json()["results"][0]["content"]), 200)
+
+    def test_expand_endpoint_rejects_arbitrary_id(self):
+        r = self.client.post("/v8/query",
+                             json={"text": "alpha beta gamma", "limit": 5,
+                                   "detail": "index"},
+                             headers=self._h())
+        cursor = r.json()["recall_cursor"]
+        r2 = self.client.post("/v8/query/expand",
+                              json={"cursor": cursor,
+                                    "fact_ids": ["never-issued-id"]},
+                              headers=self._h())
+        self.assertGreaterEqual(r2.status_code, 400,
+                                "任意 ID 必须被拒，不得 200")
+
+
 if __name__ == "__main__":
     unittest.main()
