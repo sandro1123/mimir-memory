@@ -6,6 +6,36 @@
 
 ---
 
+## v1.4.0（进行中）· 可读性与信任度 · 未发布
+
+> 按路线图逐条推进中；下面只记已上线且 CI 绿的部分，未完成的
+> 条目留在对应 issue 里不在此宣称。
+
+- **判重三档分层 · Tier-0 精确合并 + 冷启动门**（roadmap #16 / issue #10，
+  `0aa9ee4`）— 判重此前只有 Jaccard 一路，既无确定性快路，也没有
+  "样本太少别乱判"的保护。今补两层：
+  **Tier-0** 按 `content_hash` 精确命中即静默合并，O(1)，**不依赖分词
+  或召回池**——无 token 内容（如 `!!! ??? ...`）Jaccard 恒 0 但哈希照样
+  命中；不受冷启动门限制（确定性与样本量无关）；owner 隔离，跨 owner
+  同内容不合并。hash 口径与 `CreateFact.validated` 一致（**先 strip 再
+  sha256**），否则带首尾空白的同内容永远对不上。
+  **冷启动门** `is_fuzzy_ready(owner, min_docs)` 按 owner 计数，样本不足
+  时模糊判重让路返回 `new`——**宁可漏报，不误杀**。
+  默认 `fuzzy_min_docs=None` 关闭新门，行为与从前逐字节一致（零破坏）。
+- **Tier-1 ADD-only 闸接线**（roadmap #17 / issue #11 第 1 步，
+  `d2e2fd0`）— **病根是"建了没接线"**：`possible_duplicate:*` 标记写进
+  `uncertainty_json` 后**全项目零消费者**，观察数据从未被任何人读过。
+  今在审批唯一真路径 `review_candidate(approve)` 消费该标记，经
+  `duplicate_review_gate()` 分级（Tier-0 精确= `strong_warn`，Tier-1
+  模糊= `warn`）留 `dedup.review_gate` audit 痕。**warn-first 不拦**：
+  重复候选照常审批通过；干净候选不产生闸痕（防噪声淹没有效信号）。
+  同时把 **ADD-only 钉成物理不变量**：commit 后既有事实仍 active、
+  `current_version` 与内容均不变，新内容走新建而非改写。
+  收紧为拦阻留待观测真实噪声分布后进行（"没见过噪声分布就拦"按本条
+  自己的纪律不许）。
+
+---
+
 ## v1.3.0 — 2026-10-08 · Ecosystem · 生态（吸纳 aiduMEI 首批）
 
 > 对标 aiduMEI f0.3+ 后的第一批吸纳（设计见
