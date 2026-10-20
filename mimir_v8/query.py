@@ -97,6 +97,11 @@ class QueryRequest:
     #: 1.3.0 ③-1 RECALL funnel: attach per-stage trace to the response.
     #: Default off (perf) — API exposes via ?trace=true.
     include_trace: bool = False
+    #: 1.4.0 #13 三段式渐进披露的档位。
+    #: **默认 "full" = 与从前逐字节一致**（零破坏）。只有显式
+    #: detail="index" 才只回索引段并下发游标——绝不在 #13 里
+    #: 静默把调用方的载荷换成索引（那正是 #14 禁止的形态）。
+    detail: str = "full"
 
 
 # ── 1.0-C3 出口包裹（The Trust Baseline）────────────────────────
@@ -215,6 +220,8 @@ class QueryKernel:
     #: for crystallized patterns, bounded crowding.
     LAYER2_BUDGET = 10
     DEPTHS = ("standard", "deep")
+    #: 1.4.0 #13 三段式披露档位。**默认 full**，index 为显式 opt-in。
+    DETAILS = ("full", "index")
     #: P46 韧性挡位：断路器跳闸阈值与冷却窗。连续 FAILURE_THRESHOLD 次
     #: 通道异常 → OPEN 跳过该通道调用（省资源+止损），COOLDOWN_SECONDS
     #: 后 HALF_OPEN 放一次真实探测，成功回 CLOSED。锚通道不走断路器
@@ -223,13 +230,20 @@ class QueryKernel:
     COOLDOWN_SECONDS = 60.0
 
     def __init__(self, store: CanonicalStore, *, vector=None, fts=None, graph=None,
-                 embedder=None, rrf_k: int = 60):
+                 embedder=None, rrf_k: int = 60, cursor_secret: bytes | None = None):
         self.store = store
         self.vector = vector
         self.fts = fts
         self.graph = graph
         self.embedder = embedder
         self.rrf_k = rrf_k
+        # 1.4.0 #13：三段式披露的游标签名密钥。未显式注入时按实例
+        # 随机生成——**不写死默认常量**（写死的密钥等于没有签名）。
+        # 生产若需跨进程/重启续读游标，须由部署方注入稳定密钥。
+        if cursor_secret is None:
+            import secrets as _secrets
+            cursor_secret = _secrets.token_bytes(32)
+        self.cursor_secret = cursor_secret
         # P46: 每个相似度通道一个独立断路器；self.breakers 是公开观测面
         # （/ready 健康巡检与 ops health 可直读跳闸状态）。
         self.breakers = {
@@ -371,6 +385,8 @@ class QueryKernel:
                 f"limit must be between 1 and {MAX_QUERY_LIMIT}")
         if request.depth not in self.DEPTHS:
             raise ValueError(f"depth must be one of {self.DEPTHS}")
+        if request.detail not in self.DETAILS:
+            raise ValueError(f"detail must be one of {self.DETAILS}")
         candidate_limit = max(request.limit, min(request.candidate_limit, 500))
         ranked: dict[str, dict] = {}
         channel_states: dict[str, str] = {}
@@ -553,12 +569,27 @@ class QueryKernel:
                    "found" if top_results else "not_found",
                    len(top_results), {"limit": request.limit})
         # 1.0-C3：出口包裹官方模板
+        # 1.4.0 #13：detail="index" 时**只回索引段**，并下发服务端持有的
+        # 签名游标；detail 默认 "full" 时此处一字不变（零破坏）。
+        out_results = top_results
+        cursor_block: dict = {}
+        if request.detail == "index":
+            from .recall_cursor import mint_cursor
+            out_results = [self._index_entry(r) for r in top_results]
+            out_results, cursor_block = out_results, {
+                "recall_cursor": mint_cursor(
+                    self.cursor_secret,
+                    scope=self._cursor_scope(request),
+                    offset=0,
+                    issued_refs=[r["fact_id"] for r in top_results],
+                )
+            }
         return {
             "query": query,
             "principal_id": request.principal_id,
             "recall_verdict": verdict,
             "injection_safe_wrap": INJECTION_SAFE_WRAP,
-            "results": top_results,
+            "results": out_results,
             "candidate_count": len(ranked),
             "filtered": filtered,
             "filters": {
@@ -580,7 +611,127 @@ class QueryKernel:
             "layers": {"injected": sweep_injected,
                        "l1_dropped": filtered["layer"],
                        "depth": request.depth},
+            **cursor_block,
         }
+
+    # ── 1.4.0 #13 三段式渐进披露 ──────────────────────────────
+    @staticmethod
+    def _index_entry(result: dict) -> dict:
+        """索引段单条：只给足以判断"要不要展开"的信息，**不含全文**。
+
+        刻意剔除 content / evidence —— 这正是 #14 要防的"载荷被静默
+        替换"的反面：这里是**调用方显式要求**的收窄，且承诺可用游标
+        展开回去。
+        """
+        return {
+            "fact_id": result["fact_id"],
+            "summary": result.get("summary", ""),
+            "owner_principal": result.get("owner_principal"),
+            "domain": result.get("domain"),
+            "fact_type": result.get("fact_type"),
+            "version": result.get("version"),
+            "score": result.get("score"),
+            "score_explanation": result.get("score_explanation", {}),
+        }
+
+    def _cursor_scope(self, request: QueryRequest) -> str:
+        """游标作用域 = 本次查询的**语义指纹**。
+
+        改范围（换 query/过滤条件）后旧游标即失配 —— 这是 issue #7
+        三种必拒形态里"改范围"的实现。
+        """
+        import hashlib
+        import json as _json
+        raw = _json.dumps({
+            "text": request.text,
+            "principal_id": request.principal_id,
+            "limit": request.limit,
+            "owner_principal": request.owner_principal,
+            "domain": request.domain,
+            "fact_type": request.fact_type,
+            "depth": request.depth,
+            "include_provisional": request.include_provisional,
+        }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+    def expand(self, cursor: str, fact_ids: list[str],
+               *, expected_scope: str | None = None) -> dict:
+        """按游标 + 选中 ID 展开全文（三段式的第三段）。
+
+        三种拒绝（issue #7）：
+        - **任意 ID**：只能展开游标里 `issued_refs` 发放过的条目
+        - **改范围**：`expected_scope` 与游标 scope 不符即拒
+        - **过期/伪造**：签名或 TTL 不过
+
+        `expected_scope` 由调用方传入**它认为自己在续的那个查询**的
+        scope（`QueryKernel.cursor_scope(request)`）；不传则信任游标
+        自身（仅校验签名与 TTL）。
+        """
+        from .recall_cursor import verify_cursor
+
+        if expected_scope is None:
+            payload = self._verify_cursor_any_scope(cursor)
+        else:
+            payload = verify_cursor(self.cursor_secret, cursor,
+                                    scope=expected_scope)
+        issued = set(payload.get("issued_refs", []))
+
+        unauthorized = [fid for fid in fact_ids if fid not in issued]
+        if unauthorized:
+            from .recall_cursor import CursorError
+            raise CursorError(
+                f"只能展开本次召回发放过的条目，越界 {len(unauthorized)} 条"
+            )
+
+        results = []
+        for fid in fact_ids:
+            try:
+                fact = self.store.get_fact(fid)
+            except Exception:
+                continue
+            results.append({
+                "fact_id": fid,
+                "content": fact["content"],
+                "summary": fact["summary"],
+                "owner_principal": fact["owner_principal"],
+                "domain": fact["domain"],
+                "fact_type": fact["fact_type"],
+                "version": fact["current_version"],
+            })
+        return {"results": results, "expanded": len(results)}
+
+    def _verify_cursor_any_scope(self, cursor: str) -> dict:
+        """校验签名与 TTL，但不校验 scope（用于未声明续哪个查询的场景）。"""
+        from .recall_cursor import CURSOR_VERSION, CursorExpired, CursorSignatureInvalid
+        import base64
+        import hashlib
+        import hmac
+        import json as _json
+        import time as _time
+
+        def b64e(raw: bytes) -> str:
+            return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+        def b64d(text: str) -> bytes:
+            return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+        if not isinstance(cursor, str) or "." not in cursor:
+            raise CursorSignatureInvalid("游标格式非法")
+        body, _, sig = cursor.rpartition(".")
+        expect = b64e(hmac.new(self.cursor_secret, body.encode("ascii"),
+                               hashlib.sha256).digest())
+        if not hmac.compare_digest(sig, expect):
+            raise CursorSignatureInvalid("游标签名不匹配")
+        payload = _json.loads(b64d(body))
+        if payload.get("v") != CURSOR_VERSION:
+            raise CursorSignatureInvalid("游标版本不认识")
+        if int(payload.get("exp", 0)) < int(_time.time()):
+            raise CursorExpired("游标已过期")
+        return payload
+
+    def cursor_scope(self, request: QueryRequest) -> str:
+        """公开的 scope 计算入口，供调用方声明"我在续哪个查询"。"""
+        return self._cursor_scope(request)
 
     def _recall_explanation(self, request, top_results: list,
                             ranked: dict, filtered: dict,
