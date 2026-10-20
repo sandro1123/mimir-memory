@@ -1,12 +1,19 @@
 """Mímir v9.2 Jaccard similarity deduplication for candidate facts.
 
-When a new candidate is created, compare it against existing active facts
-and previously committed candidates using Jaccard similarity on tokenized content.
+三档信任分层（roadmap #16，issue #10）：
 
-Decision matrix:
-  - similarity >= 0.85 → auto-merge (update existing fact, discard candidate)
-  - similarity >= 0.70 → mark as candidate update (requires review)
-  - similarity < 0.70  → new fact (no action)
+- Tier-0 确定性静默合并：content_hash 精确命中即 merge。O(1)，
+  不依赖分词/召回池，不受冷启动门限制（确定性与样本量无关）。
+- Tier-1 模糊判重（Jaccard）：受 ``is_fuzzy_ready`` 冷启动门控；
+  样本不足时宁可漏报，不误杀。命中只给"候选更新"语义（只准 ADD，
+  不自动改写——写路径契约本卡不动）。
+- Tier-2 判断类：永不自动执行，走 human_review（见 review.py），
+  本模块不覆盖。
+
+既有决策矩阵（Tier-1 内部分带）：
+  - similarity >= 0.85 → merge
+  - similarity >= 0.70 → update（requires review）
+  - similarity < 0.70  → new
 """
 
 from __future__ import annotations
@@ -15,11 +22,62 @@ import re
 from contextlib import closing
 from typing import Any
 
-from .store import CanonicalStore
+from .store import CanonicalStore, sha256_text
 
 
 JACCARD_MERGE_THRESHOLD = 0.85
 JACCARD_UPDATE_THRESHOLD = 0.70
+
+
+def is_fuzzy_ready(store: CanonicalStore, owner: str, *, min_docs: int = 10) -> bool:
+    """冷启动门（roadmap #16）：owner 名下 active 事实不足 min_docs 时，
+    不启动模糊判重——宁可漏报，不误杀。
+
+    Tier-0（content_hash 精确命中）不受此门限制：它是确定性的，
+    与样本量无关。
+    """
+    if isinstance(min_docs, bool) or not isinstance(min_docs, int) or min_docs < 1:
+        raise ValueError("min_docs must be a positive integer")
+    with closing(store.connect()) as connection:
+        count = connection.execute(
+            "SELECT COUNT(*) FROM facts WHERE status='active' AND owner_principal=?",
+            (owner,),
+        ).fetchone()[0]
+    return int(count) >= min_docs
+
+
+def _tier0_exact(store: CanonicalStore, content: str, owner: str) -> dict | None:
+    """Tier-0 确定性精确命中（roadmap #16）：content_hash 等值，O(1)。
+
+    口径与写入路径一致：``CreateFact.validated`` 先 strip 再
+    ``sha256_text``，所以这里必须 hash strip 后的文本，否则带首尾
+    空白的同内容永远对不上。
+
+    只查 owner 名下的 active facts + committed candidates（ACL 隔离，
+    跨 owner 同内容不得合并）。不受 ``is_fuzzy_ready`` 冷启动门限制。
+    """
+    stripped = content.strip()
+    digest = sha256_text(stripped)
+    with closing(store.connect()) as connection:
+        row = connection.execute(
+            """SELECT fact_id, content FROM facts
+            WHERE status='active' AND owner_principal=?
+              AND content_hash=?
+            LIMIT 1""",
+            (owner, digest),
+        ).fetchone()
+        if row:
+            return {"fact_id": row[0], "content": row[1]}
+        crow = connection.execute(
+            """SELECT candidate_id, content FROM candidate_facts
+            WHERE status='committed' AND proposed_owner_principal=?
+              AND content=?
+            LIMIT 1""",
+            (owner, stripped),
+        ).fetchone()
+        if crow:
+            return {"fact_id": crow[0], "content": crow[1]}
+    return None
 
 
 def _tokenize(text: str) -> set[str]:
@@ -116,13 +174,18 @@ def jaccard_similarity(a: str, b: str) -> float:
 
 
 def check_duplicate(store: CanonicalStore, content: str, owner: str, *,
-                    allow_full_scan: bool = True) -> dict:
+                    allow_full_scan: bool = True,
+                    fuzzy_min_docs: int | None = None) -> dict:
     """Check if content is a duplicate of an existing active fact or committed candidate.
 
     ``allow_full_scan=False`` 关闭「probe 落空则全表扫描」的正确性回退：
     观察期调用方（候选写入热路径）用它在「召回不到」与「扫全表」之间选前者——
     LIKE '%probe%' 无索引可用，重复内容多时全扫可达数百毫秒，观察件不值得
     让生产写入等它。默认 True 保持既有语义（独立调用方的正确性优先）。
+
+    ``fuzzy_min_docs=None``（默认）关闭冷启动门，行为与从前一致（零破坏）；
+    传正整数即打开 Tier-1 门控：owner 名下 active 事实不足该数时，模糊判重
+    让路（返回 new），Tier-0 精确命中不受此门限制。
 
     Returns:
         {
@@ -131,10 +194,26 @@ def check_duplicate(store: CanonicalStore, content: str, owner: str, *,
             "match_type": "merge" | "update" | "new",
             "matched_fact_id": str | None,
             "matched_content": str | None,
+            "tier": "tier0" | "tier1",  # 只在命中时出现
         }
     """
     if not content or not content.strip():
         return {"is_duplicate": False, "similarity": 0.0, "match_type": "new", "matched_fact_id": None, "matched_content": None}
+
+    # Tier-0 确定性精确命中：O(1)，不依赖分词/召回池，不受冷启动门限制。
+    exact = _tier0_exact(store, content, owner)
+    if exact is not None:
+        return {"is_duplicate": True, "similarity": 1.0, "match_type": "merge",
+                "matched_fact_id": exact["fact_id"], "matched_content": exact["content"],
+                "tier": "tier0"}
+
+    # Tier-1 门控：样本不足时宁可漏报，不误杀。
+    # bool 是 int 子类，先挡掉（否则 True 会被当成 min_docs=1）。
+    if fuzzy_min_docs is not None:
+        if isinstance(fuzzy_min_docs, bool) or not isinstance(fuzzy_min_docs, int) or fuzzy_min_docs < 1:
+            raise ValueError("fuzzy_min_docs must be a positive integer or None")
+        if not is_fuzzy_ready(store, owner, min_docs=fuzzy_min_docs):
+            return {"is_duplicate": False, "similarity": 0.0, "match_type": "new", "matched_fact_id": None, "matched_content": None}
 
     best_score = 0.0
     best_id = None
@@ -157,8 +236,8 @@ def check_duplicate(store: CanonicalStore, content: str, owner: str, *,
             best_content = row["content"]
 
     if best_score >= JACCARD_MERGE_THRESHOLD:
-        return {"is_duplicate": True, "similarity": round(best_score, 4), "match_type": "merge", "matched_fact_id": best_id, "matched_content": best_content}
+        return {"is_duplicate": True, "similarity": round(best_score, 4), "match_type": "merge", "matched_fact_id": best_id, "matched_content": best_content, "tier": "tier1"}
     elif best_score >= JACCARD_UPDATE_THRESHOLD:
-        return {"is_duplicate": True, "similarity": round(best_score, 4), "match_type": "update", "matched_fact_id": best_id, "matched_content": best_content}
+        return {"is_duplicate": True, "similarity": round(best_score, 4), "match_type": "update", "matched_fact_id": best_id, "matched_content": best_content, "tier": "tier1"}
     else:
         return {"is_duplicate": False, "similarity": round(best_score, 4), "match_type": "new", "matched_fact_id": None, "matched_content": None}
