@@ -80,6 +80,43 @@ def _tier0_exact(store: CanonicalStore, content: str, owner: str) -> dict | None
     return None
 
 
+def duplicate_review_gate(hint: dict | None) -> dict:
+    """Tier-1 ADD-only 闸（roadmap #16）：把判重 hint 翻译成审批期裁决。
+
+    **纯函数**：不读库、不写库、不做决定——只给"该不该喊、喊多大声"。
+    真正的接线在 `candidates.py:review_candidate`（留 audit 痕）。
+
+    warn-first：本闸**不阻断**审批（观察期）。它存在的意义是让
+    ``possible_duplicate`` 标记有消费方——写进 uncertainty_json 却没人看，
+    等于没接线。
+
+    Level 分级：
+      - ``strong_warn``：Tier-0 精确命中（merge + tier0），同一内容重复落库
+      - ``warn``       ：Tier-1 模糊命中（update/merge）
+      - ``None``       ：无标记
+    """
+    if not hint or not hint.get("match_type"):
+        return {"flagged": False, "level": None, "match_type": None,
+                "similarity": None, "matched_fact_id": None}
+
+    match_type = str(hint.get("match_type"))
+    tier = hint.get("tier")
+    # Tier-0 精确 = 内容逐字相同，比"相似"重得多；未标 tier 的 merge
+    # 也按强告警处理（旧数据没有 tier 字段，语义上 merge 本就最强）。
+    if match_type == "merge" and tier in (None, "tier0"):
+        level = "strong_warn"
+    else:
+        level = "warn"
+
+    return {
+        "flagged": True,
+        "level": level,
+        "match_type": match_type,
+        "similarity": hint.get("similarity"),
+        "matched_fact_id": hint.get("matched_fact_id"),
+    }
+
+
 def _tokenize(text: str) -> set[str]:
     """Tokenize Chinese + English text into a set of tokens."""
     if not text:

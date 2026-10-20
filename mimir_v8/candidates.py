@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, replace
 
-from .dedup import check_duplicate
+from .dedup import check_duplicate, duplicate_review_gate
 from .schema import CreateFact
 from .store import CanonicalStore, ConflictError, NotFoundError, canonical_json, new_id, sha256_text, utc_now
 
@@ -15,6 +15,45 @@ logger = logging.getLogger(__name__)
 
 class CandidatePolicyError(ValueError):
     """Raised when candidate governance policy rejects an operation."""
+
+
+_DUP_MARKER_PREFIX = "possible_duplicate:"
+
+
+def _hint_from_uncertainty(raw: object) -> dict | None:
+    """从 uncertainty_json 里还原写入时的判重标记（roadmap #16 闸的输入）。
+
+    写入侧只落了一行文本 ``possible_duplicate:{match_type}:{similarity}``
+    （见 create_candidate_in_transaction），**没有**持久化 matched_fact_id
+    与 tier。审批侧据此还原最小 hint；解析不出来就返回 None——闸是观察件，
+    宁可漏喊也不得因脏数据打断审批。
+    """
+    if isinstance(raw, str):
+        try:
+            import json
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+    else:
+        parsed = raw
+    if not isinstance(parsed, list):
+        return None
+    for item in parsed:
+        if not isinstance(item, str) or not item.startswith(_DUP_MARKER_PREFIX):
+            continue
+        # 文本形如 possible_duplicate:merge:1.0 —— similarity 里不含冒号，
+        # 但 match_type 之后可能还有内容，用 maxsplit 取前两段。
+        body = item[len(_DUP_MARKER_PREFIX):]
+        match_type, _, sim_text = body.partition(":")
+        if not match_type:
+            return None
+        try:
+            similarity = float(sim_text)
+        except (TypeError, ValueError):
+            similarity = None
+        return {"match_type": match_type, "similarity": similarity,
+                "matched_fact_id": None, "tier": None}
+    return None
 
 
 # ── XTMEM lineage strictness ladders (v12.2.0) ────────────────────────
@@ -323,6 +362,23 @@ class CandidateService:
                 updated_at=? WHERE candidate_id=?""",
                 (status, reviewer_principal, reason, now, command.candidate_id),
             )
+            # roadmap #16 Tier-1 ADD-only 闸（warn-first）：审批是判重标记的
+            # 唯一消费点。此前 possible_duplicate:* 写进 uncertainty_json 后
+            # 全项目无人读——等于没接线。这里只留痕、不阻断：闸是观察件，
+            # 观察期拿它量"重复候选被批准的比例"，再决定是否升为拦。
+            if command.action == "approve":
+                gate = duplicate_review_gate(
+                    _hint_from_uncertainty(candidate["uncertainty_json"]))
+                if gate["flagged"]:
+                    connection.execute(
+                        """INSERT INTO audit_log(
+                            audit_id, occurred_at, actor_principal, action, resource_type,
+                            resource_id, request_id, outcome, detail_json
+                        ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                        (new_id(), now, reviewer_principal, "dedup.review_gate",
+                         "candidate", command.candidate_id, new_id(), "warn",
+                         canonical_json({"candidate_id": command.candidate_id, **gate})),
+                    )
             connection.execute(
                 """INSERT INTO review_actions(
                     review_id, candidate_id, action, reason, reviewer_principal,
