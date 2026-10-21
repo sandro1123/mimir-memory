@@ -63,6 +63,20 @@
   - `GET /v8/learning/candidates/{id}/pending` 单条全文详情（owner 边界
     照旧，未因新端点开洞）
   **列表 200 字截断不能用来拍板**——这是"全文详情"存在的理由，测试专钉。
+- **待审老化分级 + 告警接线**（issue #13，`6579302`）— **测出一个比原缺陷
+  更严重的事实**：生产 `mimir-v9.2-review-reminder.timer` 每 2 小时跑一次，
+  **每次都输出 `total: 0`**，而库里真躺 12 条 `human_review`。根因是
+  `releases/current` 仍指向 **1.3.0（2026-10-09）**，其 `review.py` 只查
+  `review_required` ⇒ **此前那笔可见性修复虽已进源码，但从未部署**。
+  本卡补齐即使部署后也缺的那半：
+  - `age_bucket()`：fresh（<24h）/ aging（<72h）/ stale（≥72h）
+  - `ReviewQueue.backlog_aging()`：分桶计数 + stale 候选 ID 清单 +
+    `needs_attention`（**仅 stale 存在时为真**——aging 不许天天喊，否则
+    告警自身变成噪声）
+  - `review_reminder` 输出 `aging`/`needs_attention` 与逐条 `age_bucket`
+    （此前只有一个 `oldest_wait_hours` 数字，"13 小时"与"13 天"读完分不出）
+  **回归钉子**：`total` 与 `aging.total` 必须同源——生产事故的形状正是
+  "总量 0 而实际有 12 条"这种自相矛盾的告警。
 
 ---
 
