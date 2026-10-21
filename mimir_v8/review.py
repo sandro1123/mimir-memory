@@ -19,6 +19,30 @@ from .store import CanonicalStore
 TZ = timezone(timedelta(hours=8))
 RISK_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
+# issue #13：待审老化分级（小时）。13 小时与 13 天在单一数字里几乎没区别，
+# 分级让告警自己说得出严重程度，而不是等人去读那个数。
+AGING_HOURS = 24.0    # 超过一天：开始引人注意，但还不到喊人的程度
+STALE_HOURS = 72.0    # 超过三天：该处理了
+AGE_BUCKETS = ("fresh", "aging", "stale")
+
+
+def age_bucket(wait_hours: float) -> str:
+    """把等待时长映射为分级：fresh / aging / stale。
+
+    边界取「含下界」：恰好 24h 即 aging，恰好 72h 即 stale。
+    """
+    if isinstance(wait_hours, bool) or not isinstance(wait_hours, (int, float)):
+        raise ValueError("wait_hours must be a number")
+    if wait_hours != wait_hours or wait_hours in (float("inf"), float("-inf")):
+        raise ValueError("wait_hours must be finite")
+    if wait_hours < 0:
+        raise ValueError("wait_hours must not be negative")
+    if wait_hours >= STALE_HOURS:
+        return "stale"
+    if wait_hours >= AGING_HOURS:
+        return "aging"
+    return "fresh"
+
 
 class UncertaintyParseError(ValueError):
     """Raised when uncertainty_json cannot be parsed as a valid type."""
@@ -204,6 +228,42 @@ class ReviewQueue:
             "updated_at": str(row["updated_at"] or ""),
             "uncertainty_json": row["uncertainty_json"],
             "uncertainty_error": uncertainty_error,
+        }
+
+    def backlog_aging(self, owner: str | None = None) -> dict:
+        """待审积压的老化画像（issue #13）。
+
+        为什么需要它：生产曾积压 12 条 human_review 达 13 天无人发现，
+        而原 `review_reminder` 只吐一个 ``oldest_wait_hours`` 数字——
+        "13 小时"与"13 天"在输出里长得几乎一样，读完也判断不了该不该动。
+
+        这里给分桶 + stale 的 ID 清单，让告警能自己说"有 N 条已过期"，
+        而不是等人去解读一个数。
+
+        ``needs_attention`` 只在出现 stale 时为真：aging 不该天天响，
+        否则告警本身变成噪声。
+        """
+        by_bucket = {b: 0 for b in AGE_BUCKETS}
+        stale_ids: list[str] = []
+        oldest_hours = 0.0
+
+        # 复用 list_pending 的过滤与 owner 作用域，避免两处口径分叉。
+        for item in self.list_pending(owner=owner, limit=500):
+            bucket = age_bucket(item.wait_hours)
+            by_bucket[bucket] += 1
+            if item.wait_hours > oldest_hours:
+                oldest_hours = item.wait_hours
+            if bucket == "stale":
+                stale_ids.append(item.candidate_id)
+
+        return {
+            "total": sum(by_bucket.values()),
+            "by_bucket": by_bucket,
+            "oldest_hours": round(oldest_hours, 1),
+            "oldest_days": round(oldest_hours / 24.0, 2),
+            "stale_candidate_ids": stale_ids,
+            "needs_attention": bool(stale_ids),
+            "thresholds_hours": {"aging": AGING_HOURS, "stale": STALE_HOURS},
         }
 
     def summarize(self, owner: str | None = None) -> ReviewQueueSummary:

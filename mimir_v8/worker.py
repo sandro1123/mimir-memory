@@ -19,7 +19,7 @@ from .evaluator import Evaluator
 from .extraction import EvidenceInput, ExtractionService
 from .learning import ConversationEnvelope, ConversationMessage, LearningService
 from .collectors import RSSCollector, WebCollector, WebCrawler
-from .review import ReviewQueue
+from .review import ReviewQueue, age_bucket
 from .reporting import ReportGenerator, DeepReader
 from .retention import RetentionService
 from .trust import TrustManager, TrustScore, SIGNAL_WEIGHTS
@@ -488,12 +488,18 @@ def review_reminder(store: CanonicalStore, owner: str | None = None) -> dict:
     """Check for pending candidates and return summary for notification."""
     queue = ReviewQueue(store)
     summary = queue.summarize(owner=owner)
+    # issue #13：老化分级。原输出只有一个 oldest_wait_hours 数字——生产上
+    # 12 条积压 13 天没人动，正是因为"13 天"读起来和"13 小时"没差别。
+    # 这里把分桶与"该管的那几条"一并吐出来，让告警自己说得清严重程度。
+    aging = queue.backlog_aging(owner=owner)
     return {
         "total": summary.total,
         "by_risk": summary.by_risk,
         "by_domain": summary.by_domain,
         "oldest_wait_hours": summary.oldest_wait_hours,
         "has_pending": summary.total > 0,
+        "aging": aging,
+        "needs_attention": aging["needs_attention"],
         "parse_error_count": len(summary.parse_errors),
         "parse_errors": summary.parse_errors[:20],
         "items": [
@@ -503,6 +509,8 @@ def review_reminder(store: CanonicalStore, owner: str | None = None) -> dict:
                 "risk": i.risk,
                 "domain": i.proposed_domain,
                 "wait_hours": i.wait_hours,
+                "status": i.status,
+                "age_bucket": age_bucket(i.wait_hours),
             }
             for i in summary.items[:10]
         ],
