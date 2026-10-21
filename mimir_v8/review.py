@@ -39,6 +39,10 @@ class ReviewItem:
     wait_hours: float
     evidence_count: int
     uncertainty_error: str = ""
+    # issue #13：状态必须逐条暴露。human_review 是"等人工拍板"，
+    # review_required 是"等评估"，两者混在一个列表里会让审阅人分不清
+    # 哪条真在等自己。
+    status: str = "review_required"
 
 
 @dataclass
@@ -77,9 +81,9 @@ class ReviewQueue:
                 SELECT c.candidate_id, c.content, c.summary,
                        c.proposed_owner_principal, c.proposed_domain,
                        c.proposed_fact_type, c.uncertainty_json,
-                       c.created_at
+                       c.created_at, c.status
                 FROM candidate_facts c
-                WHERE c.status = 'review_required'
+                WHERE c.status IN ('review_required', 'human_review')
             """
             params: list[Any] = []
             if owner:
@@ -138,6 +142,7 @@ class ReviewQueue:
                     wait_hours=round(wait, 1),
                     evidence_count=evidence_count,
                     uncertainty_error=uncertainty_error,
+                    status=str(row["status"] or "review_required"),
                 ))
 
         items.sort(key=lambda x: (RISK_ORDER.get(x.risk, 99), -x.wait_hours))

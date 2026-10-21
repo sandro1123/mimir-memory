@@ -846,11 +846,18 @@ def review_requeue(store: CanonicalStore, actor_principal: str, *, dry_run: bool
     """P0-1 fix: requeue stuck human_review candidates back to review_required.
 
     governance routes candidates into human_review, but no consumer accepts that
-    status (review_candidate / ReviewQueue / run_governance_once all only read
-    review_required), so they deadlock. This puts them back into the pipeline so
-    governance re-evaluates: noise/duplicates get auto-rejected, low-risk value
-    goes provisional -> fast_track, only genuinely ambiguous ones return to
-    human_review (now consumable via the review endpoint).
+    status (review_candidate / run_governance_once only read review_required),
+    so they deadlock. This puts them back into the pipeline so governance
+    re-evaluates: noise/duplicates get auto-rejected, low-risk value goes
+    provisional -> fast_track, only genuinely ambiguous ones return to
+    human_review.
+
+    NOTE (2026-10-21, issue #13): this docstring used to claim human_review was
+    "now consumable via the review endpoint". That was **not true** — ReviewQueue
+    only read review_required, so human_review items were invisible to humans
+    (production: 12 stuck, oldest 13 days). ReviewQueue now includes
+    human_review, so a human *can* see and act on them. Requeueing is therefore
+    optional recovery, not the only path out.
 
     Every change writes a candidate.requeued memory event (event-sourcing rule:
     never silently UPDATE history).
