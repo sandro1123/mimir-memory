@@ -49,6 +49,20 @@
   （对它们用摘要当键 = content_hash 的前缀，零增量）；剩余 150 条显式
   摘要按规范化标题键分组，**重复组为 0**。结论：**不做**，避免无收益的
   索引与迁移成本。
+- **待审积压：逐条处理面 + HTTP 端点**（issue #13，`329d0a0`）—
+  **先测后改，测出的结论推翻了原计划**：原打算做"积压批量清仓"，
+  实测 12 条 human_review 积压是 **12/12 都成功评估过**（risk
+  low×5 / medium×5 / high×2）、内容全为真事实、**0/12 已在 canonical**
+  ⇒ 这不是"流水线坏了"，而是**治理按设计送进人工队列、但没人来处理**。
+  批量 reject 会**永久丢掉 12 条真事实**，故放弃该方向。
+  改为逐条可处理：
+  - `ReviewQueue.get_pending_item()` 返回**全文** + 风险/等待/不确定性
+    上下文；只读，终态（committed/rejected/…）不可经此口子捞回待办
+  - `GET /v8/learning/candidates/pending` 待审队列（含 human_review，
+    owner 作用域）
+  - `GET /v8/learning/candidates/{id}/pending` 单条全文详情（owner 边界
+    照旧，未因新端点开洞）
+  **列表 200 字截断不能用来拍板**——这是"全文详情"存在的理由，测试专钉。
 
 ---
 
