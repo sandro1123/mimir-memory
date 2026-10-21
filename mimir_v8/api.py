@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -38,6 +38,7 @@ from .core_memory import (
     RetireCoreMemory,
 )
 from .query import QueryKernel, QueryRequest
+from .review import ReviewQueue
 from .schema import (
     CreateFact,
     GrantFactAccess,
@@ -1263,6 +1264,43 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             raise NotFoundError(candidate_id)
         if not identity.can_act_as(candidate["proposed_owner_principal"]):
             raise AuthError("cannot govern another principal's candidate", 403, "owner_boundary")
+
+    @app.get("/v8/learning/candidates/pending")
+    @app.get("/v8/candidates/pending")
+    def pending_review_queue(
+        owner: str | None = None,
+        domain: str | None = None,
+        risk: str | None = None,
+        limit: int = Query(default=50, ge=1, le=500),
+        identity: Principal = Depends(scoped("review")),
+    ):
+        """待审队列（issue #13）：含 human_review，否则人工看不见积压。
+
+        生产实测曾有 12 条 human_review 积压因只查 review_required 而完全
+        隐形。owner 作用域沿用与其他候选端点一致的边界。
+        """
+        queue = ReviewQueue(context.store)
+        items = queue.list_pending(
+            owner=owner or identity.principal_id,
+            domain=domain, risk=risk, limit=limit)
+        visible = [i for i in items
+                   if identity.is_admin or identity.can_act_as(i.proposed_owner)]
+        return {
+            "items": [asdict(i) for i in visible],
+            "count": len(visible),
+        }
+
+    @app.get("/v8/learning/candidates/{candidate_id}/pending")
+    def pending_review_detail(candidate_id: str,
+                              identity: Principal = Depends(scoped("review"))):
+        """单条待审详情（含**全文**）。列表是 200 字截断，拍板必须看全文。"""
+        queue = ReviewQueue(context.store)
+        detail = queue.get_pending_item(candidate_id)
+        if detail is None:
+            raise NotFoundError(candidate_id)
+        if not identity.can_act_as(detail["proposed_owner"]):
+            raise AuthError("cannot review another principal's candidate", 403, "owner_boundary")
+        return detail
 
     @app.post("/v8/learning/candidates/{candidate_id}/review")
     @app.post("/v8/candidates/{candidate_id}/review")

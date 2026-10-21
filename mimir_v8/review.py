@@ -148,6 +148,64 @@ class ReviewQueue:
         items.sort(key=lambda x: (RISK_ORDER.get(x.risk, 99), -x.wait_hours))
         return items
 
+    def get_pending_item(self, candidate_id: str) -> dict | None:
+        """取单条待审候选的**全文**与拍板上下文（issue #13）。
+
+        ``list_pending`` 出于列表体积把 ``content`` 截到 200 字；人工要判
+        一条事实该不该进库，看截断的正文等于闭眼签。此处返回完整 content
+        及风险/等待/不确定性等拍板所需字段。
+
+        只读：不改任何状态。终态（committed/rejected/...）不属待审，返回
+        None——不得经此口子把已处理过的候选重新捞回"待办"。
+        """
+        if not isinstance(candidate_id, str) or not candidate_id.strip():
+            return None
+        with closing(self.store.connect()) as connection:
+            row = connection.execute(
+                """SELECT candidate_id, content, summary, status,
+                          proposed_owner_principal, proposed_domain,
+                          proposed_fact_type, uncertainty_json,
+                          created_at, updated_at
+                   FROM candidate_facts
+                   WHERE candidate_id=? AND status IN
+                         ('review_required', 'human_review')""",
+                (candidate_id.strip(),),
+            ).fetchone()
+        if not row:
+            return None
+
+        uncertainty: dict = {}
+        uncertainty_error = ""
+        try:
+            uncertainty = self._parse_uncertainty(row["uncertainty_json"])
+        except UncertaintyParseError as exc:
+            uncertainty_error = str(exc)
+
+        wait_hours = 0.0
+        try:
+            created = self._parse_created_at(row["created_at"])
+            wait_hours = round(max(0.0, (datetime.now(TZ) - created).total_seconds() / 3600), 1)
+        except ValueError as exc:
+            uncertainty_error = self._join_errors(uncertainty_error, str(exc))
+
+        return {
+            "candidate_id": row["candidate_id"],
+            "status": str(row["status"] or ""),
+            "content": str(row["content"] or ""),
+            "summary": str(row["summary"] or ""),
+            "proposed_owner": str(row["proposed_owner_principal"] or ""),
+            "proposed_domain": str(row["proposed_domain"] or ""),
+            "proposed_fact_type": str(row["proposed_fact_type"] or ""),
+            "risk": self._infer_risk(
+                row["proposed_fact_type"], row["proposed_domain"], uncertainty),
+            "salience": self._infer_salience(uncertainty),
+            "wait_hours": wait_hours,
+            "created_at": str(row["created_at"] or ""),
+            "updated_at": str(row["updated_at"] or ""),
+            "uncertainty_json": row["uncertainty_json"],
+            "uncertainty_error": uncertainty_error,
+        }
+
     def summarize(self, owner: str | None = None) -> ReviewQueueSummary:
         items = self.list_pending(owner=owner)
         by_risk: dict[str, int] = {}
