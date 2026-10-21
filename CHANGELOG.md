@@ -33,6 +33,22 @@
   `current_version` 与内容均不变，新内容走新建而非改写。
   收紧为拦阻留待观测真实噪声分布后进行（"没见过噪声分布就拦"按本条
   自己的纪律不许）。
+- **pending 治理面：human_review 此前对人工完全隐形**（roadmap #16
+  Tier-2 / issue #13，`8d599a8`）— **实测病根，非推测**：生产库
+  `review_required` **0 条**、`human_review` **12 条积压**（最长 13 天，
+  全为 `automatic_extraction_requires_review`），而 `ReviewQueue`
+  只查 `review_required` ⇒ **这 12 条人工一条都看不见**。
+  `worker.py:review_requeue` 的 docstring 曾宣称"now consumable via the
+  review endpoint"——**该断言不成立**，已改正。
+  修：`list_pending`/`summarize` 纳入 `human_review`，并逐条暴露
+  `ReviewItem.status`（"等评估"与"等人工拍板"必须分得清）；
+  `committed`/`rejected`/`provisional` 仍排除（不制造噪声）。
+  排队不再依赖 `review_requeue` 这一条独木桥。
+- **Tier-0「规范化标题键」实测后放弃**（先量后写）— 造 Keys 之前先量：
+  生产 808 条 active facts 中 658 条 summary 是 `content[:200]` 的派生值
+  （对它们用摘要当键 = content_hash 的前缀，零增量）；剩余 150 条显式
+  摘要按规范化标题键分组，**重复组为 0**。结论：**不做**，避免无收益的
+  索引与迁移成本。
 
 ---
 
