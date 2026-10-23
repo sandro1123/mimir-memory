@@ -584,12 +584,32 @@ class QueryKernel:
                     issued_refs=[r["fact_id"] for r in top_results],
                 )
             }
+        # roadmap #14 预算诚实：默认路径也必须显式说明"你比候选少看了多少、
+        # 为什么"。此前 `results[:limit]` 静默截断，调用方只能自己拿
+        # candidate_count 相减，且推不出原因——这正是"载荷被缩减却无解释"
+        # 的形态（claude-mem 的失败模式是它的强化版：换成 stub 还报 success）。
+        # 这里口径与 candidate_count 同源，避免两处算法分叉。
+        candidates_total = len(ranked)
+        returned = len(out_results)
+        dropped = max(0, candidates_total - returned)
+        drop_reasons: dict = {}
+        if dropped:
+            drop_reasons["limit"] = dropped
+        budget = {
+            "requested": request.limit,
+            "candidates": candidates_total,
+            "returned": returned,
+            "dropped": dropped,
+            "exceeded": dropped > 0,
+            "drop_reasons": drop_reasons,
+        }
         return {
             "query": query,
             "principal_id": request.principal_id,
             "recall_verdict": verdict,
             "injection_safe_wrap": INJECTION_SAFE_WRAP,
             "results": out_results,
+            "budget": budget,
             "candidate_count": len(ranked),
             "filtered": filtered,
             "filters": {
