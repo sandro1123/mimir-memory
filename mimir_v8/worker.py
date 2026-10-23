@@ -306,6 +306,77 @@ def _extract_source_quotas() -> dict[str, int]:
     return quotas
 
 
+#: 抽取上下文的字符上限（保留原 4000 护栏的同等量级）。
+_EXTRACT_CONTEXT_MAX = 4000
+_ROLE_LABEL = {"user": "[User]", "assistant": "[Assistant]"}
+
+
+def build_extraction_context(messages: list[dict]) -> str:
+    """把一段会话拼成**双向**抽取上下文（roadmap 修复，2026-10-23）。
+
+    病根：此前查询写死 ``role='user'``，Assistant 给出的方案、工具推荐、
+    架构建议**完全进不了抽取模型**——而这些恰恰是最该沉淀的知识。
+
+    输出形如 ``[User]: ...\\n[Assistant]: ...``；角色标签不可省：模型必须
+    分得清"用户诉求"与"助手建议"，否则会把推荐当成用户偏好。
+
+    超长时保留 head 2000 + tail 2000（沿用 v14.2.1-3 的采样策略：
+    vault 笔记类正文 10k+ 字符，只留头部会丢掉结论）。
+    """
+    parts: list[str] = []
+    for m in messages or []:
+        role = str(m.get("role") or "").strip().lower()
+        text = str(m.get("content_redacted") or "").strip()
+        if not text:
+            continue
+        label = _ROLE_LABEL.get(role, f"[{role or 'unknown'}]")
+        parts.append(f"{label}: {text}")
+    combined = "\n".join(parts)
+    if len(combined) > _EXTRACT_CONTEXT_MAX:
+        half = _EXTRACT_CONTEXT_MAX // 2
+        combined = combined[:half] + "\n...\n" + combined[-half:]
+    return combined
+
+
+def resolve_fact_content(summary: str, context: str) -> str:
+    """决定落成事实的正文——摘要丢了实体时回退到原文。
+
+    为什么需要这一步：`extract_candidate` 此前只拿 ``summary`` 当正文。
+    模型若把摘要写成"用户询问 NAS 视频压缩软件"，**Tdarr 这个实体就
+    永远不会进事实**——即使上下文与提示词都已修好，入库的仍是不含
+    实体的那句话。
+
+    判据只做一件事：摘要明显比原文短、且原文里有一串**在摘要中不存在**
+    的专名（ASCII 标识符，如 Tdarr / FFmpeg），则以原文为准。
+    纯中文摘要不触发（无法可靠判定"专名"），避免无谓替换。
+    """
+    summary = (summary or "").strip()
+    context = (context or "").strip()
+    if not summary:
+        return context
+    if not context:
+        return summary
+    try:
+        import re as _re
+        # 只认"像专名"的标识符：首字母大写或带数字/连字符的 ASCII 词。
+        # 全大写短词（NAS/CPU）常是领域缩写，模型摘要未必写，不算丢失。
+        raw_idents = set(_re.findall(r"[A-Za-z][A-Za-z0-9_.+-]{2,}", context))
+        idents = {
+            t for t in raw_idents
+            if not (t.isupper() and len(t) <= 5)
+        }
+        if idents:
+            summary_low = summary.lower()
+            lost = [t for t in idents if t.lower() not in summary_low]
+            # 原文里有具体专名、摘要一个都没提 → 实体被摘要丢了，回退原文。
+            # 摘要若已含任一专名（如提到 Tdarr 但没提 FFmpeg），尊重摘要。
+            if lost and len(lost) == len(idents):
+                return context
+    except Exception:  # noqa: BLE001 - 判定失败退回原行为，不阻断抽取
+        pass
+    return summary
+
+
 def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int = 10, salience_threshold: float = 0.3) -> dict:
     """LLM-powered extraction with higher recall than keyword rules."""
     if limit < 1 or limit > 50:
@@ -378,16 +449,15 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
 
         with contextlib.closing(store.connect()) as connection:
             messages = [dict(m) for m in connection.execute(
-                "SELECT content_redacted FROM conversation_messages WHERE source_id=? AND role='user' ORDER BY ordinal LIMIT 20",
+                "SELECT role, content_redacted FROM conversation_messages"
+                " WHERE source_id=? AND role IN ('user','assistant')"
+                " ORDER BY ordinal LIMIT 20",
                 (row["source_id"],),
             ).fetchall()]
 
-        combined = " ".join(str(m.get("content_redacted", "") or "") for m in messages if m.get("content_redacted"))
-        # v14.2.1-3 long-content sampling: vault notes run 10k+ chars;
-        # whole-body feeds waste tokens and drop the tail. Over 4000:
-        # keep head 2000 + tail 2000 (YAML metadata head, conclusion tail).
-        if len(combined) > 4000:
-            combined = combined[:2000] + "\n...\n" + combined[-2000:]
+        # 双向对话：只拉 user 会把 Assistant 的方案/工具推荐全部丢掉
+        # （2026-10-23 修复）。截断护栏在 build_extraction_context 内。
+        combined = build_extraction_context(messages)
         if not combined:
             # mark extracted so empty sessions do not clog the queue forever
             with store.transaction() as connection:
@@ -469,8 +539,10 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
                 run_id=run_id,
                 source_id=row["source_id"],
                 actor_principal=actor_principal,
-                content=eval_result.summary or combined[:200],
-                summary=eval_result.summary[:200],
+                # 摘要丢掉实体（如 Tdarr）时回退到原文——否则抽取修好了，
+                # 入库的仍是不含实体的那句摘要。
+                content=resolve_fact_content(eval_result.summary, combined),
+                summary=(eval_result.summary or combined[:200])[:200],
                 owner_principal=row["owner_principal"],
                 domain=safe_domain,
                 fact_type=safe_fact_type,
