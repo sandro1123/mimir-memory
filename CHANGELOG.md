@@ -58,6 +58,28 @@ systemctl restart mimir.service
 
 ### 未发布的代码改动
 
+- **判重闸部署 + 拦阻启用**（2026-10-23）— 新 release
+  `1.3.0-gate-20261023_133454`，`MIMIR_DEDUP_GATE=block_strong` 已开启。
+  切换前在临时库验证四项：默认放行 / 拦阻生效 / 被拦候选仍可审 /
+  审计留痕（`warn`+`blocked` 并存）。
+
+  **部署中发现并修复的真实缺口**：`governance.py` 的 `fast_track` 走
+  **自动 approve + commit**，且运行在**独立的 `mimir-v9.2-governance.service`**
+  中，不继承 `mimir.service` 的环境变量。只给 `mimir.service` 挂开关的话，
+  闸对生产最主要的审批流量**完全失效**。
+
+  实测证据：生产已发生 **456 次** fast_track 自动审批，其中 **1 条**
+  带判重标记却仍被入库——`6d9b622f`，相似度 `0.7037`（update 带）。
+  现已给 governance 服务补上同样的 drop-in。
+
+  **回滚**（两条都撤即恢复 warn）：
+  ```
+  sudo rm /etc/systemd/system/mimir.service.d/10-dedup-gate.conf
+  sudo rm /etc/systemd/system/mimir-v9.2-governance.service.d/10-dedup-gate.conf
+  sudo systemctl daemon-reload && sudo systemctl restart mimir.service
+  ```
+
+
 - **ADD-only 闸收紧为可拦阻**（roadmap #17 第 2 步 / issue #11，`cae2456`）
   — #11 自身纪律是「先只告警观察，验证无噪声后再收紧」，而**观察条件
   已满足**：2026-10-22 实测生产 15 条积压中携带 `possible_duplicate` 标记
