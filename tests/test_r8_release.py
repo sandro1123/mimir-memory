@@ -90,7 +90,7 @@ class TestKnowledgeLayerConfiguration(unittest.TestCase):
         # 注意：这与「版本号断言禁止写死」不冲突——那条规则针对的是
         # **校验逻辑**里用硬编码判断"版本是否合法"；这里是**发布身份
         # 闸门**，写死正是目的：改版本号而忘了走发布审视，本测试就红。
-        self.assertEqual(MIMIR_VERSION, "1.4.0")
+        self.assertEqual(MIMIR_VERSION, "1.4.1")
         # 原 `SCHEMA_VERSION == 20` 已删：schema 提版是开发期常规动作，
         # 硬编码在此产生的是必假红而非闸门。真守卫由 test_p0o 承担且更强
         # （断言运行时 schema 已在迁移链目标集内，提版忘配迁移段即红）。
