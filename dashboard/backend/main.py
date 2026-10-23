@@ -54,6 +54,7 @@ CODENAMES = {
     "1.1.0": "Trust & Interop · 信任与互通",
     "1.2.0": "Entity & Profile · 实体与画像",
     "1.3.0": "Ecosystem · 生态",
+    "1.4.0": "Legibility · 可读性",
 }
 CODENAME_FALLBACK = "未登记（版本代号表缺此号）"
 

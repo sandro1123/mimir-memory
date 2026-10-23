@@ -6,10 +6,18 @@
 
 ---
 
-## v1.4.0（进行中）· 可读性与信任度 · 未发布
+## v1.4.0 — 2026-10-23 · Legibility · 可读性
 
-> 按路线图逐条推进中；下面只记已上线且 CI 绿的部分，未完成的
-> 条目留在对应 issue 里不在此宣称。
+> **内核**：护城河（ACL/账本/谱系/诚实遥测）原先只对**人类**可见——
+> 1.3.0 建了 Dashboard 那半边，没建 **agent 消费的半边**。本版补的是
+> 「召回为什么命中、以什么代价命中、超预算时到底丢了什么」。
+>
+> **本版完成 3/4 项**：#12 召回解释、#13 三段式渐进披露、#14 预算诚实。
+> **#15 控制台 v2 余项（联邦 tab / 实体图 / 谱系链浏览器）顺延至下版**
+> ——它是可视化，不影响正确性。
+>
+> 同批落地但**归属 1.5.0 路线图**的工作（pending 治理面、判重三档、
+> ADD-only 闸）不计入本版承诺，详见下方「未发布的代码改动」。
 
 ### 生产部署记录（2026-10-22）
 
@@ -56,7 +64,30 @@ ln -sfn ~/.hermes/mimir/releases/1.3.0-20261009_102805 ~/.hermes/mimir/releases/
 systemctl restart mimir.service
 ```
 
-### 未发布的代码改动
+### 本版交付
+
+- **召回解释的机器可读面**（roadmap #12 / issue #6）— `recall_explanation`
+  定版对象：逐条 fact 带来源层/锚/通道/排序理由，带 `schema_version`，
+  按声明预算封顶。逐条理由**直接取自既有 `score_explanation`，不另造
+  语义**——人机共用一份真相，测试钉 TopK hits 相等。
+- **三段式渐进披露**（roadmap #13 / issue #7）— 服务端持有 HMAC 签名游标
+  （**不建会话表**：会话表本身会成为新积压源）；`detail="index"` 回索引段
+  并下发游标，`/v8/query/expand` 按选中 ID 展开全文。三种拒绝同族于
+  `CursorError`：任意 ID（结构性排除，只放发放过的 ref）/ 改范围（查询
+  语义指纹）/ 过期伪造。**默认 `detail="full"` 逐字节不变**。
+- **预算诚实**（roadmap #14 / issue #8，`2565ca0`）— **先量后写**：
+  `recall_explanation` 里早有 `declared_budget`/`used`/`dropped`，但只在
+  `include_trace=True` 时出现；**默认路径 `results[:limit]` 是静默截断**，
+  返回只有 `candidate_count` 与 `results`，调用方得自己相减且推不出原因。
+  现每条响应都带：
+  ```
+  budget = {requested, candidates, returned, dropped, exceeded, drop_reasons}
+  ```
+  `candidates` 与 `candidate_count`**同源**，两处口径不会漂移。
+  这正是 #14 要防的形态：载荷被缩减却没有随载荷给出解释
+  （claude-mem 的失败模式是它的强化版：换成 stub 还报 success）。
+
+### 其他落地（归属 1.5.0 路线图，不计入本版承诺）
 
 - **判重闸部署 + 拦阻启用**（2026-10-23）— 新 release
   `1.3.0-gate-20261023_133454`，`MIMIR_DEDUP_GATE=block_strong` 已开启。
