@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from contextlib import closing
 from typing import Any
@@ -78,6 +79,30 @@ def _tier0_exact(store: CanonicalStore, content: str, owner: str) -> dict | None
         if crow:
             return {"fact_id": crow[0], "content": crow[1]}
     return None
+
+
+_GATE_MODES = ("warn", "block_strong", "off")
+
+
+def gate_mode() -> str:
+    """审批闸工作模式（issue #11 第 2 步）。
+
+    观察期已满：2026-10-22 实测生产 `human_review` 积压 15 条中携带
+    ``possible_duplicate`` 标记的 **0 条**——噪声为零，具备收紧条件。
+    但收紧仍是**显式开关**，默认不动：
+
+      - ``warn``（默认）：只留审计痕，不拦（与从前逐字节一致）
+      - ``block_strong``：Tier-0 精确重复**拒绝**审批；Tier-1 模糊仍只告警
+      - ``off``：完全静默（紧急回退用）
+
+    未知取值直接抛错——开关写错却静默退回默认，会让人以为"我开了拦阻"
+    而实际仍在放行。
+    """
+    raw = os.environ.get("MIMIR_DEDUP_GATE", "warn").strip().lower()
+    if raw not in _GATE_MODES:
+        raise ValueError(
+            f"invalid MIMIR_DEDUP_GATE={raw!r}; expected one of {_GATE_MODES}")
+    return raw
 
 
 def duplicate_review_gate(hint: dict | None) -> dict:

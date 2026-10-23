@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, replace
 
-from .dedup import check_duplicate, duplicate_review_gate
+from .dedup import check_duplicate, duplicate_review_gate, gate_mode
 from .schema import CreateFact
 from .store import CanonicalStore, ConflictError, NotFoundError, canonical_json, new_id, sha256_text, utc_now
 
@@ -15,6 +15,23 @@ logger = logging.getLogger(__name__)
 
 class CandidatePolicyError(ValueError):
     """Raised when candidate governance policy rejects an operation."""
+
+
+class DuplicateBlocked(CandidatePolicyError):
+    """审批被判重闸拦下（issue #11 第 2 步，`MIMIR_DEDUP_GATE=block_strong`）。
+
+    被拦的候选**不改变任何状态**，原样留在待审队列——人可以换个理由
+    处理它，或先确认旧事实。静默吞掉（改成 approved 或直接消失）比
+    不拦更坏：那样人就再也没机会处理它了。
+    """
+
+    def __init__(self, candidate_id: str, gate: dict):
+        self.candidate_id = candidate_id
+        self.gate = gate
+        super().__init__(
+            f"duplicate blocked: candidate {candidate_id} "
+            f"({gate.get('match_type')} / {gate.get('level')} / "
+            f"matched={gate.get('matched_fact_id')})")
 
 
 _DUP_MARKER_PREFIX = "possible_duplicate:"
@@ -353,6 +370,39 @@ class CandidateService:
                 "reason_hash": sha256_text(reason),
                 "request_fingerprint": fingerprint,
             }
+            # roadmap #16 Tier-1 ADD-only 闸：审批是判重标记的唯一消费点。
+            # 此前 possible_duplicate:* 写进 uncertainty_json 后全项目无人读
+            # ——等于没接线。现有三档模式（issue #11 第 2 步）：
+            #   warn（默认） 只留痕不拦
+            #   block_strong Tier-0 精确重复拒批（Tier-1 模糊仍只告警）
+            #   off          完全静默
+            #
+            # 拦截判定必须在任何状态写入**之前**：事务内抛异常会连 audit
+            # 一起回滚，"被拦"事后查不到（坏着不报的同族）；而不回滚又会
+            # 把候选改成 approved，人就再没法处理它。故：先判 → 写痕 →
+            # 提交 audit → 抛；此时候选尚未被改动，天然保持可审。
+            mode = gate_mode()
+            if command.action == "approve" and mode != "off":
+                gate = duplicate_review_gate(
+                    _hint_from_uncertainty(candidate["uncertainty_json"]))
+                if gate["flagged"]:
+                    blocking = (mode == "block_strong"
+                                and gate["level"] == "strong_warn")
+                    connection.execute(
+                        """INSERT INTO audit_log(
+                            audit_id, occurred_at, actor_principal, action, resource_type,
+                            resource_id, request_id, outcome, detail_json
+                        ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                        (new_id(), now, reviewer_principal, "dedup.review_gate",
+                         "candidate", command.candidate_id, new_id(),
+                         "blocked" if blocking else "warn",
+                         canonical_json({"candidate_id": command.candidate_id,
+                                         "mode": mode, **gate})),
+                    )
+                    if blocking:
+                        # 先把 audit 落盘再抛：回滚不得吞掉"我拦了它"的痕迹。
+                        connection.commit()
+                        raise DuplicateBlocked(command.candidate_id, gate)
             event_seq = self._insert_event(
                 connection, event_id, command.candidate_id, 2, event_type,
                 reviewer_principal, key, now, payload,
@@ -362,23 +412,6 @@ class CandidateService:
                 updated_at=? WHERE candidate_id=?""",
                 (status, reviewer_principal, reason, now, command.candidate_id),
             )
-            # roadmap #16 Tier-1 ADD-only 闸（warn-first）：审批是判重标记的
-            # 唯一消费点。此前 possible_duplicate:* 写进 uncertainty_json 后
-            # 全项目无人读——等于没接线。这里只留痕、不阻断：闸是观察件，
-            # 观察期拿它量"重复候选被批准的比例"，再决定是否升为拦。
-            if command.action == "approve":
-                gate = duplicate_review_gate(
-                    _hint_from_uncertainty(candidate["uncertainty_json"]))
-                if gate["flagged"]:
-                    connection.execute(
-                        """INSERT INTO audit_log(
-                            audit_id, occurred_at, actor_principal, action, resource_type,
-                            resource_id, request_id, outcome, detail_json
-                        ) VALUES(?,?,?,?,?,?,?,?,?)""",
-                        (new_id(), now, reviewer_principal, "dedup.review_gate",
-                         "candidate", command.candidate_id, new_id(), "warn",
-                         canonical_json({"candidate_id": command.candidate_id, **gate})),
-                    )
             connection.execute(
                 """INSERT INTO review_actions(
                     review_id, candidate_id, action, reason, reviewer_principal,
