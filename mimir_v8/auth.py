@@ -66,23 +66,30 @@ class TokenStore:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self._lock = threading.RLock()
-        self._mtime_ns: int | None = None
+        self._digest: str | None = None
         self._records: tuple[tuple[str, Principal], ...] = ()
 
     def _load(self) -> None:
-        try:
-            stat = self.path.stat()
-        except FileNotFoundError as exc:
-            raise AuthError("authentication is not configured", 503, "auth_unavailable") from exc
-        if self._mtime_ns == stat.st_mtime_ns and self._records:
-            return
         with self._lock:
             try:
-                stat = self.path.stat()
-                data = json.loads(self.path.read_text(encoding="utf-8"))
-            except (OSError, ValueError, TypeError) as exc:
-                # P0-N：fail closed 保持，但失败必须可观测（嘟嘟判例：
-                # 静默失败=运维盲飞）。原子写协议见 atomic_write_registry。
+                registry_bytes = self.path.read_bytes()
+            except FileNotFoundError as exc:
+                raise AuthError("authentication is not configured", 503, "auth_unavailable") from exc
+            except OSError as exc:
+                logging.getLogger(__name__).warning(
+                    "token registry reload failed (path=%s): %s — "
+                    "use mimir_v8.auth.atomic_write_registry for updates",
+                    self.path, type(exc).__name__)
+                raise AuthError("authentication registry is invalid", 503, "auth_unavailable") from exc
+
+            registry_digest = hashlib.sha256(registry_bytes).hexdigest()
+            if self._digest == registry_digest and self._records:
+                return
+            try:
+                data = json.loads(registry_bytes.decode("utf-8"))
+            except (UnicodeDecodeError, ValueError, TypeError) as exc:
+                # Atomic replacements are still required; parsing the bytes just read ensures
+                # invalid/partial writes fail closed rather than preserving stale authorization.
                 logging.getLogger(__name__).warning(
                     "token registry reload failed (path=%s): %s — "
                     "use mimir_v8.auth.atomic_write_registry for updates",
@@ -116,7 +123,7 @@ class TokenStore:
             if not records:
                 raise AuthError("authentication has no principals", 503, "auth_unavailable")
             self._records = tuple(records)
-            self._mtime_ns = stat.st_mtime_ns
+            self._digest = registry_digest
 
     def validate(self) -> int:
         self._load()

@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from .store import CanonicalStore
+from .store import CanonicalStore, NotFoundError
 from .relevance import RelevanceGate
 from .schema import DECAY_HALF_LIFE
 from .dedup import jaccard_similarity
@@ -569,7 +569,7 @@ class QueryKernel:
                    "found" if top_results else "not_found",
                    len(top_results), {"limit": request.limit})
         # 1.0-C3：出口包裹官方模板
-        # 1.4.0 #13：detail="index" 时**只回索引段**，并下发服务端持有的
+        # 1.4.0 #13：detail="index" 时**只回索引段**，并下发绑定主体的
         # 签名游标；detail 默认 "full" 时此处一字不变（零破坏）。
         out_results = top_results
         cursor_block: dict = {}
@@ -580,6 +580,7 @@ class QueryKernel:
                 "recall_cursor": mint_cursor(
                     self.cursor_secret,
                     scope=self._cursor_scope(request),
+                    principal_id=request.principal_id,
                     offset=0,
                     issued_refs=[r["fact_id"] for r in top_results],
                 )
@@ -674,31 +675,19 @@ class QueryKernel:
         }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
-    def expand(self, cursor: str, fact_ids: list[str],
-               *, expected_scope: str | None = None) -> dict:
-        """按游标 + 选中 ID 展开全文（三段式的第三段）。
+    def expand(self, cursor: str, fact_ids: list[str], *, principal_id: str,
+               is_admin: bool = False, roles: set[str] | None = None,
+               expected_scope: str | None = None) -> dict:
+        """Expand only facts still readable by the principal who presents the cursor."""
+        from .recall_cursor import CursorError, verify_cursor
 
-        三种拒绝（issue #7）：
-        - **任意 ID**：只能展开游标里 `issued_refs` 发放过的条目
-        - **改范围**：`expected_scope` 与游标 scope 不符即拒
-        - **过期/伪造**：签名或 TTL 不过
-
-        `expected_scope` 由调用方传入**它认为自己在续的那个查询**的
-        scope（`QueryKernel.cursor_scope(request)`）；不传则信任游标
-        自身（仅校验签名与 TTL）。
-        """
-        from .recall_cursor import verify_cursor
-
-        if expected_scope is None:
-            payload = self._verify_cursor_any_scope(cursor)
-        else:
-            payload = verify_cursor(self.cursor_secret, cursor,
-                                    scope=expected_scope)
+        payload = verify_cursor(
+            self.cursor_secret, cursor, scope=expected_scope,
+            principal_id=principal_id,
+        )
         issued = set(payload.get("issued_refs", []))
-
         unauthorized = [fid for fid in fact_ids if fid not in issued]
         if unauthorized:
-            from .recall_cursor import CursorError
             raise CursorError(
                 f"只能展开本次召回发放过的条目，越界 {len(unauthorized)} 条"
             )
@@ -707,8 +696,12 @@ class QueryKernel:
         for fid in fact_ids:
             try:
                 fact = self.store.get_fact(fid)
-            except Exception:
-                continue
+            except NotFoundError as exc:
+                raise CursorError("事实已不可用或当前主体无权读取") from exc
+            if fact.get("status") != "active" or not self.store.can_read(
+                fid, principal_id, is_admin=is_admin, roles=roles,
+            ):
+                raise CursorError("事实已不可用或当前主体无权读取")
             results.append({
                 "fact_id": fid,
                 "content": fact["content"],
@@ -719,35 +712,6 @@ class QueryKernel:
                 "version": fact["current_version"],
             })
         return {"results": results, "expanded": len(results)}
-
-    def _verify_cursor_any_scope(self, cursor: str) -> dict:
-        """校验签名与 TTL，但不校验 scope（用于未声明续哪个查询的场景）。"""
-        from .recall_cursor import CURSOR_VERSION, CursorExpired, CursorSignatureInvalid
-        import base64
-        import hashlib
-        import hmac
-        import json as _json
-        import time as _time
-
-        def b64e(raw: bytes) -> str:
-            return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
-
-        def b64d(text: str) -> bytes:
-            return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
-
-        if not isinstance(cursor, str) or "." not in cursor:
-            raise CursorSignatureInvalid("游标格式非法")
-        body, _, sig = cursor.rpartition(".")
-        expect = b64e(hmac.new(self.cursor_secret, body.encode("ascii"),
-                               hashlib.sha256).digest())
-        if not hmac.compare_digest(sig, expect):
-            raise CursorSignatureInvalid("游标签名不匹配")
-        payload = _json.loads(b64d(body))
-        if payload.get("v") != CURSOR_VERSION:
-            raise CursorSignatureInvalid("游标版本不认识")
-        if int(payload.get("exp", 0)) < int(_time.time()):
-            raise CursorExpired("游标已过期")
-        return payload
 
     def cursor_scope(self, request: QueryRequest) -> str:
         """公开的 scope 计算入口，供调用方声明"我在续哪个查询"。"""

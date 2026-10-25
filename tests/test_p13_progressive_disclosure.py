@@ -7,8 +7,8 @@ issue #7 契约：
 3. **仅对选中 ID 展开全文**（~500-1000 token/条）
 
 硬约束：
-- 游标**服务端持有不下发**（见 recall_cursor）
-- 跨步拒绝：任意 ID / 改范围 / 过期 token
+- 游标由调用方持有，必须绑定主体；展开时重查 ACL 和事实状态
+- 跨步拒绝：任意 ID / 改范围 / 过期 token / 跨主体
 - **默认 detail=full，逐字节不变**（零破坏）——绝不在 #13 里犯 #14 的忌
 """
 from __future__ import annotations
@@ -130,7 +130,7 @@ class TestExpandStage(unittest.TestCase):
         out = kernel.search(QueryRequest(text="alpha beta gamma",
                                          principal_id="mentor",
                                          detail="index"))
-        expanded = kernel.expand(out["recall_cursor"], [ids[0]])
+        expanded = kernel.expand(out["recall_cursor"], [ids[0]], principal_id="mentor")
         self.assertEqual(len(expanded["results"]), 1)
         self.assertEqual(expanded["results"][0]["fact_id"], ids[0])
         self.assertGreater(len(expanded["results"][0]["content"]), 200)
@@ -143,7 +143,7 @@ class TestExpandStage(unittest.TestCase):
                                          principal_id="mentor",
                                          detail="index"))
         with self.assertRaises(CursorError):
-            kernel.expand(out["recall_cursor"], ["not-an-issued-id"])
+            kernel.expand(out["recall_cursor"], ["not-an-issued-id"], principal_id="mentor")
 
     def test_expand_rejects_scope_mismatch(self):
         kernel, ids = _kernel_and_ids()
@@ -154,7 +154,7 @@ class TestExpandStage(unittest.TestCase):
         wrong = kernel.cursor_scope(
             QueryRequest(text="完全不同的问题", principal_id="mentor"))
         with self.assertRaises(CursorScopeMismatch):
-            kernel.expand(out["recall_cursor"], [ids[0]], expected_scope=wrong)
+            kernel.expand(out["recall_cursor"], [ids[0]], principal_id="mentor", expected_scope=wrong)
 
     def test_expand_rejects_tampered_cursor(self):
         kernel, ids = _kernel_and_ids()
@@ -163,7 +163,45 @@ class TestExpandStage(unittest.TestCase):
                                          detail="index"))
         bad = out["recall_cursor"][:-4] + "zzzz"
         with self.assertRaises(CursorSignatureInvalid):
-            kernel.expand(bad, [ids[0]])
+            kernel.expand(bad, [ids[0]], principal_id="mentor")
+
+    def test_expand_rejects_cursor_from_another_principal(self):
+        from mimir_v8.recall_cursor import CursorPrincipalMismatch
+        kernel, ids = _kernel_and_ids()
+        out = kernel.search(QueryRequest(text="alpha beta gamma",
+                                         principal_id="mentor",
+                                         detail="index"))
+        with self.assertRaises(CursorPrincipalMismatch):
+            kernel.expand(out["recall_cursor"], [ids[0]], principal_id="outsider")
+
+    def test_expand_rechecks_acl_after_cursor_issuance(self):
+        from mimir_v8.recall_cursor import CursorError
+        from mimir_v8.schema import GrantFactAccess
+        kernel, ids = _kernel_and_ids()
+        out = kernel.search(QueryRequest(text="alpha beta gamma",
+                                         principal_id="mentor",
+                                         detail="index"))
+        kernel.store.grant_fact_access(
+            GrantFactAccess(fact_id=ids[0], subject_type="principal",
+                            subject_id="mentor", permission="read", effect="deny"),
+            actor_principal="mentor",
+        )
+        with self.assertRaises(CursorError):
+            kernel.expand(out["recall_cursor"], [ids[0]], principal_id="mentor")
+
+    def test_expand_rejects_tombstoned_fact(self):
+        from mimir_v8.recall_cursor import CursorError
+        from mimir_v8.schema import TombstoneFact
+        kernel, ids = _kernel_and_ids()
+        out = kernel.search(QueryRequest(text="alpha beta gamma",
+                                         principal_id="mentor",
+                                         detail="index"))
+        kernel.store.tombstone_fact(
+            TombstoneFact(fact_id=ids[0], expected_version=1, reason="regression test"),
+            actor_principal="mentor",
+        )
+        with self.assertRaises(CursorError):
+            kernel.expand(out["recall_cursor"], [ids[0]], principal_id="mentor")
 
 
 class TestInvalidDetail(unittest.TestCase):
@@ -211,13 +249,17 @@ class TestHttpEndpoints(unittest.TestCase):
                                 enabled_layers=("memory", "learning"))
         feedback = FeedbackLoop(store, knowledge)
         self.token = "p13-http-mentor"
+        self.other_token = "p13-http-other"
         token_path = root / "tokens.json"
-        token_path.write_text(json.dumps({"principals": [{
-            "id": "mentor",
-            "token_sha256": hashlib.sha256(self.token.encode()).hexdigest(),
-            "scopes": ["read", "write", "ingest"],
-            "roles": [], "admin": False,
-        }]}), encoding="utf-8")
+        token_path.write_text(json.dumps({"principals": [
+            {"id": "mentor",
+             "token_sha256": hashlib.sha256(self.token.encode()).hexdigest(),
+             "scopes": ["read", "write", "ingest"],
+             "roles": [], "admin": False},
+            {"id": "other",
+             "token_sha256": hashlib.sha256(self.other_token.encode()).hexdigest(),
+             "scopes": ["read"], "roles": [], "admin": False},
+        ]}), encoding="utf-8")
         ctx = ServiceContext(store=store, token_store=TokenStore(token_path),
                              query=self.kernel, knowledge=knowledge,
                              unified_search=unified, feedback_loop=feedback)
@@ -261,6 +303,17 @@ class TestHttpEndpoints(unittest.TestCase):
         self.assertEqual(r2.status_code, 200, r2.text)
         self.assertEqual(r2.json()["results"][0]["fact_id"], self.ids[0])
         self.assertGreater(len(r2.json()["results"][0]["content"]), 200)
+
+    def test_expand_endpoint_rejects_cursor_from_another_principal(self):
+        r = self.client.post("/v8/query",
+                             json={"text": "alpha beta gamma", "limit": 5,
+                                   "detail": "index"},
+                             headers=self._h())
+        cursor = r.json()["recall_cursor"]
+        r2 = self.client.post("/v8/query/expand",
+                              json={"cursor": cursor, "fact_ids": [self.ids[0]]},
+                              headers={"Authorization": f"Bearer {self.other_token}"})
+        self.assertEqual(r2.status_code, 400, r2.text)
 
     def test_expand_endpoint_rejects_arbitrary_id(self):
         r = self.client.post("/v8/query",

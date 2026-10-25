@@ -51,6 +51,29 @@ class TestAtomicRegistryWrite(unittest.TestCase):
             # 触发 reload（mtime 已变）
             self.assertEqual(store.validate(), 3)
 
+    def test_same_mtime_atomic_replace_refreshes_authorization(self):
+        """内容替换必须失效缓存，即使文件系统保留完全相同的 mtime_ns。"""
+        import os
+        from mimir_v8.auth import AuthError
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tokens.json"
+            _write_registry(path, principals=("mentor",))
+            store = TokenStore(path)
+            self.assertEqual(store.authenticate("Bearer token-mentor").principal_id, "mentor")
+            original_mtime = path.stat().st_mtime_ns
+
+            _write_registry(path, principals=("quantmaster",))
+            stat = path.stat()
+            os.utime(path, ns=(stat.st_atime_ns, original_mtime))
+            self.assertEqual(path.stat().st_mtime_ns, original_mtime)
+
+            with self.assertRaises(AuthError):
+                store.authenticate("Bearer token-mentor")
+            self.assertEqual(
+                store.authenticate("Bearer token-quantmaster").principal_id, "quantmaster"
+            )
+
     def test_corrupt_file_fails_closed_with_log(self):
         """损坏 JSON → auth_unavailable（fail closed）+ WARNING 日志可观测。"""
         with tempfile.TemporaryDirectory() as tmp:
