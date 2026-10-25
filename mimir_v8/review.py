@@ -16,7 +16,7 @@ from typing import Any
 from .store import CanonicalStore
 
 
-TZ = timezone(timedelta(hours=8))
+from .tz import TZ  # noqa: E402  (configurable via MIMIR_TZ)
 RISK_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 # issue #13：待审老化分级（小时）。13 小时与 13 天在单一数字里几乎没区别，

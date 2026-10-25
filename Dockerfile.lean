@@ -5,6 +5,8 @@
 
 FROM python:3.11-slim AS runtime
 
+ARG PIP_INDEX_URL=https://pypi.org/simple
+
 WORKDIR /app
 
 COPY pyproject.toml README.md requirements-lean.txt ./
@@ -13,8 +15,8 @@ COPY hermes-plugin ./hermes-plugin
 
 RUN python3 -m venv /opt/mimir && \
     /opt/mimir/bin/pip install --no-cache-dir --upgrade pip && \
-    /opt/mimir/bin/pip install --no-cache-dir --index-url https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-lean.txt && \
-    /opt/mimir/bin/pip install --no-cache-dir --index-url https://pypi.tuna.tsinghua.edu.cn/simple . && \
+    /opt/mimir/bin/pip install --no-cache-dir --index-url ${PIP_INDEX_URL} -r requirements-lean.txt && \
+    /opt/mimir/bin/pip install --no-cache-dir --index-url ${PIP_INDEX_URL} . && \
     rm -rf /root/.cache/pip
 
 ENV MIMIR_ALLOW_NONLOOPBACK=1 \
@@ -26,6 +28,13 @@ ENV MIMIR_ALLOW_NONLOOPBACK=1 \
     TRANSFORMERS_OFFLINE=1 \
     TOKENIZERS_PARALLELISM=false \
     PATH=/opt/mimir/bin:$PATH
+
+# Run as an unprivileged user. Existing root-owned volumes need a one-off
+#   docker run --rm -u 0 -v mirdata:/data <image> chown -R 10001:10001 /data
+RUN groupadd --system --gid 10001 mimir && \
+    useradd --system --uid 10001 --gid mimir --home-dir /home/mimir --create-home mimir && \
+    mkdir -p /data && chown mimir:mimir /data
+USER mimir
 
 VOLUME ["/data"]
 EXPOSE 8456

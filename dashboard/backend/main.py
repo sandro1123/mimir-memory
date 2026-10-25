@@ -109,6 +109,38 @@ def _stored_password_hash() -> str:
     return ""
 
 
+_SCRYPT_N, _SCRYPT_R, _SCRYPT_P = 2 ** 14, 8, 1
+
+
+def hash_password(password: str) -> str:
+    """Return ``scrypt$N$r$p$salt_hex$hash_hex`` (salted, memory-hard)."""
+    salt = _secrets.token_bytes(16)
+    dk = hashlib.scrypt(password.encode(), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R,
+                        p=_SCRYPT_P, dklen=32)
+    return f"scrypt${_SCRYPT_N}${_SCRYPT_R}${_SCRYPT_P}${salt.hex()}${dk.hex()}"
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    """Verify against a scrypt hash; legacy unsalted SHA-256 hex still accepted.
+
+    Legacy hashes log a warning — regenerate with
+    ``python -m dashboard.backend.main hash-password``.
+    """
+    if not password or not stored:
+        return False
+    if stored.startswith("scrypt$"):
+        try:
+            _, n, r, p, salt_hex, hash_hex = stored.split("$")
+            dk = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt_hex),
+                                n=int(n), r=int(r), p=int(p), dklen=len(hash_hex) // 2)
+        except Exception:
+            return False
+        return hmac.compare_digest(dk.hex(), hash_hex)
+    logging.getLogger(__name__).warning(
+        "dashboard password uses legacy unsalted SHA-256; regenerate it with scrypt")
+    return hmac.compare_digest(hashlib.sha256(password.encode()).hexdigest(), stored)
+
+
 def _session_secret() -> bytes:
     stored = _stored_password_hash()
     if not stored:
@@ -122,22 +154,52 @@ def _session_secret() -> bytes:
 SESSION_TTL = 7 * 24 * 3600
 
 
+_revoked_sessions: dict[str, int] = {}  # nonce -> expiry (logout revocation)
+
+
 def _make_session_token() -> str:
+    """``<expiry>.<nonce>.<sig>`` — the nonce lets /logout revoke one session."""
     expiry = int(time.time()) + SESSION_TTL
-    sig = hmac.new(_session_secret(), str(expiry).encode(), hashlib.sha256).hexdigest()
-    return f"{expiry}.{sig}"
+    nonce = _secrets.token_urlsafe(12)
+    sig = hmac.new(_session_secret(), f"{expiry}.{nonce}".encode(), hashlib.sha256).hexdigest()
+    return f"{expiry}.{nonce}.{sig}"
+
+
+def _parse_session_token(token: str) -> tuple[int, str, str] | None:
+    try:
+        expiry_s, nonce, sig = token.split(".", 2)
+        return int(expiry_s), nonce, sig
+    except Exception:
+        return None
 
 
 def _valid_session_token(token: str) -> bool:
-    try:
-        expiry_s, sig = token.split(".", 1)
-        expiry = int(expiry_s)
-    except Exception:
+    parsed = _parse_session_token(token)
+    if parsed is None:
         return False
-    if expiry < time.time():
+    expiry, nonce, sig = parsed
+    if expiry < time.time() or nonce in _revoked_sessions:
         return False
-    expect = hmac.new(_session_secret(), expiry_s.encode(), hashlib.sha256).hexdigest()
+    expect = hmac.new(_session_secret(), f"{expiry}.{nonce}".encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(expect, sig)
+
+
+def _revoke_session(token: str) -> None:
+    parsed = _parse_session_token(token)
+    if parsed is None:
+        return
+    expiry, nonce, _ = parsed
+    now = time.time()
+    for k in [k for k, exp in _revoked_sessions.items() if exp < now]:
+        _revoked_sessions.pop(k, None)
+    _revoked_sessions[nonce] = expiry
+
+
+def _cookie_secure(request) -> bool:
+    if os.environ.get("DASHBOARD_COOKIE_SECURE", "").strip().lower() in ("1", "true", "yes"):
+        return True
+    proto = request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip().lower()
+    return request.url.scheme == "https" or proto == "https"
 
 
 def _request_authorized(request) -> bool:
@@ -163,20 +225,20 @@ async def api_auth_login(request: Request, body: dict):
     _login_attempts[ip] = (cnt + 1, window_start)
 
     password = str((body or {}).get("password", ""))
-    stored = _stored_password_hash()
-    ok = bool(stored) and bool(password) and hmac.compare_digest(
-        hashlib.sha256(password.encode()).hexdigest(), stored)
+    ok = _verify_password(password, _stored_password_hash())
     if not ok:
         raise HTTPException(401, "\u5bc6\u7801\u9519\u8bef")
     _login_attempts.pop(ip, None)
     resp = JSONResponse({"ok": True})
     resp.set_cookie("mimir_session", _make_session_token(),
-                    max_age=SESSION_TTL, httponly=True, samesite="lax", path="/")
+                    max_age=SESSION_TTL, httponly=True, samesite="lax", path="/",
+                    secure=_cookie_secure(request))
     return resp
 
 
 @app.post("/api/auth/logout")
-async def api_auth_logout():
+async def api_auth_logout(request: Request):
+    _revoke_session(request.cookies.get("mimir_session", ""))
     resp = JSONResponse({"ok": True})
     resp.delete_cookie("mimir_session", path="/")
     return resp
@@ -1066,21 +1128,11 @@ async def api_source_add(body: dict):
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-    # 尝试获取页面标题
+    # 不再在服务端抓取页面标题：那是一次未经校验的出站请求（SSRF），
+    # 只为显示用途。标题由采集器经 mimir_v8.netsafe 安全获取。
+    if not str(url).lower().startswith(("http://", "https://")):
+        return {"status": "error", "error": "url must be http(s)"}
     title = f"{'RSS' if source_type=='rss' else '网页'}: {url[:60]}"
-    try:
-        import urllib.request
-        req = urllib.request.Request(url, headers={"User-Agent": "Mimir/1.0"})
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            html = resp.read(65536).decode("utf-8", errors="ignore")
-            import re
-            m = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
-            if m:
-                t = m.group(1).strip()[:100]
-                if t:
-                    title = t
-    except Exception:
-        pass
 
     payload = {
         "connector_type": "file",
@@ -1946,3 +1998,14 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", "8800"))
     uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)
+
+if __name__ == "__main__":  # pragma: no cover
+    import getpass
+    import sys as _sys
+    if len(_sys.argv) > 1 and _sys.argv[1] == "hash-password":
+        pw = getpass.getpass("Dashboard password: ")
+        if pw != getpass.getpass("Repeat: "):
+            _sys.exit("passwords do not match")
+        print(hash_password(pw))
+    else:
+        _sys.exit("usage: python -m dashboard.backend.main hash-password")

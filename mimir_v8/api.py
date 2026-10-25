@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+import logging
+import re
 from contextlib import closing
 import threading
 import time
@@ -480,6 +482,44 @@ def _profile_section(connection, owner: str, fact_types: tuple,
     ]
 
 
+MAX_BODY_BYTES = 1_048_576
+# Federation: ACL is applied per row, so scan a wider window than we return,
+# otherwise unreadable rows ate the 20-row LIMIT and callers saw fewer hits.
+FEDERATION_SCAN_LIMIT = 200
+FEDERATION_RESULT_LIMIT = 20
+MAX_DYNAMIC_AGENTS = 256
+_AGENT_ID_RE = re.compile(r"[a-z0-9][a-z0-9_.-]{0,63}")
+
+
+class _BodySizeLimitMiddleware:
+    """Enforce MAX_BODY_BYTES on the bytes actually received.
+
+    The Content-Length pre-check in ``request_identity`` is a fast path; a
+    chunked request has no Content-Length and used to bypass the 1 MiB cap.
+    """
+
+    def __init__(self, app, max_bytes: int = MAX_BODY_BYTES):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message.get("type") == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    raise HTTPException(413, "request body exceeds 1 MiB")
+            return message
+
+        await self.app(scope, limited_receive, send)
+
+
 def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
     app = FastAPI(
         title="Mímir REST API",
@@ -489,6 +529,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.context = context
+    app.add_middleware(_BodySizeLimitMiddleware, max_bytes=MAX_BODY_BYTES)
     # P1-6 防爆破: per-IP auth-failure limiter (10 failures / 5min -> 5min lock)
     auth_limiter = AuthFailureLimiter(max_failures=10, window_seconds=300.0, lock_seconds=300.0)
 
@@ -520,7 +561,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         content_length = request.headers.get("Content-Length")
         if content_length:
             try:
-                if int(content_length) > 1_048_576:
+                if int(content_length) > MAX_BODY_BYTES:
                     return JSONResponse(
                         error_payload(request, "request_too_large", "request body exceeds 1 MiB"),
                         status_code=413,
@@ -533,8 +574,15 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         agent_hdr = request.headers.get("X-Mimir-Agent")
         if agent_hdr and agent_hdr.strip():
             clean_agent = agent_hdr.strip().lower()
-            if clean_agent not in get_registered_agents():
+            registered = get_registered_agents()
+            # Only authenticated callers may register an agent id, ids must be
+            # well-formed, and the dynamic registry is bounded: an anonymous
+            # request used to be able to grow it without limit.
+            if (clean_agent not in registered
+                    and len(registered) < MAX_DYNAMIC_AGENTS
+                    and _AGENT_ID_RE.fullmatch(clean_agent)):
                 try:
+                    context.token_store.authenticate(request.headers.get("authorization"))
                     register_agent(clean_agent)
                 except Exception:
                     pass
@@ -1613,7 +1661,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
 
     @app.post("/v10/federation/{peer_hierarchy:path}")
     def federation(peer_hierarchy: str, body: dict | None = None,
-                   identity: Principal = Depends(scoped("write"))):
+                   identity: Principal = Depends(scoped("read"))):
         """联邦查询 — cross-principal shared search scoped by hierarchy, ACL enforced."""
         summary = None
         rows = []
@@ -1627,7 +1675,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                     rows = conn.execute(
                         f"SELECT fact_id, content, summary, domain, owner_principal, confidence_score "
                         f"FROM facts WHERE status='active' AND owner_principal IN ({placeholders}) "
-                        f"ORDER BY updated_at DESC LIMIT 20", owners,
+                        f"ORDER BY updated_at DESC LIMIT ?", (*owners, FEDERATION_SCAN_LIMIT),
                     ).fetchall()
                 elif peers:
                     real_peers = [p for p in peers if p != "all"]
@@ -1636,19 +1684,20 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                         rows = conn.execute(
                             f"SELECT fact_id, content, summary, domain, owner_principal, confidence_score "
                             f"FROM facts WHERE status='active' AND owner_principal IN ({placeholders}) "
-                            f"ORDER BY updated_at DESC LIMIT 20", real_peers,
+                            f"ORDER BY updated_at DESC LIMIT ?", (*real_peers, FEDERATION_SCAN_LIMIT),
                         ).fetchall()
                 else:
                     rows = conn.execute(
                         "SELECT fact_id, content, summary, domain, owner_principal, confidence_score "
-                        "FROM facts WHERE status='active' ORDER BY updated_at DESC LIMIT 20",
+                        "FROM facts WHERE status='active' ORDER BY updated_at DESC LIMIT ?",
+                        (FEDERATION_SCAN_LIMIT,),
                     ).fetchall()
             rows = [dict(r) for r in rows]
             rows = [
                 dict(r) for r in rows
                 if context.store.can_read(r["fact_id"], identity.principal_id,
                                           is_admin=identity.is_admin, roles=set(identity.roles))
-            ]
+            ][:FEDERATION_RESULT_LIMIT]
             total = len(rows)
             summary = f"Federated {len(rows)} active fact(s) across {len(peers) or 'all'} peer scope(s)."
             with contextlib.suppress(Exception):
@@ -1656,8 +1705,9 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                     actor=identity.principal_id, action="federation.query", target=peer_hierarchy,
                     payload={"peers": peers, "hits": total},
                 )
-        except Exception as e:  # noqa: BLE001
-            summary = f"federation unavailable: {e}"
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).exception("federation query failed")
+            summary = "federation unavailable"
         return {"status": "ok", "peers": peers, "hierarchy": peer_hierarchy,
                 "federation_config": "multi-agent-share", "summary": summary, "facts": rows,
                 "count": total}

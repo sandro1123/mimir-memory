@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import re
 import urllib.parse
-import urllib.request
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
+from ..netsafe import safe_urlopen
 from .base import BaseCollector, CollectResult, CollectorError
 
 
-TZ = timezone(timedelta(hours=8))
+from ..tz import TZ  # noqa: E402  (configurable via MIMIR_TZ)
 USER_AGENT = "Mozilla/5.0 (compatible; MimirCrawler/9.2; +https://github.com/mimir-memory/mimir)"
 MAX_PAGES = 20
 MAX_DEPTH = 2
@@ -89,9 +89,7 @@ class WebCrawler(BaseCollector):
 
     def _fetch_page(self, url: str) -> dict | None:
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                raw = resp.read().decode("utf-8", errors="replace")
+            raw = safe_urlopen(url, timeout=10, headers={"User-Agent": USER_AGENT}).text()
         except Exception:
             return None
 
