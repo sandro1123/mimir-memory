@@ -6,6 +6,28 @@
 
 ---
 
+## v1.5.0 — 2026-10-26 · Federation & Shared Memory · 联邦与共享
+
+> **内核**：彻底打破过去多 Agent 之间「84% 记忆被锁死在各 Agent 内部」的孤岛现象，
+> 同时平滑退役独立 `mentor` profile，收归主 Agent `Heimdallr-EX`，实现零配置动态自举。
+
+- **Principal 别名继承机制 · 退役 mentor**（`bca3bc6`）— 解决 469 条历史事实迁移痛点：
+  在 `auth.py` 与 `store.py:can_access` 中注入别名映射 `heimdallr -> {mentor, heimdallr-ex}`。
+  主 Agent `Heimdallr-EX` 连入时直接完全继承 `mentor` 的读写与治理权限，
+  **数据库零 UPDATE、零数据迁移、保留 100% 原始审计事件流**。
+- **技术领域共享阅读 · 打破 84% 孤岛**（`7c21c4d`）— 既往 `owner_only` 占 693/839 条，
+  导致新 Agent 接入只能看到 16% 的公共记忆。现对 `infrastructure`、`knowledge`、`tech_support`
+  三大通用技术域的 `reference`/`learning`/`pattern` 事实，默认对同机已认证 Agent 放行读权限；
+  **`personal` 个人私密域与 `restricted` 高敏凭据保持严格 owner 隔离，物理防穿透**。
+- **动态 Agent 零配置准入 (Zero-Config Onboarding)**（`f46bd4d`）— 请求头携带 `X-Mimir-Agent`
+  即可自动登记新 Agent 并纳入统一校验，彻底废除代码死循环白名单限制。
+- **`/v15/bootstrap` 自举握手端点**（`0f0435a`）— 为新 Agent 提供一键握手，返回 L0 底线铁律、
+  L1 核心偏好、领域资产大纲，瞬间完成世界观对齐，告别“失忆症”。
+- **MCP 扩展 `mimir_bootstrap` 工具**（`9d6edbb`）— 让 Claude Code / Cursor / 终端 Agent 挂载后
+  可一键调用自举，快速感知 Mímir 当前掌握的核心规则与知识版图。
+
+---
+
 ## v1.4.1 — 2026-10-23 · 抽取流水线修复（补丁版）
 
 > 由 Hermes 对**生产系统**实测发现，两个缺陷都坐实。本版是补丁版，

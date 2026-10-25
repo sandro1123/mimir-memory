@@ -25,9 +25,9 @@ class TestPrincipalAliases(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = CanonicalStore(Path(tmp) / "canon.db")
             fid = store.create_fact(CreateFact(
-                content="mentor 私有记忆：技术选型经验",
-                summary="选型", owner_principal="mentor",
-                domain="knowledge", fact_type="reference",
+                content="mentor 私有记忆：个人偏好记录",
+                summary="偏好", owner_principal="mentor",
+                domain="personal", fact_type="user_pref",
                 visibility="owner_only", sensitivity="internal",
                 egress_policy="local_only", human_status="confirmed"
             ), actor_principal="mentor")["fact_id"]

@@ -56,6 +56,7 @@ CODENAMES = {
     "1.3.0": "Ecosystem · 生态",
     "1.4.0": "Legibility · 可读性",
     "1.4.1": "Extraction Fix · 抽取修复",
+    "1.5.0": "Federation & Shared Memory · 联邦与共享",
 }
 CODENAME_FALLBACK = "未登记（版本代号表缺此号）"
 

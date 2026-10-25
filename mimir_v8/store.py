@@ -1748,7 +1748,7 @@ class CanonicalStore:
 
             # 1.5.0 共享放宽：仅对只读权限、非受限敏感度、且属于通用技术域的事实放行给已认证 Agent
             SHARED_DOMAINS = {"infrastructure", "knowledge", "tech_support"}
-            SHARED_TYPES = {"reference", "learning", "pattern"}
+            SHARED_TYPES = {"reference", "learning"}
             domain_sharable = (
                 permission == "read"
                 and fact["domain"] in SHARED_DOMAINS
