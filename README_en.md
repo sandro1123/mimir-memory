@@ -1,8 +1,8 @@
-# Mímir — Federated Memory for Multi-Agent Systems
+# Mímir — The Local-First Unified Brain for All Your AI Agents & Obsidian
 
-> **One shared memory, many agents.** An event-sourced, self-evolving,
-> federated memory system that lets multiple AI agents remember *together* —
-> and forget intelligently.
+> **The Local-First Unified Brain for All Your AI Agents & Obsidian.**  
+> One shared memory across multiple agents; one durable knowledge base projected to local Obsidian.  
+> Combining event sourcing, entity graphs, autonomous sensing, and tamper-evident audit chains.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Schema Version](https://img.shields.io/badge/schema-21-blue.svg)](#)
@@ -20,21 +20,16 @@ Most memory systems accept whatever an agent says: no review, no ledger, no undo
 Mímir is designed the other way around — **every memory is reviewed, audited,
 and revocable**:
 
-- **Governance pipeline** — new memories enter a candidate queue; quality
-  assessment + human approval before commit (unique in the field)
-- **Event-sourced ledger** — who wrote it, how many versions, who approved —
-  fully auditable from day one
-- **Fine-grained ACL** — owner / visibility / egress policy; Fernet envelopes
-- **Honest telemetry** — queries carry `recall_verdict ∈ {found, not_found,
-  degraded}`: "nothing found" never masquerades as "channel broken"
+- **Dual-Pool & Bridge Architecture (2.0)** — Subjective conversational context (Memory Pool) physically decoupled from objective technical entities (Knowledge Pool), linked via fact-entity bridge for multi-hop recall.
+- **Governance pipeline & physical gates** — new memories enter a candidate queue with Tier-0/1/2 dedup; `block_strong` physically prevents duplicate writes; includes 72h aging alerts.
+- **Event-sourced ledger** — 52 core tables with full event sourcing and `previous_version_hash` tamper-evident chains; fully auditable from day one.
+- **Fine-grained ACL & Federation** — Cross-agent sharing across technical domains while strictly isolating private facts; cross-node Fernet encrypted federation sync.
+- **Honest telemetry & budget honesty** — queries carry `recall_verdict ∈ {found, not_found, degraded}`; Token overages explicitly enumerate dropped items (no fake stubs).
+- **Obsidian Local Bridge** — Technical entities auto-projected into standard Markdown cards with YAML frontmatter and `[[Wikilinks]]`, protected by background Git snapshots.
 
-Current: **1.3.0 — Ecosystem**. First batch of adoption from
-[aiduMEI](https://github.com/monkey2jack/aiduMEI): RECALL funnel trace
-(honest per-stage verdicts) · console PULSE/funnel panels · temporal
-capture · dedup wiring (observation-only) · Reflect (off by default)
-([versioning](docs/VERSIONING.md)). · 1.2.0 (engine lane-profile + vector
-lane) and 1.1.0 (lineage hash-chain · MEX · federation grants) ship in
-the same line — see [CHANGELOG](CHANGELOG.md).
+Current: **1.5.0 — Federation & Shared Memory**. Breaks the 84% context silo; technical domains shared across authenticated agents; Principal alias ladder smoothly retires mentor into Heimdallr-EX; zero-config dynamic onboarding via `X-Mimir-Agent` and `mimir_bootstrap`.
+
+See full 2.0 design specification: [`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md).
 
 ## The Name
 

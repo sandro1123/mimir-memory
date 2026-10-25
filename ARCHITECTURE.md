@@ -1,10 +1,52 @@
 # Mímir Architecture · 架构设计
 
-> 同步版本 · Synced version：**1.3.0** · Schema 21 · 代号 Codename Ecosystem · 2026-10-08
->
-> 版本纪元表见 [docs/VERSIONING.md](docs/VERSIONING.md)（0.x 史前纪元 → 1.x 承诺纪元）。
->
+> 同步版本 · Synced version：**1.5.0** · Schema 21 · 代号 Codename Federation & Shared Memory · 2026-10-26  
+> 演进蓝图 · Evolution Spec：**Mímir 2.0 (The Unified Brain)** 详见 [`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md)  
+> 版本纪元表见 [docs/VERSIONING.md](docs/VERSIONING.md)（0.x 史前纪元 → 1.x 承诺纪元）。  
 > English · 中文双语
+
+---
+
+## 0. Mímir 2.0 Dual-Pool & Bridge Architecture · 双池一桥总体架构
+
+```
+                  ┌─────────────────────────────────────────────────────────┐
+                  │                 多 Agent 接入层 (Universal Front)         │
+                  │   Claude Code │ Hermes (Heimdallr-EX) │ Codex │ Cursor │ REST │
+                  └────────────────────────────┬────────────────────────────┘
+                                               │ (统一 MCP / Zero-Config SDK)
+                                               ▼
+                  ┌─────────────────────────────────────────────────────────┐
+                  │              Mímir Core 协调引擎 (The Arbiter)            │
+                  │   • 语义路由  • 判重与冷启动门  • 诚实预算管控  • 访问控制   │
+                  └──────────────┬───────────────────────────┬──────────────┘
+                                 │                           │
+          ┌──────────────────────▼──────┐             ┌──────▼──────────────────────┐
+          │     A. 动态记忆池 (Memory)   │             │     B. 结构化知识池 (Knowledge) │
+          │  (主观、情境化、以“我”为中心)  │             │   (客观、系统化、以“事实”为中心) │
+          ├─────────────────────────────┤             ├─────────────────────────────┤
+          │ • 会话日志与意图 (Sources)   │             │ • 实体图谱 (Entities & Rel) │
+          │ • 个人偏好 / 底线铁律 (L0-L1)│  桥接索引   │ • 技术方案与踩坑手册 (L2-L3) │
+          │ • 任务执行轨迹与反思         │◄───────────►│ • 外部监控与模型资产池      │
+          │ • 事件时序流水 (Event Sourcing)│(fact_entity)│ • 自动衰减与版本演进 (L4-L5) │
+          └──────────────┬──────────────┘             └──────────────┬──────────────┘
+                         │                                           │
+                         │                                           ▼
+                         │                            ┌─────────────────────────────┐
+                         │                            │    人类交互界面 (Human Face) │
+                         │                            │   【Obsidian 本地双链知识库】 │
+                         │                            ├─────────────────────────────┤
+                         │                            │ • 每日早报与盯梢动态         │
+                         │                            │ • 结构化技术卡片 (Wikilinks)│
+                         └───────────────────────────►│ • 个人深度笔记 (人类思考保护)│
+                                                      └─────────────────────────────┘
+```
+
+### 核心设计原则
+1. **记忆与知识物理解耦**：Memory 池以事件和主体为核心，Knowledge 池以实体和拓扑为核心。两者通过 `fact_entities` 桥接，解决“外部技术资讯污染个人偏好上下文”的痛点。
+2. **Obsidian 第五投影器**：Mímir 将结构化知识单向渲染为标准 Markdown + YAML Frontmatter + `[[Wikilinks]]`，挂载本地 Git 隐形快照气囊；人类手写思考区（`Personal/`）具备物理防改写锁。
+3. **主 Agent 统一交互**：Principal 别名继承机制使 `heimdallr`（Heimdallr-EX）无缝继承 `mentor` 名下的 469 条历史事实，消除冗余 Persona。
+4. **自主感知飞轮**：系统后台守护进程清晨自动拉取 GitHub Releases 与模型探针，生成早报并自主结晶出可复用工具实体与部署手册（Runbooks）。
 
 ---
 
