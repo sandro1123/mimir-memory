@@ -11,7 +11,7 @@ from pathlib import Path
 from .core_memory import CoreMemoryProjector
 from .graph_projector import GraphProjector
 from .projector import FTSProjector, ProjectorRunner
-from .schema import PROJECTORS, SCHEMA_VERSION
+from .schema import PROJECTORS
 from .store import CanonicalStore, utc_now
 
 

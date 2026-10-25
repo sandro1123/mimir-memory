@@ -9,14 +9,16 @@ jinja2>=3.1.0
 aiofiles>=24.1.0
 # embedding & vector (ChromaDB)
 chromadb>=1.5.9
-sentence-transformers==3.4.1
+# >=5.6.0 fixes PYSEC-2026-4164 (was pinned 3.4.1)
+sentence-transformers>=5.6.0
 # graph & LLM (optional, helps extract)
-transformers>=4.47.0
+# >=5.10.0 fixes PYSEC-2026-2288/2289/2290/3929/4174
+transformers>=5.10.0
 # security/acl
 cryptography>=50.0.1
 # util
-python-multipart>=0.0.4
+python-multipart>=0.0.18
+pyyaml>=6.0
 pydantic>=2.13.5
-pydantic-settings>=2.5.0
 # test
 pytest>=7.4.0

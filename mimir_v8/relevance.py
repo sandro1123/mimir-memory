@@ -7,7 +7,6 @@ Reduces unnecessary LLM/vector calls for chit-chat and non-memory queries.
 from __future__ import annotations
 
 import re
-from typing import Any
 
 # Patterns that strongly indicate memory retrieval is needed
 MEMORY_KEYWORDS = re.compile(

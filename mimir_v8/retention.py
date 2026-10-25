@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 from .schema import TombstoneFact
 from .store import CanonicalStore, ConflictError, NotFoundError, canonical_json, new_id, sha256_text, utc_now

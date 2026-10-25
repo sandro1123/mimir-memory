@@ -10,7 +10,7 @@ import json
 import math
 from contextlib import closing
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Any
 
 from .store import CanonicalStore

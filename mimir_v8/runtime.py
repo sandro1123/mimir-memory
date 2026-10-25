@@ -5,14 +5,12 @@ from __future__ import annotations
 import contextlib
 import os
 import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 from .api import ServiceContext, create_app
 from .auth import TokenStore
-from .candidates import CandidateService
 from .core_memory import CoreMemoryProjector, CoreMemoryService
 from .graph_projector import GraphProjector
 from .learning import LearningService

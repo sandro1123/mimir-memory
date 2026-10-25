@@ -74,7 +74,10 @@ def _api_reachable() -> bool:
         return False
 
 
-@unittest.skipUnless(_api_reachable(), "Mímir API not reachable — eval is a live-system benchmark")
+@unittest.skipUnless(
+    os.environ.get("MIMIR_LIVE_EVAL") == "1" and _api_reachable(),
+    "live-system benchmark: set MIMIR_LIVE_EVAL=1 against a running Mímir API",
+)
 class RetrievalEvalBaseline(unittest.TestCase):
 
     def test_recall_against_golden_set(self):

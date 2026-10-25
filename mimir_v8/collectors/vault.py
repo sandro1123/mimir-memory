@@ -11,13 +11,11 @@ are excluded from scanning.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
 from .base import BaseCollector, CollectResult, CollectorError
 
-from ..tz import TZ  # noqa: E402  (configurable via MIMIR_TZ)
 
 #: Directories never scanned, at any depth.
 DEFAULT_EXCLUDE_DIRS = frozenset({".obsidian", ".git", ".trash", ".smart-env"})
@@ -69,7 +67,6 @@ class VaultCollector(BaseCollector):
             except OSError as e:
                 raise CollectorError(f"cannot read note {note}: {e}") from e
             rel = note.relative_to(self.vault_root).as_posix()
-            mtime = datetime.fromtimestamp(note.stat().st_mtime, tz=TZ).isoformat()
             results.append(
                 CollectResult(
                     source_id=rel,

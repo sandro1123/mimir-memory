@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mimir-v8"
 version = "1.5.0"
-description = "Mímir v12 Insight — federated memory with Ebbinghaus decay, Chronos validity, symmetric retrieval self-evolution, conflict resolution and skill crystallization."
+description = "Mímir — governed, event-sourced, federated memory for multi-agent systems (candidate→approval pipeline, immutable ledger, ACL/federation, MCP)."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -17,15 +17,18 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
-    "fastapi>=0.110.0",
+    # Floors match requirements.txt (production-audited versions); keep in sync.
+    "fastapi>=0.141.1",
     "uvicorn[standard]>=0.29.0",
-    "httpx>=0.27.0",
+    "httpx>=0.28.1",
     "jinja2>=3.1.0",
     "aiofiles>=24.1.0",
-    "chromadb>=0.5.3",
-    "pydantic>=2.9.0",
-    "python-multipart>=0.0.4",
-    "cryptography>=43.0.0",
+    # chromadb: advisories PYSEC-2026-311/3813/3814/3815 target Chroma's HTTP
+    # server / RBAC provider; Mímir only uses the embedded PersistentClient.
+    "chromadb>=1.5.9",
+    "pydantic>=2.13.5",
+    "python-multipart>=0.0.18",
+    "cryptography>=50.0.1",
     "pyyaml>=6.0",
 ]
 
@@ -37,7 +40,8 @@ mimir-cli = "mimir_v8.cli:main"
 mimir-mcp = "mimir_v8.mcp:main"
 
 [project.optional-dependencies]
-embeddings = ["sentence-transformers==3.4.1", "transformers>=4.47.0"]
+# >=5.6.0 / >=5.10.0: fixes PYSEC-2026-4164 and PYSEC-2026-2288/2289/2290/3929/4174
+embeddings = ["sentence-transformers>=5.6.0", "transformers>=5.10.0"]
 publish = ["pymupdf>=1.24.0"]
 
 [tool.setuptools.packages.find]

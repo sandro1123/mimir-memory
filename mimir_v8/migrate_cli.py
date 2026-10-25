@@ -79,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         import sqlite3
         with sqlite3.connect(args.database) as probe:
             row = probe.execute("SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()
-        source_version = int(row[0]) if row else 0
+        _source_version = int(row[0]) if row else 0  # informational; all versions take the full chain
         # P0-J（v14.2，issue #2）：12 不再分流单腿 v13——旧路由只应用
         # v13 DDL 就盖章 SCHEMA_VERSION，v14~v18 结构缺失（审计实证：
         # "migrate stamps schema_version=18 while only applying the v13

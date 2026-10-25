@@ -1223,7 +1223,6 @@ class QueryKernel:
         v12 Chronos double-timeline: a fact past its valid_to is deprioritized by 50%
         on top of the Ebbinghaus decay. Expired facts are deweighted, not deleted.
         """
-        from datetime import datetime, timezone
         factor = 1.0
         # Chronos: valid_to expiry deweights 50%
         if valid_to:

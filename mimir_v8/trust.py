@@ -10,13 +10,10 @@ The trust score is a value between 0.0 and 1.0, used in query ranking.
 
 from __future__ import annotations
 
-import json
-import math
 from contextlib import closing
 from datetime import datetime, timezone
-from typing import Any
 
-from .store import CanonicalStore, canonical_json, new_id, sha256_text, utc_now
+from .store import CanonicalStore, utc_now
 
 
 # Signal weights — how much each signal type affects trust
@@ -89,7 +86,6 @@ class TrustManager:
 
     def update_from_signals(self, dry_run: bool = False) -> dict:
         """Read all unprocessed signals and update fact trust scores."""
-        from .schema import DECAY_TIER_MAP
         now = utc_now()
         updated = 0
         errors = []

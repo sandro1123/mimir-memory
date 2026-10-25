@@ -12,15 +12,12 @@ import logging
 import os
 import re
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
 from uuid import uuid4
 
 from .store import CanonicalStore
 from .candidates import CandidateService, ReviewCandidate
-from .schema import MIMIR_VERSION
 from contextlib import closing
 
 
