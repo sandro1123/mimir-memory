@@ -1738,13 +1738,24 @@ class CanonicalStore:
         roles = set(roles or ()) | {"authenticated"}
         with contextlib.closing(self.connect()) as connection:
             fact = connection.execute(
-                "SELECT owner_principal, status FROM facts WHERE fact_id=?", (fact_id,)
+                "SELECT owner_principal, status, domain, fact_type, sensitivity, visibility FROM facts WHERE fact_id=?", (fact_id,)
             ).fetchone()
             if not fact or fact["status"] == "tombstoned":
                 return False
             from .auth import PRINCIPAL_ALIASES
             aliases = PRINCIPAL_ALIASES.get(principal_id, frozenset({principal_id}))
             owner_matches = (fact["owner_principal"] == principal_id) or (fact["owner_principal"] in aliases)
+
+            # 1.5.0 共享放宽：仅对只读权限、非受限敏感度、且属于通用技术域的事实放行给已认证 Agent
+            SHARED_DOMAINS = {"infrastructure", "knowledge", "tech_support"}
+            SHARED_TYPES = {"reference", "learning", "pattern"}
+            domain_sharable = (
+                permission == "read"
+                and fact["domain"] in SHARED_DOMAINS
+                and fact["fact_type"] in SHARED_TYPES
+                and fact["sensitivity"] != "restricted"
+                and "authenticated" in roles
+            )
             rows = connection.execute(
                 """SELECT subject_type, subject_id, effect FROM resource_grants
                 WHERE resource_type='fact' AND resource_id=? AND permission IN (?, 'manage')
@@ -1760,7 +1771,7 @@ class CanonicalStore:
         if "deny" in matched:
             return False
         owner_default = owner_matches and permission in {"read", "write", "delete"}
-        return owner_default or "allow" in matched
+        return owner_default or domain_sharable or ("allow" in matched)
 
     def can_read(
         self,
