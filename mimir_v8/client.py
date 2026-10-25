@@ -114,6 +114,9 @@ class MimirAPIClient:
     def ready(self) -> dict:
         return self.request("GET", "/v8/ready", authenticated=False)
 
+    def bootstrap(self) -> dict:
+        return self.request("GET", "/v15/bootstrap")
+
     def query(self, text: str, *, limit: int = 10, owner_principal=None,
               domain=None, fact_type=None, use_vector=True, use_fts=True,
               use_graph=True, depth: str = "deep") -> dict:

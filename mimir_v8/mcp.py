@@ -14,6 +14,15 @@ MCP_VERSION = "2025-03-26"
 def tool_definitions() -> list[dict]:
     return [
         {
+            "name": "mimir_bootstrap",
+            "description": "Initial handshake to fetch Mimir core iron rules, user preferences, and knowledge inventory.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+        {
             "name": "mimir_query",
             "description": "Search ACL-filtered Mímir v8 canonical facts.",
             "inputSchema": {
@@ -325,7 +334,9 @@ class MimirMCPServer:
         name = params.get("name")
         args = params.get("arguments") or {}
         try:
-            if name == "mimir_query":
+            if name == "mimir_bootstrap":
+                data = self.api.bootstrap()
+            elif name == "mimir_query":
                 data = self.api.query(
                     args.get("text", ""), limit=args.get("limit", 10),
                     owner_principal=args.get("owner_principal"), domain=args.get("domain"),
