@@ -1742,7 +1742,9 @@ class CanonicalStore:
             ).fetchone()
             if not fact or fact["status"] == "tombstoned":
                 return False
-            owner_matches = fact["owner_principal"] == principal_id
+            from .auth import PRINCIPAL_ALIASES
+            aliases = PRINCIPAL_ALIASES.get(principal_id, frozenset({principal_id}))
+            owner_matches = (fact["owner_principal"] == principal_id) or (fact["owner_principal"] in aliases)
             rows = connection.execute(
                 """SELECT subject_type, subject_id, effect FROM resource_grants
                 WHERE resource_type='fact' AND resource_id=? AND permission IN (?, 'manage')

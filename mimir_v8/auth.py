@@ -31,7 +31,15 @@ class Principal:
         raise AuthError(f"missing scope: {scope}", 403, "missing_scope")
 
     def can_act_as(self, principal_id: str) -> bool:
-        return self.is_admin or self.principal_id == principal_id
+        if self.is_admin or self.principal_id == principal_id:
+            return True
+        aliases = PRINCIPAL_ALIASES.get(self.principal_id, frozenset())
+        return principal_id in aliases
+
+
+PRINCIPAL_ALIASES: dict[str, frozenset[str]] = {
+    "heimdallr": frozenset({"mentor", "heimdallr-ex", "heimdallr"}),
+}
 
 
 def atomic_write_registry(path: str | Path, content: str) -> None:
