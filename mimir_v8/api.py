@@ -47,6 +47,8 @@ from .schema import (
     TombstoneFact,
     UpdateFact,
     ValidationError,
+    register_agent,
+    get_registered_agents,
 )
 from .lineage import (STATUS_BROKEN, STATUS_SEALED_OK, STATUS_UNSEALED,
                       verify_all_facts, verify_lineage_chain)
@@ -528,6 +530,14 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                     error_payload(request, "invalid_content_length", "invalid Content-Length header"),
                     status_code=400,
                 )
+        agent_hdr = request.headers.get("X-Mimir-Agent")
+        if agent_hdr and agent_hdr.strip():
+            clean_agent = agent_hdr.strip().lower()
+            if clean_agent not in get_registered_agents():
+                try:
+                    register_agent(clean_agent)
+                except Exception:
+                    pass
         response = await call_next(request)
         # P1-6 防爆破: track auth outcomes per client IP. Only a request that
         # actually presented credentials can clear the failure counter — an
