@@ -815,6 +815,36 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                 status_code=503,
             )
 
+    # ---- v15.0 Bootstrap: zero-config agent onboarding -----------------
+    @app.get("/v15/bootstrap")
+    @app.get("/bootstrap")
+    def bootstrap_handshake(identity: Principal = Depends(scoped("read"))):
+        """1.5.0 新 Agent 自举握手协议：返回精简世界观，消除失忆症。"""
+        with contextlib.closing(context.store.connect()) as conn:
+            iron_rules = [
+                {"fact_id": r["fact_id"], "content": r["content"], "summary": r["summary"]}
+                for r in conn.execute(
+                    "SELECT fact_id, content, summary FROM facts WHERE status='active' AND fact_type='iron_rule' LIMIT 20"
+                ).fetchall()
+            ]
+            user_prefs = [
+                {"fact_id": r["fact_id"], "content": r["content"], "summary": r["summary"]}
+                for r in conn.execute(
+                    "SELECT fact_id, content, summary FROM facts WHERE status='active' AND fact_type='user_pref' LIMIT 20"
+                ).fetchall()
+            ]
+            domain_counts = dict(conn.execute(
+                "SELECT domain, COUNT(*) FROM facts WHERE status='active' GROUP BY domain"
+            ).fetchall())
+
+        return {
+            "system_version": MIMIR_VERSION,
+            "principal_id": identity.principal_id,
+            "iron_rules": iron_rules,
+            "user_prefs": user_prefs,
+            "domain_counts": domain_counts,
+        }
+
     # ---- v13.0 TKG: temporal knowledge graph ---------------------------
     @app.get("/v13/graph/history")
     def graph_history(
