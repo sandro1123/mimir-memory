@@ -31,18 +31,27 @@ instance so they share memory deliberately — with per-agent isolation.
 
 ## 核心概念 · Core Concepts
 
-Mímir 的联邦模型基于三个概念 · Mímir's federation model rests on three ideas:
+Mímir 的联邦模型基于五个核心支柱 · Mímir's federation model rests on five pillars:
 
-1. **Owner isolation 归属隔离** — 每条事实有 `owner_principal`，默认只能被其
-   所属智能体读取。Each fact has an `owner_principal`; by default only its owner
-   can read it.
-2. **Visibility tiers 可见性分级** — 三档控制共享范围 · three tiers control
+1. **Owner isolation 归属隔离** — 每条事实有 `owner_principal`。
+   私密事实（`personal` 域及 `restricted` 敏感度）严格遵循属主隔离。
+   Each fact has an `owner_principal`. Private domains (`personal`) and `restricted`
+   sensitivity strictly enforce owner isolation.
+2. **Technical Domain Sharing 技术域共享 (v1.5.0)** — 通用技术域
+   （`infrastructure`, `knowledge`, `tech_support`）的参考事实默认对同机已认证
+   Agent 放开共享阅读，彻底打破孤岛。
+   Reference facts in technical domains are shared across authenticated agents by default.
+3. **Principal Alias Ladder 别名继承梯 (v1.5.0)** — 允许主 Agent 透明接管历史退休
+   Agent 的全部事实与权限（如 `heimdallr` 继承 `mentor` 469 条事实），零数据库迁移。
+   Allows primary agents to inherit legacy facts seamlessly without database updates.
+4. **Zero-Config Onboarding 动态零配置自举 (v1.5.0)** — 请求头携带 `X-Mimir-Agent`
+   自动收录，结合 `/v15/bootstrap` 一键完成世界观对齐。
+   Dynamic header-based onboarding paired with `/v15/bootstrap` handshake.
+5. **Visibility tiers 可见性分级** — 三档控制共享范围 · three tiers control
    sharing scope:
    - `owner_only` — 仅自己 · only the owner
    - `shared` — 共享给指定智能体 · shared with specific agents
    - `all` — 所有智能体可见 · visible to all agents
-3. **Federation search 联邦搜索** — 跨主体查询，ACL 强制 · cross-principal
-   search with ACL enforcement.
 
 ---
 

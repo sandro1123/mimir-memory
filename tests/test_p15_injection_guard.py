@@ -8,10 +8,13 @@ the LLM evaluator or gets persisted as memory.
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mimir_v8.evaluator import Evaluator, INPUT_INJECTION_PATTERNS
 

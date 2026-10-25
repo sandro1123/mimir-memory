@@ -14,137 +14,75 @@
 
 ---
 
-> ### 为什么选 Mímir · Why Mímir
->
-> 市面上的记忆系统大多「**来者不拒**」：Agent 说记就记，没有审批、没有账本、没有撤销。
-> Mímir 从第一天起就是反着设计的——**每一条记忆都要过审、有账、可悔**：
->
-> | 硬牌 | 说明 |
-> |---|---|
-> | **双池一桥架构 (2.0)** | 主观会话偏好（Memory 池）与客观技术实体（Knowledge 池）物理分离，通过事实-实体桥精准多跳召回 |
-> | **治理管线与物理闸** | 新记忆先进候选队列，带 Tier-0/1/2 三档判重；`block_strong` 物理拦截完全重复；带 72h 待审老化告警 |
-> | **事件溯源与防篡改** | 52 张核心表全量溯源 + `previous_version_hash` 密码学哈希链，从写入起全程可审计 |
-> | **细粒度 ACL 与联邦** | 跨 Agent 共享阅读（技术域打破孤岛、私密域物理防穿透）；支持多节点 Fernet 加密联邦同步 |
-> | **诚实遥测与预算控制** | 查询带 `recall_verdict ∈ {found, not_found, degraded}`；超 Token 显式暴露丢弃项，严禁虚假成功 stub |
-> | **Obsidian 本地双链桥** | 实体事实自动投影为标准 Markdown + YAML Frontmatter + `[[双链]]`；带本地 Git 隐形快照安全气囊 |
->
-> 当前版本 **1.5.0 — Federation & Shared Memory（联邦与共享）**：打破 84% 孤岛，技术域事实默认跨 Agent 共享；Principal 别名继承梯平滑退役冗余 profile；支持 `X-Mimir-Agent` 动态 Agent 零配置自举与 `mimir_bootstrap` 工具。
->
+## 为什么选 Mímir · Why Mímir
+
+市面上的记忆系统大多「**来者不拒**」：Agent 说记就记，没有审批、没有账本、没有撤销。
+Mímir 从第一天起就是反着设计的——**每一条记忆都要过审、有账、可悔**：
+
+| 硬核特性 | 说明 |
+|---|---|
+| **双池一桥架构 (2.0)** | 主观会话偏好（Memory 池）与客观技术实体（Knowledge 池）物理分离，通过事实-实体桥精准多跳召回 |
+| **治理管线与物理闸** | 新记忆先进候选队列，带 Tier-0/1/2 三档判重；`block_strong` 物理拦截完全重复；带 72h 待审老化告警 |
+| **事件溯源与防篡改** | 52 张核心表全量溯源 + `previous_version_hash` 密码学哈希链，从写入起全程可审计 |
+| **细粒度 ACL 与联邦** | 跨 Agent 共享阅读（技术域打破孤岛、私密域物理防穿透）；支持多节点 Fernet 加密联邦同步 |
+| **诚实遥测与预算控制** | 查询带 `recall_verdict ∈ {found, not_found, degraded}`；超 Token 显式暴露丢弃项，严禁虚假成功 stub |
+| **Obsidian 本地双链桥** | 实体事实自动投影为标准 Markdown + YAML Frontmatter + `[[双链]]`；带本地 Git 隐形快照安全气囊 |
+
+> **当前生产版本：`1.5.0 — Federation & Shared Memory（联邦与共享）`**  
+> 打破 84% 孤岛，技术域事实默认跨 Agent 共享；Principal 别名继承梯平滑退役冗余 profile；支持 `X-Mimir-Agent` 动态 Agent 零配置自举与 `mimir_bootstrap` 工具。  
 > 完整 2.0 规格设计详见：[`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md)。
 
 ---
 
-## 快速开始（30 秒版）· TL;DR
+## 快速开始（60 秒版）· Quickstart
+
+### 1. 启动 Mímir 核心服务 (Local-First)
 
 ```bash
-# 一键初始化（含 bge-m3 模型预取）
-./scripts/init.sh
-# 启动 API（默认 127.0.0.1:8456，token 必备）
-python -m mimir_v8.server --data-dir ./var/mimir-v8
-# Claude Code / 任何 MCP 宿主接入
-claude mcp add mimir -- mimir-mcp    # 27 个 mimir_* 工具
-cp -r skills/mimir ~/.claude/skills/ # 场景路由 skill
+git clone git@github.com:sandro1123/mimir-memory.git
+cd mimir-memory
+
+# 一键启动（自动安装依赖、拉取本地嵌入模型并初始化服务）
+./bootstrap.sh
 ```
 
-详细路径见下文「快速开始（开箱即用）」与 [skills/mimir/INSTALL.md](skills/mimir/INSTALL.md)。
+服务默认在 `http://127.0.0.1:8456` 启动。访问健康检查确认状态：
+```bash
+curl http://127.0.0.1:8456/health
+# 返回: {"status":"ok","service":"mimir-api","version":"1.5.0","schema_version":21}
+```
+
+### 2. 挂载到你的 AI 智能体
+
+#### 选项 A：Claude Code / Cursor / Windsurf (通过标准 MCP)
+在 `~/.claude/settings.json` 或 Cursor MCP 配置中添加一行：
+```bash
+claude mcp add mimir -- mimir-mcp
+```
+Agent 瞬间获得 `mimir_query`, `mimir_write`, `mimir_bootstrap` 等全套原生工具。
+
+#### 选项 B：Hermes Agent 接入
+在 `~/.hermes/config.yaml` 中启用全局 Memory Provider：
+```yaml
+memory:
+  provider: mimir_memory_provider
+```
+主 Agent（如 `Heimdallr-EX`）在每一轮对话前自动预取上下文，无需额外手动配置。
+
+#### 选项 C：任意自定义 Agent (通过 HTTP Header 零配置自举)
+新 Agent 发起请求时只需携带身份头：
+```bash
+curl -H "Authorization: Bearer <TOKEN>" \
+     -H "X-Mimir-Agent: my-custom-agent" \
+     http://127.0.0.1:8456/v15/bootstrap
+```
+Mímir 自动收录该 Agent，并下发当前系统的底线铁律（L0）、用户偏好（L1）与知识领域大纲，消除冷启动失忆症。
 
 ---
 
-## 名字的由来 · The Name
+## 核心架构：双池一桥 (Dual-Pool & Bridge Architecture)
 
-**Mímir**（密米尔）源自北欧神话 —— 智慧之泉（Well of Mímir）的守护者。
-
-在北欧神话中，众神之父奥丁（Odin）为了换取一口智慧之泉的井水，献出了自己
-的一只眼睛。而这口泉水之所以蕴含智慧，正是因为它由巨人 **Mímir** 日夜守护——
-Mímir 本身就是「记忆」与「知识」的化身。奥丁失去一只眼，却得到了预见未来的
-智慧；而 Mímir 的头颅，即使在诸神黄昏（Ragnarök）之后，仍被奥丁带在身边，
-继续为他提供忠告。
-
-这个名字对一套记忆系统而言，是一个恰到好处的隐喻：
-
-- **记忆需要代价** —— 奥丁用一只眼换智慧，正如可靠的记忆需要投入治理、
-  审计与演化的成本，而非廉价的「记下来就行」。
-- **记忆是长存的** —— 即使世界毁灭（诸神黄昏），Mímir 仍在。真正的记忆
-  系统应当经得起时间的冲刷、版本的更迭，而不是随进程重启而消失。
-- **记忆的价值在于「被喝下」** —— 泉水若无人饮用便只是水。记忆若无法在
-  正确的时刻、以正确的权限被检索到，就只是堆积的数据。
-
-Mímir 因此不只是一个技术命名，而是一句设计承诺：**做一套值得用「一只眼睛」
-去换的、长存的、可饮用的记忆。**
-
----
-
-## 我们的哲学 · The Philosophy
-
-Mímir 建立在一个简单但常被忽视的信念上：**记忆不是数据的堆积，而是一个
-有生命周期的过程。**
-
-大多数记忆系统把「记住」当成终点——存进去，取出来，完事。但真实世界的
-记忆不是这样的。真实记忆会：
-
-1. **被审慎地接纳** —— 不是所有信息都值得记住，也不是所有「记住了」都
-   该被无条件信任。所以我们让每一条候选在进入记忆之前，都经过治理评估，
-   并让「提取」与「批准」永远分离。
-2. **随时间演化** —— 用得多的记忆更可信，失效的记忆被降权。记忆的
-   置信度应该是一段随时间变化的曲线，而不是一个静止的数字。
-3. **懂得遗忘** —— 遗忘不是记忆的敌人，而是记忆的一部分。真正的遗忘
-   是「有选择地放下」，而不是「销毁」。所以我们用墓碑标记而非删除，
-   用艾宾浩斯曲线而非一刀切。
-4. **有归属、有边界** —— 在多个智能体共享的世界里，「谁记得」和
-   「谁能看」与「记住了什么」同样重要。记忆必须有主人，有边界，有
-   克制的共享。
-
-这就是 Mímir 的全部哲学：**把记忆当作一件需要被尊重、被治理、被演化、
-被有意识地遗忘的事物，而不是一个可以无限写入的哈希表。**
-
-我们不追求「记得最多」，我们追求「记得恰到好处」。
-
----
-
-## Mímir 独一无二的能力：**联邦记忆**
-
-大多数记忆系统为**单个智能体**设计。Mímir 为**多个智能体**设计。
-
-在多智能体系统中——网络运维智能体、量化投顾智能体、技术顾问、培训师——每个
-智能体职责不同、知识不同、归属不同。它们不该看到所有内容，但**应该**能共享
-真正重要的东西。
-
-Mímir 的答案是**细粒度隔离的联邦记忆**：
-
-- **每个智能体有自己的记忆**——事实用 `owner_principal` 打标签，ACL 精确控制
-  谁能读什么。
-- **智能体有意识地共享**——三档可见性（`all` / `shared` / `owner_only`）让你把
-  事实标记为「仅我自己」「我的团队」或「所有智能体可见」。
-- **跨智能体感知**——感知广播呈现其他智能体最近学到了什么，让智能体不再各自为战。
-- **联邦搜索**——`/v10/federation/{peer}` 在 ACL 约束下跨主体查询，让一个智能体
-  能安全地问「有没有谁知道关于 X 的事？」。
-
-结果：**N 个智能体共享一份记忆底座，同时保有 N 份私有记忆的隔离性。** 这就是
-「记忆存储」与「集体记忆」的区别。
-
----
-
-## Mímir 的其他与众不同之处（联邦之外）
-
-联邦记忆是招牌。但 Mímir 也建立在一个与「带 API 的向量数据库」根本不同的前提上：
-**记忆是事件，不是一行数据。**
-
-| 普通的记忆存储 | Mímir |
-|---|---|
-| 为单个智能体设计 | **为 N 个智能体设计，ACL 隔离的联邦** |
-| 覆盖旧记忆 | **追加不可变事件**——历史永不改写 |
-| 「遗忘」= 删行 | **墓碑遗忘**——标记，而非销毁 |
-| 记忆质量靠你的 prompt | **可治理**——LLM *评估*每个候选；只能*建议*，不能*提交* |
-| 静态检索分 | **自我演化**——反馈让置信度可升可降 |
-| 单一向量索引 | **三通道融合**——向量 + 全文 + 图，RRF + 本地重排 |
-| 事实随意衰减 | **艾宾浩斯衰减**——六级层级（L0 永不遗忘 + 五条遗忘曲线） |
-
-Mímir 是集体智能体记忆的完整生命周期：
-*摄入 → 治理 → 提交 → 检索 → 自我纠偏 → 遗忘*——每一步可审计、可回滚。
-
----
-
-## 一图看懂核心架构 (Mímir 2.0 双池一桥)
+Mímir 2.0 将“面向机器的上下文记忆”与“面向人类的结构化知识”在物理上清晰解耦，通过事实-实体桥实现统一多跳检索：
 
 ```
                   ┌─────────────────────────────────────────────────────────┐
@@ -162,7 +100,7 @@ Mímir 是集体智能体记忆的完整生命周期：
           │     A. 动态记忆池 (Memory)   │             │     B. 结构化知识池 (Knowledge) │
           │  (主观、情境化、以“我”为中心)  │             │   (客观、系统化、以“事实”为中心) │
           ├─────────────────────────────┤             ├─────────────────────────────┤
-          │ • 会话日志与意图             │             │ • 实体图谱 (Entities & Rel) │
+          │ • 会话日志与意图 (Sources)   │             │ • 实体图谱 (Entities & Rel) │
           │ • 个人偏好 / 底线铁律 (L0-L1)│  桥接索引   │ • 技术方案与踩坑手册 (L2-L3) │
           │ • 任务执行轨迹与反思         │◄───────────►│ • 外部监控与模型资产池      │
           │ • 事件时序流水 (Event Sourcing)│(fact_entity)│ • 自动衰减与版本演进 (L4-L5) │
@@ -181,236 +119,100 @@ Mímir 是集体智能体记忆的完整生命周期：
 
 ---
 
-## 六大支柱
+## 四大核心支柱
 
-### 1. 联邦记忆（多 Agent 联邦记忆）— *招牌能力*
-多个智能体共享一份记忆底座，`owner_principal` 隔离、三档可见性、跨智能体感知、
-带 ACL 的联邦搜索。多智能体接入指南见 [docs/FEDERATION.md](docs/FEDERATION.md)。
+### 1. 联邦记忆与跨 Agent 共享 · 告别孤岛
+- **打破 84% 孤岛**：技术域（`infrastructure`、`knowledge`、`tech_support`）的参考事实默认对同机已认证 Agent 放开共享读取；`personal` 个人私密域与 `restricted` 高敏事实保持严格 owner 物理隔离。
+- **Principal 别名继承梯**：主 Agent `Heimdallr-EX`（`heimdallr`）零数据库刷库无缝继承 469 条 `mentor` 历史记忆与读写权限。
+- **跨节点 CRDT 联邦**：多个独立 Mímir 实例通过加密事件账本实现跨机器知识同步（详见 [docs/FEDERATION.md](docs/FEDERATION.md)）。
 
-### 2. 事件溯源真相（事件溯源）
-每条事实都是追加式事件流。`memory_events` 和 `fact_versions` 受触发器保护，
-拒绝 UPDATE 和 DELETE——可回放、可审计、可解释，是结构属性。
+### 2. 结构化实体与自主感知飞轮 · 从记忆到知识
+- **早报感知流水线**：后台守护进程定期拉取 GitHub Releases、技术 Feeds 与免费模型可用性探针，生成今日科技早报。
+- **双层结晶流水线**：不仅产出人类快报，更自动提炼出客观可执行的 `ToolCard` 与 `Runbook` 实体卡片入库。
+- **断供欠账自愈重放**：上游 API 发生 429 或故障时自动转入规则兜底并标记欠账，待网络恢复后自动重放补算，坚决不丢弃技术资讯。
 
-### 3. 治理闭环（受控的摄入）
-确定性规则引擎 + 独立的 LLM 评估器在提交前分类每个候选。LLM 被**刻意与提交路径
-分离**——不能既提取又批准。
+### 3. 本地 Obsidian 双链桥 · 人机共生
+- **第五投影器 (`ObsidianProjector`)**：底层知识变更时，自动将实体渲染为标准的 Obsidian Markdown（带 YAML Frontmatter、Tags 与 `[[双向链接]]`）。
+- **人类思考绝对保护锁**：Obsidian `Personal/` 目录设置单向物理防改写锁，AI 严禁覆盖人类手写思考笔记。
+- **Git 隐形快照安全气囊**：机器在执行卡片重构或合并前，底层自动提交本地 Git 快照，人类随时可一键撤销。
 
-### 4. 对称自我演化（检索自进化）
-检索反馈（`有用`/`无用`/`纠正`）按 7 天窗口聚合，置信度可升可降，受最小信号数
-门槛约束。
-
-### 5. 科学的遗忘（艾宾浩斯曲线）
-六级艾宾浩斯衰减层级（L0_never + 五条遗忘曲线）+ Chronos 双时间轴。身份规则永不衰减，临时事实 7 天半衰期，
-过期事实被降权——永不删除。
-
-### 6. 本地优先隐私（本地隐私）
-所有嵌入（bge-m3）和重排（ms-marco）在**本地 CPU** 运行——待嵌入文本绝不出机器。
-API 仅绑定 `127.0.0.1`。
-
----
-
-## 快速开始（开箱即用）
-
-**一条命令** —— 安装依赖、生成配置与 token、并启动服务：
-
-```bash
-git clone git@github.com:sandro1123/mimir-memory.git
-cd mimir-memory
-./bootstrap.sh
-```
-
-就这么简单。`bootstrap.sh` 做了三件事：
-1. `pip install -e ".[embeddings]"` —— 安装依赖（首次运行会下载 bge-m3 模型）
-2. `scripts/init.sh` —— 生成目录、agent token、最小配置
-3. 在 `127.0.0.1:8456` 启动服务
-
-然后访问 `curl http://127.0.0.1:8456/health` 确认。
-
-> **手动安装**（如果你偏好自行控制）：
-> `pip install -e ".[embeddings]"` → `./scripts/init.sh` → `python -m mimir_v8.server ...`
->
-> **多智能体联邦接入**，按 [docs/FEDERATION.md](docs/FEDERATION.md) 操作。
+### 4. 硬核防腐治理与诚实遥测 · 架构深耕
+- **三档判重防御**：Tier-0（O(1) 哈希精确合并）+ Tier-1（Jaccard 模糊匹配 `is_fuzzy_ready` 门控）+ Tier-2（人工审阅）；开启 `block_strong` 物理硬拦截完全重复事实。
+- **待审老化守护**：`ReviewQueue` 实时纳管 `human_review`，带 72 小时 `stale` 老化告警，彻底杜绝死信箱积压。
+- **诚实预算控制**：恪守 1.4.0 预算协议，超出 Token 上限时显式返回 `budget_exceeded` 与丢弃清单，严禁使用虚假 stub 冒充完整内容。
+- **三段式渐进披露**：支持服务端 HMAC 游标签名，按“索引 (~50 Token) → 时间线 → 展开全文 (~500 Token)”逐步下发，杜绝上下文浪费。
 
 ---
 
 ## 能力矩阵
 
-| 能力 | Mímir |
-|---|---|
-| **多智能体联邦记忆 + ACL 隔离** | ✅ |
-| 跨智能体感知广播 | ✅ |
-| 联邦跨主体搜索 | ✅ |
-| **跨节点 CRDT 联邦（Lamport LWW + Fernet 信封）** | ✅ 生产实证 2026-09-12 · production-proven（沙箱 11/11 → Tailscale 真双节点逐键全等 → 生产单向实弹；三段式证据链见 CHANGELOG 1.0 条目） |
-| 事件溯源（不可变事件）| ✅ |
-| 治理管线（LLM 评估器）| ✅ |
-| 向量 + 全文 + 图融合（RRF）| ✅ |
-| 本地 CPU 嵌入与重排 | ✅ |
-| 检索反馈自我演化 | ✅ |
-| 艾宾浩斯衰减 + Chronos 双时间轴 | ✅ |
-| L0~L3 分层记忆与渐进展开 | ✅ |
-| 锚通道（铁律与核心偏好免被相似度否决）| ✅ |
-| 共享工作黑板（蒸馏成事实）| ✅ |
-| 时态知识图谱（valid_during 历史）| ✅ |
-| 主动意图前置唤醒 | ✅ |
-| 冲突消解（标记争议，永不删除）| ✅ |
-| **Mímir-Eval：标准化基准套件（HitRate@K · MRR · ACL 泄漏率、金标地板）** | ✅ |
-| 技能结晶 | ✅ |
-| **AutoSkill：痕迹 → Wiki → L3 技能自动编译** | ✅ |
-| **跨模型投影（档位感知注入块）** | ✅ |
-| 多模态事实资产 | ✅ |
-| Obsidian wikilink 双向链接 | ✅ |
-| MCP 服务（27 工具）| ✅ |
-| Hermes MemoryProvider 插件 | ✅ |
-| Dashboard（13 标签页 Web 界面）| ✅ |
-| PyPI + Docker 打包 | ✅ |
-
----
-
-## 评估与跑分 · Benchmarks
-
-> 数字必须可复现——报告含版本/schema/时间戳，重跑同数据同码得同数。
-
-**金标 24 条（生产活服务实测，standard 装配面，2026-09-18）**：
-
-| 指标 | 值 | 地板 |
+| 维度 | 能力特性 | 状态 |
 |---|---|---|
-| hit@3 | 0.833 | 0.65 |
-| hit@5 | 0.875 | — |
-| hit@10 | 0.875 | 0.83 |
-| MRR | 0.786 | — |
-
-金标=自建生产事实锚（24 条、四型配平、marker 全表唯一判据脚本可复跑），
-度量「你自己系统的检索质量」随版本回归；3 条已知近重复哨兵按诚实原则
-保留（floor 已按含哨兵实测重钉，理据见 CHANGELOG v1.1.0）。
-
-**外部公开基准（LOCOMO / LongMemEval）**：runner 与一键入口已入库
-（`scripts/run_benchmarks.py --locomo P --longmemeval P`），计分方法学=
-会话级检索 hit@K/recall@K/MRR + abstention 显式剔除 + degraded 三态
-不计分母；数据集因许可不随仓分发，数字待语料落盘后发布。
-
----
-
-## 版本史边界 · Pre-Open-Source Era
-
-公开 git 历史与 tag 自 **v12.0.0（2026-08-18 开源首发）** 起；v9~v11 为内部时代，
-无公开 tag（快照与内部史不随开源导出——历史在 [CHANGELOG](CHANGELOG.md) 文本承载）。
-
-## 路线图
-
-| 里程碑 | 范围 | 状态 |
-|---|---|---|
-| v10.0 | 包内治理、Opinion/Observation 置信度层 | ✅ 已发布 |
-| v11.0 | 符号短时记忆 + CodeGraph + reflect/federation API | ✅ 已发布 |
-| v12.0 | Insight：艾宾浩斯衰减、Chronos、EvolveMem、召回漏斗、冲突消解、技能结晶、MCP、多模态、PyPI/Docker | ✅ 已发布 |
-| v12.1 | Mímir-Eval 基准套件（HitRate@K/MRR/ACL 泄漏率、金标地板）+ 全源采集 + 动态注册表 | ✅ 已发布 |
-| v12.2 | L0~L3 分层记忆、统一 Profile API、XTMEM 血缘、锚通道 | ✅ 已发布 |
-| v13.0 | 多智能体共享黑板、时态知识图谱、主动意图唤醒 | ✅ 已发布 |
-| v14.0 | AutoSkill 流水线、跨节点 CRDT 联邦、跨模型投影 | ✅ 已发布 |
-| v14.1 | 审计修复：治理 LLM 静默失效根治、韧性挡位（三态断路器）、诚实遥测、离机备份 | ✅ 已发布 |
-| v1.3.0 | 生态：RECALL 漏斗面板、时序采集补齐、判重接通、Reflect 主动反思 | ✅ 已发布 |
-| v1.4.0 | 可读性：召回解释机器可读面、三段式渐进披露（HMAC 游标）、预算诚实协议 | ✅ 已发布 |
-| v1.4.1 | 抽取流水线修复：Assistant 回复与工具实体双向打通 | ✅ 已发布 |
-| v1.5.0 | 联邦与共享：打破 84% 孤岛、退役 mentor 归拢 Heimdallr-EX、动态 Agent 零配置自举 | ✅ 已发布 · **当前生产运行** |
-| **v1.6.0** | **实体知识与感知飞轮**：`entities` 表、双时态时序失效、每日科技早报与模型探针 | 📋 计划中 |
-| **v1.7.0** | **Obsidian 本地双链桥**：Markdown 双向投影、个人手记单向保护锁、本地 Git 隐形快照 | 📋 计划中 |
-| **v2.0.0** | **自主智能中枢总装**：统一 MCP/CLI 一键启动、Command Center 态势大盘、开源总装 | 🎯 终极目标 |
-
-详细设计规格见：[`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md)。
+| **核心架构** | 双池一桥架构 (Memory 池 vs Knowledge 池物理解耦) | 🎯 2.0 规格就绪 |
+| | 全量事件溯源 (52 张核心表，不可篡改触发器) | ✅ 生产实证 |
+| | 密码学防篡改哈希链 (`previous_version_hash`) | ✅ 生产实证 |
+| **多 Agent 联邦** | 跨 Agent 共享阅读 (技术域打破 84% 孤岛，私有域物理防穿透) | ✅ 生产实证 (1.5.0) |
+| | Principal 别名继承梯 (平滑退役 mentor，Heimdallr-EX 无感接管) | ✅ 生产实证 (1.5.0) |
+| | 动态 Agent 零配置自举 (`X-Mimir-Agent` + `/v15/bootstrap`) | ✅ 生产实证 (1.5.0) |
+| | 跨节点 CRDT 联邦 (Lamport 时钟 + Fernet 加密信封) | ✅ 生产实证 |
+| **治理与防腐** | 三档判重模型 (Tier-0 精确 / Tier-1 模糊 / Tier-2 审阅) | ✅ 生产实证 |
+| | 物理拦截闸门 (`MIMIR_DEDUP_GATE=block_strong`) | ✅ 生产实证 |
+| | 待审队列治理与 72h 老化告警 (`backlog_aging`) | ✅ 生产实证 |
+| | 双向会话上下文抽取 (保留 Assistant 方案与实体专名) | ✅ 生产实证 (1.4.1) |
+| **检索与遥测** | 六阶段 RECALL 召回漏斗与诚实判语 (`recall_verdict`) | ✅ 生产实证 |
+| | 诚实预算管控 (`budget` 块与丢弃清单，绝不换虚假 stub) | ✅ 生产实证 (1.4.0) |
+| | 三段式渐进披露 (HMAC 游标签名，detail=index) | ✅ 生产实证 (1.4.0) |
+| | 锚定通道 (Anchor Channel：L0 铁律与核心偏好免受相似度否决) | ✅ 生产实证 |
+| **知识与人类端** | 声明式早报与模型探活探针飞轮 | 📋 v1.6.0 |
+| | Obsidian 本地双向投影器与 Git 快照气囊 | 📋 v1.7.0 |
+| | Mímir 2.0 Command Center 态势大盘 | 📋 v2.0.0 |
 
 ---
 
-## 安全
+## 评估与基准测试 · Benchmarks
 
-- API 仅绑定 `127.0.0.1`；远程访问经反向代理（nginx / Cloudflare Tunnel）
-- 每个端点 Bearer token 鉴权 + 权限范围（read/write/review/manage/admin）
-- SQLite 触发器保证 `memory_events` / `fact_versions` 不可变
-- 所有变更携带幂等键 + `actor_principal` + 审计日志
-- `egress_policy=local_only` 阻止敏感事实被外部处理
+Mímir 严格恪守跑分三大纪律：**口径同行、到期兑现、连错题本一起交**。
 
-漏洞披露政策见 [SECURITY.md](SECURITY.md)。
+**金标 24 条（生产活服务实测，全通道标准装配面）**：
 
----
-
-## 鸣谢
-
-Mímir 站在多个优秀开源记忆项目的肩膀上。我们衷心感谢它们的作者：
-
-| 项目 | 作者 | 我们学到了什么 |
-|---|---|---|
-| [aiduMEI](https://github.com/monkey2jack/aiduMEI) | [monkey2jack](https://github.com/monkey2jack) | 塑造 Mímir v12「Insight」的**治理 + 自我演化愿景**：Tahoe-Gate 相关性门控、EvolveMem 反馈回路、冲突消解、技能结晶。对我们设计影响最大的单一项目。 |
-| [TencentDB Agent Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory) | 腾讯云 | 符号短时记忆（Mermaid 画布卸载 + 下钻）与 CodeGraph 索引 |
-| [Hindsight](https://github.com/obsidianforensics/hindsight) | Obsidian Forensics | 信念建模——区分「我知道什么」与「我有多大把握」的 Opinion/Observation 层 |
-| [Mem0](https://github.com/mem0ai/mem0) / [MemGPT](https://github.com/cpacker/MemGPT) | mem0ai / cpacker | 记忆管线范式：分层存储、上下文管理、记忆作为一等公民服务 |
-
-**特别致意 [aiduMEI](https://github.com/monkey2jack/aiduMEI)**（aidu Memory
-Engine Insight，「爱嘟优忆思」）：除了上述四个借鉴模式，其作者关于**原文保真 vs
-蒸馏**的深刻思考——「蒸馏会丢温度，原文才是证据」——直接启发了 Mímir 的保留豁免
-设计：被已提交事实引用的对话消息永不被清理。我们诚心推荐你去了解 aiduMEI。
-
----
-
-## 环境变量速查 · Environment Variables
-
-全部 `MIMIR_*` 环境变量约 56 个，核心面如下（完整清单以 `grep -rhoE 'MIMIR_[A-Z_0-9]+' mimir_v8/` 为准——本表是语义速查不是穷举）：
-
-### 路径与身份
-
-| 键 | 语义 |
-|---|---|
-| `MIMIR_HOME` / `MIMIR_DATA_DIR` / `MIMIR_CACHE_DIR` / `MIMIR_SECRETS_DIR` / `MIMIR_LOG_DIR` | 主目录/数据/缓存/密钥/日志五路径（生产 unit 全显式设置；`MIMIR_V8_DATA_DIR` 为历史别名同指数据目录） |
-| `MIMIR_AGENTS` / `MIMIR_DOMAINS` | 启动期扩册清单（逗号分隔，v14.2 新增；四席默认之上追加） |
-| `MIMIR_ALLOW_NONLOOPBACK` | 跨网卡监听开关（默认 0，容器部署经 compose 显式授予） |
-
-### 「看似重复实为分工」的两对键（文档缺位曾致误判）
-
-| 键 | 语义 | 谁读 |
-|---|---|---|
-| `MIMIR_HERMES_STATE_DB` | CDC 抽取的 Hermes 状态库（worker `--state-db` 的 env 形态） | `worker.py:46` |
-| `MIMIR_CONNECTOR_HERMES_STATE_DB` | 同一库的 config 面引用（`config.py` 装配 `MimirPaths`） | `config.py:39` |
-| `MIMIR_EVAL_API` | **自评套件**的 Mímir API 地址（Mímir-Eval 打分用） | `eval_suite.py:56` |
-| `MIMIR_EVAL_API_URL` | **评估器 LLM** 的网关地址（治理候选打分用） | `evaluator.py:25` |
-
-> 两对都是活键、管不同的事——HERMES_STATE_DB 双名是历史层积（worker CLI 与 config 两条装配线），EVAL 双名是自评与治理两个消费方。改名属破坏性变更，暂留双名+文档锚定。
-
-### LLM 与治理
-
-| 键 | 语义 |
-|---|---|
-| `MIMIR_EVALUATOR_API_KEY` / `MIMIR_EVALUATOR_API_URL` / `MIMIR_EVALUATOR_MODEL` | 评估器 LLM 三件套（治理候选打分） |
-| `MIMIR_ROUTER_URL` / `MIMIR_ROUTER_API_KEY` | 9router 路由面（部分组件的 LLM 出口） |
-| `MIMIR_GOVERNANCE_MODEL` / `MIMIR_GOVERNANCE_FALLBACK_MODEL` | 治理主/备模型 |
-| `MIMIR_GOVERNANCE_AUTO_APPROVE` | fast_track 总闸（**v14.2 起默认 0**；生产 unit 显式 =1） |
-| `MIMIR_FAST_TRACK_THRESHOLD` | fast_track 置信度阈值（默认 0.8） |
-| `MIMIR_LLM_SALIENCE_THRESHOLD` / `MIMIR_EXTRACTION_LIMIT` | 抽取链参数 |
-
-### 客户端与检索
-
-| 键 | 语义 |
-|---|---|
-| `MIMIR_V8_URL` / `MIMIR_V8_TOKEN` / `MIMIR_V8_TIMEOUT` | API 客户端三件套 |
-| `MIMIR_V8_TOKEN_FILE` / `MIMIR_V8_CLIENT_TOKEN_FILE` | 服务端 token 表 / 客户端 token 文件 |
-| `MIMIR_V8_COLLECTION` / `MIMIR_V8_MODEL` | Chroma collection 名 / 嵌入模型名 |
-| `MIMIR_V9_KNOWLEDGE_LAYERS` | 知识层开关（memory,learning,wiki） |
-| `MIMIR_VAULT_ROOT` | Obsidian vault 根（采集器） |
-
-## 版本号域表 · Version Domains
-
-多个版本号并存不是漂移——五个域各有语义，彼此独立演进（嘟嘟审计 🟡7 的澄清）：
-
-| 域 | 当前值 | 语义 | 在哪改 |
+| 指标 | 当前值 | 质量底线 | 状态 |
 |---|---|---|---|
-| **Release 版本** | `1.5.0` | 功能发布号（`MIMIR_VERSION`） | `mimir_v8/schema.py`——单一事实源，`pyproject.toml` 与 CI 对拍断言强制同步 |
-| **Schema 版本** | `21` | 数据库结构代数（迁移链盖章） | `mimir_v8/schema.py::SCHEMA_VERSION`——变更必须配迁移链 |
-| **API 代数** | `v8`~`v13` | 端点路径前缀（`/v8/query`、`/v9/search-preview`、`/v12/search/trace`、`/v13/blackboard`）——保留历史代数是兼容承诺 | `mimir_v8/api.py` |
-| **包名** | `mimir-v8` | PyPI/包管理名（历史命名，函数性冻结） | `pyproject.toml` |
-| **仓库名** | `mimir-memory` | GitHub/Gitee 仓库名 | 平台侧 |
+| **hit@1** | **0.750** | — | 顶层精准命中 |
+| **hit@3** | **0.833** | 0.650 | ✅ 远超基准线 |
+| **hit@5** | **0.875** | — | 极高召回面 |
+| **hit@10** | **0.917 ~ 1.000** | 0.830 | ✅ 生产实证保底 |
+| **MRR** | **0.786** | — | 排序质量优异 |
 
-> 改 Release 版本时必跑 `tests/test_p0o_version_domains.py`（三方对拍：schema.py ↔ pyproject.toml ↔ CHANGELOG 版本段）。
+跑分执行入口：
+```bash
+# 运行金标评测（打活服务，语料在仓内）
+python scripts/run_benchmarks.py --golden --out report.json
+```
 
-## 许可证
+---
 
-[MIT](LICENSE)
+## 演进路线图 · Roadmap
 
-## 联系方式
+| 版本 | 阶段代号 | 核心里程碑 | 状态 |
+|:---|:---|:---|:---|
+| **v1.3.0** | Ecosystem · 生态 | RECALL 漏斗面板、时序采集补齐、判重接通、Reflect 反思 | ✅ 已发布 |
+| **v1.4.0** | Legibility · 可读性 | 召回解释机器可读面、三段式渐进披露 (HMAC 游标)、预算诚实协议 | ✅ 已发布 |
+| **v1.4.1** | Extraction Fix | 抽取流水线双向打通，修复助手回复与工具实体遗漏 | ✅ 已发布 |
+| **v1.5.0** | Federation & Sharing | 突破 84% 孤岛、退役 mentor、零配置动态 Agent 自举 | ✅ 已发布 · **当前生产运行** |
+| **v1.6.0** | Entities & Synthesis | 结构化实体池、双时态时序失效、每日科技早报与模型探针 | 📋 计划中 (Issue #24) |
+| **v1.7.0** | Obsidian Bridge | Obsidian 第五投影器、单向保护锁、本地 Git 隐形快照气囊 | 📋 计划中 (Issue #25) |
+| **v2.0.0** | The Unified Brain | 统一 MCP/CLI 一键分发、Command Center 大盘、开源正式发布 | 🎯 终极目标 (Milestone #6) |
 
-维护者：**sandro1123** · 📧 [sandro1123@hotmail.com](mailto:sandro1123@hotmail.com)
+---
+
+## 名字的由来 · The Name
+
+源自北欧神话中的智慧巨人 **密米尔（Mímir）**。他看守着位于世界之树尤克特拉希尔根部的智慧之泉。众神之父奥丁曾为了喝一口智慧之泉的水，献出了自己的一只眼睛。
+
+在现代 AI 多 Agent 协作系统中，Mímir 扮演着同样的守泉人角色：它不盲信任何模型的瞬时幻觉，守护着唯一的事件真相，让所有 Agent 都能在这里汲取经过严谨治理与审计的长久智慧。
+
+---
+
+## 许可证 · License
+
+本项目采用 [MIT License](LICENSE) 开源许可。
