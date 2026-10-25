@@ -19,6 +19,20 @@ from typing import Any
 from .base import BaseCollector, CollectResult, CollectorError
 
 
+_DTD_RE = re.compile(r"<!\s*(DOCTYPE|ENTITY)", re.IGNORECASE)
+
+
+def _parse_feed_xml(raw: str) -> ET.Element:
+    """Parse RSS/Atom without DTDs or entity declarations.
+
+    RSS and Atom feeds do not need a DOCTYPE; refusing it also blocks internal
+    entity expansion payloads before they reach the XML parser.
+    """
+    if _DTD_RE.search(raw):
+        raise CollectorError("feed contains a DOCTYPE/ENTITY declaration; refused")
+    return ET.fromstring(raw)
+
+
 CACHE_DIR = Path.home() / ".hermes" / "mimir" / "collect"
 CACHE_FILE = CACHE_DIR / "rss_seen_urls.json"
 TZ = timezone(timedelta(hours=8))
@@ -94,7 +108,7 @@ class RSSCollector(BaseCollector):
     def _fetch_feed(self, feed_url: str, category: str) -> list[dict]:
         resp = urllib.request.urlopen(feed_url, timeout=15)
         raw = resp.read().decode("utf-8", errors="replace")
-        root = ET.fromstring(raw)
+        root = _parse_feed_xml(raw)
 
         items = []
         ns = {"atom": "http://www.w3.org/2005/Atom"}
