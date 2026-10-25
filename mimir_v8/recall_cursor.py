@@ -1,18 +1,10 @@
-"""三段式渐进披露的**服务端持有游标**（roadmap #13）。
+"""三段式渐进披露的签名游标（roadmap #13）。
 
-issue #7 硬约束：游标由服务端持有不下发；跨步必须拒绝三种形态——
-**任意 ID**、**改范围**、**过期 token**。
+游标由调用方持有；HMAC 提供完整性，不提供保密性。持有游标的人可解码
+其载荷，因此不得在其中放秘密。展开时还必须绑定认证主体，并重新检查
+当前 ACL 和事实状态；签名本身不能替代授权。
 
-**为什么用 HMAC 签名而不是服务端会话表**：会话表本身会成为新的积压源
-（Mímir 自己的 `human_review` 队列 6 件积压就是这句话的成本账单）。
-签名 token 把状态放在**调用方拿不到明文**的载荷里，
-服务端只需一把密钥即可验证，无需维护、清理、过期扫描。
-
-**为什么不暴露内部 ID**：游标里只放**本次召回发放过的 ref 指纹**
-（见 `issued_refs`），调用方无法凭游标构造任意 ID —— 这是"拒绝任意 ID"
-的结构性保证，而不是靠事后校验。
-
-叶子模块：只依赖标准库，被 api/query 反向依赖。
+游标仅允许展开本次召回发放过的事实 ID，拒绝调用方自行指定任意 ID。
 """
 from __future__ import annotations
 
@@ -23,7 +15,7 @@ import json
 import time
 
 #: 游标载荷版本。变更载荷结构必须升版本（旧游标据此可判为不认识）。
-CURSOR_VERSION = 1
+CURSOR_VERSION = 2
 
 
 class CursorError(RuntimeError):
@@ -42,6 +34,10 @@ class CursorExpired(CursorError):
     """游标已过期。"""
 
 
+class CursorPrincipalMismatch(CursorError):
+    """游标不属于当前认证主体。"""
+
+
 def _b64e(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
@@ -55,7 +51,7 @@ def _sign(secret: bytes, body: str) -> str:
     return _b64e(hmac.new(secret, body.encode("ascii"), hashlib.sha256).digest())
 
 
-def mint_cursor(secret: bytes, *, scope: str, offset: int,
+def mint_cursor(secret: bytes, *, scope: str, principal_id: str, offset: int,
                 issued_refs: list[str], ttl_seconds: int = 300) -> str:
     """签发一个不透明游标。
 
@@ -65,6 +61,7 @@ def mint_cursor(secret: bytes, *, scope: str, offset: int,
     payload = {
         "v": CURSOR_VERSION,
         "scope": scope,
+        "principal_id": principal_id,
         "offset": int(offset),
         "issued_refs": list(issued_refs),
         "exp": int(time.time()) + int(ttl_seconds),
@@ -74,7 +71,8 @@ def mint_cursor(secret: bytes, *, scope: str, offset: int,
     return f"{body}.{_sign(secret, body)}"
 
 
-def verify_cursor(secret: bytes, token: str, *, scope: str) -> dict:
+def verify_cursor(secret: bytes, token: str, *, scope: str | None = None,
+                  principal_id: str | None = None) -> dict:
     """验证并解出游标载荷。任何不符即抛 CursorError 子类。"""
     if not isinstance(token, str) or "." not in token:
         raise CursorSignatureInvalid("游标格式非法")
@@ -93,8 +91,10 @@ def verify_cursor(secret: bytes, token: str, *, scope: str) -> dict:
         raise CursorSignatureInvalid(
             f"游标版本不认识: {payload.get('v')!r}")
 
-    if payload.get("scope") != scope:
+    if scope is not None and payload.get("scope") != scope:
         raise CursorScopeMismatch("游标不属于本次查询范围")
+    if principal_id is not None and payload.get("principal_id") != principal_id:
+        raise CursorPrincipalMismatch("游标不属于当前认证主体")
 
     if int(payload.get("exp", 0)) < int(time.time()):
         raise CursorExpired("游标已过期")

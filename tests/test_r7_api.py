@@ -80,6 +80,31 @@ class R7APIFixture:
 
 
 class TestR7AuthenticatedAPI(unittest.TestCase):
+    def test_write_scope_cannot_self_confirm_fact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = R7APIFixture(Path(tmp))
+            body = {
+                "content": "ordinary agent cannot self-confirm this",
+                "owner_principal": "mentor", "domain": "knowledge",
+                "fact_type": "event", "summary": "pending fact",
+                "visibility": "all", "sensitivity": "internal",
+                "egress_policy": "local_only", "human_status": "confirmed",
+            }
+            rejected = fixture.client.post(
+                "/v8/facts", headers=fixture.headers("mentor"), json=body
+            )
+            self.assertEqual(rejected.status_code, 403, rejected.text)
+            self.assertEqual(rejected.json()["error"]["code"], "review_required")
+
+            body.pop("human_status")
+            created = fixture.client.post(
+                "/v8/facts", headers=fixture.headers("mentor"), json=body
+            )
+            self.assertEqual(created.status_code, 201, created.text)
+            self.assertEqual(
+                fixture.store.get_fact(created.json()["fact_id"])["human_status"], "unreviewed"
+            )
+
     def test_preview_requires_authentication_and_read_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
             fixture = R7APIFixture(Path(tmp))

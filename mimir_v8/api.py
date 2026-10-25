@@ -821,21 +821,31 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
     def bootstrap_handshake(identity: Principal = Depends(scoped("read"))):
         """1.5.0 新 Agent 自举握手协议：返回精简世界观，消除失忆症。"""
         with contextlib.closing(context.store.connect()) as conn:
-            iron_rules = [
-                {"fact_id": r["fact_id"], "content": r["content"], "summary": r["summary"]}
-                for r in conn.execute(
-                    "SELECT fact_id, content, summary FROM facts WHERE status='active' AND fact_type='iron_rule' LIMIT 20"
-                ).fetchall()
-            ]
-            user_prefs = [
-                {"fact_id": r["fact_id"], "content": r["content"], "summary": r["summary"]}
-                for r in conn.execute(
-                    "SELECT fact_id, content, summary FROM facts WHERE status='active' AND fact_type='user_pref' LIMIT 20"
-                ).fetchall()
-            ]
-            domain_counts = dict(conn.execute(
-                "SELECT domain, COUNT(*) FROM facts WHERE status='active' GROUP BY domain"
-            ).fetchall())
+            rows = conn.execute(
+                """SELECT fact_id, content, summary, domain, fact_type, status
+                FROM facts WHERE status='active' ORDER BY fact_id"""
+            ).fetchall()
+
+        # Bootstrap is still a record-level read: do not expose a fact merely because
+        # its type is useful to a newly connected agent. Counts must use the same visible set.
+        visible = [
+            dict(row) for row in rows
+            if row["status"] == "active" and context.store.can_read(
+                row["fact_id"], identity.principal_id,
+                is_admin=identity.is_admin, roles=set(identity.roles),
+            )
+        ]
+        iron_rules = [
+            {"fact_id": row["fact_id"], "content": row["content"], "summary": row["summary"]}
+            for row in visible if row["fact_type"] == "iron_rule"
+        ][:20]
+        user_prefs = [
+            {"fact_id": row["fact_id"], "content": row["content"], "summary": row["summary"]}
+            for row in visible if row["fact_type"] == "user_pref"
+        ][:20]
+        domain_counts: dict[str, int] = {}
+        for row in visible:
+            domain_counts[row["domain"]] = domain_counts.get(row["domain"], 0) + 1
 
         return {
             "system_version": MIMIR_VERSION,
@@ -972,7 +982,12 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         """
         from .recall_cursor import CursorError
         try:
-            return context.query.expand(body.cursor, body.fact_ids)
+            return context.query.expand(
+                body.cursor, body.fact_ids,
+                principal_id=identity.principal_id,
+                is_admin=identity.is_admin,
+                roles=set(identity.roles),
+            )
         except CursorError as exc:
             raise HTTPException(400, str(exc)) from exc
 
@@ -1084,6 +1099,11 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                     identity: Principal = Depends(scoped("write"))):
         if not identity.can_act_as(body.owner_principal):
             raise AuthError("cannot create a fact for another principal", 403, "owner_boundary")
+        if body.human_status == "confirmed" and not identity.is_admin:
+            raise AuthError(
+                "confirmed facts must be created through candidate review",
+                403, "review_required",
+            )
         return context.store.create_fact(
             CreateFact(**body.model_dump()),
             actor_principal=identity.principal_id,
