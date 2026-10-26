@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 from contextlib import closing
 import threading
 import time
@@ -482,12 +483,20 @@ def _profile_section(connection, owner: str, fact_types: tuple,
 
 
 MAX_BODY_BYTES = 1_048_576
+# Federation: ACL is applied per row, so scan a wider window than we return,
+# otherwise unreadable rows ate the 20-row LIMIT and callers saw fewer hits.
 FEDERATION_SCAN_LIMIT = 200
 FEDERATION_RESULT_LIMIT = 20
+MAX_DYNAMIC_AGENTS = 256
+_AGENT_ID_RE = re.compile(r"[a-z0-9][a-z0-9_.-]{0,63}")
 
 
 class _BodySizeLimitMiddleware:
-    """Enforce the request size limit even when the body is chunked."""
+    """Enforce MAX_BODY_BYTES on the bytes actually received.
+
+    The Content-Length pre-check in ``request_identity`` is a fast path; a
+    chunked request has no Content-Length and used to bypass the 1 MiB cap.
+    """
 
     def __init__(self, app, max_bytes: int = MAX_BODY_BYTES):
         self.app = app
@@ -565,8 +574,15 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         agent_hdr = request.headers.get("X-Mimir-Agent")
         if agent_hdr and agent_hdr.strip():
             clean_agent = agent_hdr.strip().lower()
-            if clean_agent not in get_registered_agents():
+            registered = get_registered_agents()
+            # Only authenticated callers may register an agent id, ids must be
+            # well-formed, and the dynamic registry is bounded: an anonymous
+            # request used to be able to grow it without limit.
+            if (clean_agent not in registered
+                    and len(registered) < MAX_DYNAMIC_AGENTS
+                    and _AGENT_ID_RE.fullmatch(clean_agent)):
                 try:
+                    context.token_store.authenticate(request.headers.get("authorization"))
                     register_agent(clean_agent)
                 except Exception:
                     pass
