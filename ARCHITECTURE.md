@@ -1,6 +1,6 @@
 # Mímir Architecture · 架构设计
 
-> 同步版本 · Synced version：**1.5.0** · Schema 21 · 代号 Codename Federation & Shared Memory · 2026-10-26  
+> 同步版本 · Synced version：**1.6.0** · Schema 21 · 代号 Codename Perception & Crystallization · 2026-10-26  
 > 演进蓝图 · Evolution Spec：**Mímir 2.0 (The Unified Brain)** 详见 [`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md)  
 > 版本纪元表见 [docs/VERSIONING.md](docs/VERSIONING.md)（0.x 史前纪元 → 1.x 承诺纪元）。  
 > English · 中文双语
