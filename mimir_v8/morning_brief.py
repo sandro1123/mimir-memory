@@ -14,12 +14,11 @@ always yields the same cards — this keeps the pipeline testable and idempotent
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import Any
 
 from .schema import CreateFact
-from .store import CanonicalStore, new_id, sha256_text, utc_now
+from .store import CanonicalStore, utc_now
 
 
 @dataclass

@@ -10,7 +10,6 @@ import time
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from urllib.request import build_opener, Request
 
 from mimir_v8.store import CanonicalStore
 from mimir_v8.schema import CreateFact

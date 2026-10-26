@@ -4,13 +4,10 @@ Layer 1: human-readable morning-brief Markdown.
 Layer 2: structured entity cards auto-ingested into the canonical store.
 """
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 
 from mimir_v8.store import CanonicalStore
-from mimir_v8.schema import CreateFact
 from mimir_v8.morning_brief import (
-    EntityCard,
     MorningBriefService,
     SourceItem,
 )
