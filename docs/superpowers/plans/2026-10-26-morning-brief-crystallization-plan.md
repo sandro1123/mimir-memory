@@ -99,3 +99,15 @@ class EntityCard:
 
 完成后 v1.6.0 三步全部落地 → 可进入「Obsidian 本地双链桥 (v1.7.0)」。
 在此之前**不**执行 GitHub 发布（用户指示：1.6.0 全部完成后再发布）。
+
+### 实施记录（2026-10-26）
+- Task 1 第一层早报：`render_markdown` 按 kind 分节，确定性，空输入合法。
+- Task 2 第二层抽取：`extract_cards` 确定性（不调 LLM）。
+- Task 3 入库闭环：`publish` + `_upsert_card` 幂等（同 name+type 更新复用）。
+- Task 4 API：`POST /v16/brief/generate`（write）。
+- Task 5 测试：`test_morning_brief.py`(6)、`test_morning_brief_api.py`(2) 全过
+  （后者一条用例本机因 Windows 临时目录清理 WinError 偶发 teardown 失败，断言全过）。
+
+**踩坑判例**：幂等复用时误把 entity_id 传给 `get_fact_entities`（它吃 fact_id），
+导致查不到已关联 fact 而重复建实体。正确做法是按 entity_id 反查
+`fact_entities`（`_linked_fact_id`）取 fact_id。属于"方向反了"类缺陷。
