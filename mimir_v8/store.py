@@ -15,6 +15,8 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterator
+import urllib.error
+import urllib.request
 
 from .schema import (
     CreateFact,
@@ -53,6 +55,40 @@ def canonical_json(value: object) -> str:
 
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def load_sources_yaml(path: str | Path | None = None) -> dict:
+    """加载并验证 `sources.yaml` 信源登记册。
+
+    v1.6.0 第二步：声明式探针与信源调度引擎的配置入口。
+
+    - ``path`` 为空时使用包内默认 `mimir_v8/sources.yaml`。
+    - 返回的 dict 保证含 ``models`` / ``github`` / ``tools`` 三个键（缺省为空列表），
+      调用方无需逐个 ``get`` 防御。
+    - 文件缺失或 YAML 非法时显式抛错（不静默回退空配置——坏配置静默等于没接线）。
+    """
+    import yaml
+
+    if path is None:
+        path = Path(__file__).resolve().parent / "sources.yaml"
+    p = Path(path)
+    if not p.is_file():
+        raise FileNotFoundError(f"sources.yaml not found at {p}")
+
+    with p.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh)
+
+    if not isinstance(data, dict):
+        raise ValueError(f"sources.yaml must be a mapping at top level, got {type(data).__name__}")
+
+    # 归一化三个声明段，确保下游无需防御性 get
+    for key in ("models", "github", "tools"):
+        section = data.get(key)
+        if section is None:
+            data[key] = []
+        elif not isinstance(section, list):
+            raise ValueError(f"sources.yaml section '{key}' must be a list, got {type(section).__name__}")
+    return data
 
 
 def _lineage_hash_for_new_version(
@@ -774,6 +810,77 @@ CREATE TRIGGER IF NOT EXISTS memory_events_no_delete
 BEFORE DELETE ON memory_events BEGIN
     SELECT RAISE(ABORT, 'memory_events are immutable');
 END;
+
+-- v1.6.0: entity knowledge base (additive extension of the v21 schema;
+-- present in the fresh schema and reached by older databases via
+-- migrate_schema_21_to_22).
+CREATE TABLE IF NOT EXISTS entities (
+    entity_id TEXT PRIMARY KEY,
+    entity_type TEXT NOT NULL,
+    name TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    description TEXT,
+    metadata_json TEXT,
+    sensitivity TEXT DEFAULT 'internal',
+    visibility TEXT DEFAULT 'all',
+    status TEXT DEFAULT 'active',
+    valid_from TEXT,
+    valid_to TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    content_hash TEXT
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS fact_entities (
+    fact_id TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    role TEXT,
+    confidence REAL DEFAULT 1.0,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (fact_id, entity_id),
+    FOREIGN KEY (fact_id) REFERENCES facts(fact_id) ON DELETE CASCADE,
+    FOREIGN KEY (entity_id) REFERENCES entities(entity_id) ON DELETE CASCADE
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS entity_relations (
+    from_entity_id TEXT NOT NULL,
+    to_entity_id TEXT NOT NULL,
+    relation_type TEXT NOT NULL,
+    relation_direction TEXT DEFAULT 'forward',
+    strength REAL DEFAULT 1.0,
+    metadata_json TEXT,
+    valid_from TEXT,
+    valid_to TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (from_entity_id, to_entity_id, relation_type),
+    FOREIGN KEY (from_entity_id) REFERENCES entities(entity_id) ON DELETE CASCADE,
+    FOREIGN KEY (to_entity_id) REFERENCES entities(entity_id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_entities_domain ON entities(domain);
+CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type);
+CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status);
+CREATE INDEX IF NOT EXISTS idx_entities_valid ON entities(valid_from, valid_to);
+CREATE INDEX IF NOT EXISTS idx_fact_entities_fact ON fact_entities(fact_id);
+CREATE INDEX IF NOT EXISTS idx_fact_entities_entity ON fact_entities(entity_id);
+CREATE INDEX IF NOT EXISTS idx_fact_entities_role ON fact_entities(role);
+CREATE INDEX IF NOT EXISTS idx_entity_relations_from ON entity_relations(from_entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_relations_to ON entity_relations(to_entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_relations_type ON entity_relations(relation_type);
+
+-- v1.6.0 Step 2: debt-replay queue for failed model probes.
+CREATE TABLE IF NOT EXISTS probe_tasks (
+    task_id TEXT PRIMARY KEY,
+    entity_id TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    due_at TEXT NOT NULL,
+    completed_at TEXT,
+    created_at TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_probe_tasks_due ON probe_tasks(due_at, status);
 """
 
 
@@ -1829,3 +1936,714 @@ class CanonicalStore:
                     canonical_json(payload or {}),
                 ),
             )
+
+    # =========================================================================
+    # v1.6.0: 实体知识库迁移
+    # =========================================================================
+
+    def migrate_schema_21_to_22(self) -> None:
+        """从 SCHEMA_VERSION 21 迁移到 22：实体知识库基础表。
+
+        该迁移只添加新表（entities、fact_entities、entity_relations），
+        不修改或删除现有表/数据。schema_meta 中的 schema_version 会被
+        更新为 "22"。
+        """
+        with self.transaction() as connection:
+            # 更新元数据版本：实体表是运行时的加法扩展，版本号与当前运行时常量保持一致，
+            # 这样迁移后的库在下次进程启动时仍能通过 _validate_existing_schema 校验。
+            connection.execute(
+                "UPDATE schema_meta SET value = ? WHERE key = 'schema_version'",
+                (str(SCHEMA_VERSION),),
+            )
+
+            # ---- 创建 entities 表 ----
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS entities (
+                    entity_id TEXT PRIMARY KEY,
+                    entity_type TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    domain TEXT NOT NULL,
+                    description TEXT,
+                    metadata_json TEXT,
+                    sensitivity TEXT DEFAULT 'internal',
+                    visibility TEXT DEFAULT 'all',
+                    status TEXT DEFAULT 'active',
+                    valid_from TEXT,
+                    valid_to TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    content_hash TEXT
+                )
+            """)
+
+            # ---- 创建 fact_entities 表 ----
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS fact_entities (
+                    fact_id TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    role TEXT,
+                    confidence REAL DEFAULT 1.0,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (fact_id, entity_id),
+                    FOREIGN KEY (fact_id) REFERENCES facts(fact_id) ON DELETE CASCADE,
+                    FOREIGN KEY (entity_id) REFERENCES entities(entity_id) ON DELETE CASCADE
+                )
+            """)
+
+            # ---- 创建 entity_relations 表 ----
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS entity_relations (
+                    from_entity_id TEXT NOT NULL,
+                    to_entity_id TEXT NOT NULL,
+                    relation_type TEXT NOT NULL,
+                    relation_direction TEXT DEFAULT 'forward',
+                    strength REAL DEFAULT 1.0,
+                    metadata_json TEXT,
+                    valid_from TEXT,
+                    valid_to TEXT,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (from_entity_id, to_entity_id, relation_type),
+                    FOREIGN KEY (from_entity_id) REFERENCES entities(entity_id) ON DELETE CASCADE,
+                    FOREIGN KEY (to_entity_id) REFERENCES entities(entity_id) ON DELETE CASCADE
+                )
+            """)
+
+            # ---- 创建索引 ----
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_entities_domain ON entities(domain)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_entities_valid ON entities(valid_from, valid_to)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_fact_entities_fact ON fact_entities(fact_id)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_fact_entities_entity ON fact_entities(entity_id)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_fact_entities_role ON fact_entities(role)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_entity_relations_from ON entity_relations(from_entity_id)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_entity_relations_to ON entity_relations(to_entity_id)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_entity_relations_type ON entity_relations(relation_type)")
+
+            # ---- 创建 probe_tasks 表（断供欠账重放队列）----
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS probe_tasks (
+                    task_id TEXT PRIMARY KEY,
+                    entity_id TEXT NOT NULL,
+                    endpoint TEXT NOT NULL,
+                    snapshot_json TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    due_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_probe_tasks_due ON probe_tasks(due_at, status)")
+
+    # =========================================================================
+    # v1.6.0: 实体 CRUD
+    # =========================================================================
+
+    def create_entity(
+        self,
+        entity_type: str,
+        name: str,
+        domain: str,
+        *,
+        description: str | None = None,
+        metadata: dict | None = None,
+        sensitivity: str = "internal",
+        visibility: str = "all",
+        status: str = "active",
+        content_hash: str | None = None,
+        now: str | None = None,
+    ) -> dict:
+        """创建结构化实体并返回生成的 entity_id。
+
+        这是对 entities 表的封装写入，遵循同 fact_creation 相同的事务模式。
+        """
+        now = now or utc_now()
+        entity_id = new_id()
+        metadata_json = json.dumps(metadata) if metadata else None
+        content_hash = content_hash or sha256_text(name)
+
+        with self.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO entities
+                    (entity_id, entity_type, name, domain, description,
+                     metadata_json, sensitivity, visibility, status,
+                     valid_from, valid_to, created_at, updated_at, content_hash)
+                VALUES
+                    (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+                """,
+                (
+                    entity_id,
+                    entity_type,
+                    name,
+                    domain,
+                    description,
+                    metadata_json,
+                    sensitivity,
+                    visibility,
+                    status,
+                    now,  # created_at
+                    now,  # updated_at
+                    content_hash,
+                ),
+            )
+
+        return {"entity_id": entity_id, "status": status}
+
+    def get_entity(
+        self, entity_id: str, *, now: str | None = None, include_suspended: bool = False
+    ) -> dict | None:
+        """根据 ID 获取实体（若已过期则返回 None）。
+
+        双时态查询：仅在 valid_to 为 NULL 或 > now 时返回。
+
+        默认排除 ``suspended`` 实体（与降级/断供标记隔离）；传入
+        ``include_suspended=True`` 可读取被暂停的实体——下游判定"模型是否断供"
+        正需要看到 suspended 状态，否则无法区分"已断供"与"不存在"。
+        """
+        now = now or utc_now()
+        with contextlib.closing(self.connect()) as connection:
+            if include_suspended:
+                row = connection.execute(
+                    """
+                    SELECT entity_id, entity_type, name, domain, description,
+                           metadata_json, sensitivity, visibility, status,
+                           valid_from, valid_to, created_at, updated_at, content_hash
+                    FROM entities
+                    WHERE entity_id = ?
+                      AND (valid_to IS NULL OR valid_to > ?)
+                    """,
+                    (entity_id, now),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    """
+                    SELECT entity_id, entity_type, name, domain, description,
+                           metadata_json, sensitivity, visibility, status,
+                           valid_from, valid_to, created_at, updated_at, content_hash
+                    FROM entities
+                    WHERE entity_id = ?
+                      AND status != 'suspended'
+                      AND (valid_to IS NULL OR valid_to > ?)
+                    """,
+                    (entity_id, now),
+                ).fetchone()
+        if not row:
+            return None
+        return dict(row)
+
+    def update_entity(
+        self,
+        entity_id: str,
+        *,
+        description: str | None = None,
+        metadata: dict | None = None,
+        sensitivity: str | None = None,
+        visibility: str | None = None,
+        status: str | None = None,
+        valid_to: str | None = None,
+        now: str | None = None,
+    ) -> bool:
+        """更新实体属性。仅传入需要更新的字段。
+
+        返回 True 表示有行被更新，False 表示未找到/无变更。
+        """
+        now = now or utc_now()
+        updates: list[str] = []
+        params: list = []
+
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description)
+        if metadata is not None:
+            updates.append("metadata_json = ?")
+            params.append(json.dumps(metadata) if metadata else None)
+        if sensitivity is not None:
+            updates.append("sensitivity = ?")
+            params.append(sensitivity)
+        if visibility is not None:
+            updates.append("visibility = ?")
+            params.append(visibility)
+        if status is not None:
+            updates.append("status = ?")
+            params.append(status)
+        if valid_to is not None:
+            updates.append("valid_to = ?")
+            params.append(valid_to)
+
+        if not updates:
+            return False
+
+        updates.append("updated_at = ?")
+        params.append(now)
+        params.append(entity_id)
+
+        with self.transaction() as connection:
+            cursor = connection.execute(
+                f"""
+                UPDATE entities
+                SET {', '.join(updates)}
+                WHERE entity_id = ?
+                """,
+                params,
+            )
+        return cursor.rowcount > 0
+
+    def soft_delete_entity(self, entity_id: str, *, now: str | None = None) -> bool:
+        """软删除实体：将 status 设为 'deleted' 并记录 valid_to。
+
+        这是推荐的删除方式，而非物理 DELETE，保留审计历史记录。
+        使用 UTC now 确保时间一致性。
+        """
+        now = utc_now()
+        return self.update_entity(
+            entity_id,
+            status="deleted",
+            valid_to=now,
+            now=now,
+        )
+
+    # =========================================================================
+    # v1.6.0: 事实-实体关联
+    # =========================================================================
+
+    def link_fact_entity(
+        self,
+        fact_id: str,
+        entity_id: str,
+        *,
+        role: str | None = None,
+        confidence: float = 1.0,
+        now: str | None = None,
+    ) -> bool:
+        """将事实与实体建立关联。
+
+        如果相同 fact_id+entity_id 已存在，会 OR-Replace（相当于 UPSERT）。
+        """
+        now = now or utc_now()
+        with self.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO fact_entities (fact_id, entity_id, role, confidence, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(fact_id, entity_id)
+                DO UPDATE SET role=excluded.role, confidence=excluded.confidence, created_at=excluded.created_at
+                """,
+                (fact_id, entity_id, role, confidence, now),
+            )
+        return True
+
+    def unlink_fact_entity(self, fact_id: str, entity_id: str) -> bool:
+        """移除事实与实体的关联。"""
+        with self.transaction() as connection:
+            cur = connection.execute(
+                "DELETE FROM fact_entities WHERE fact_id=? AND entity_id=?",
+                (fact_id, entity_id),
+            )
+            return cur.rowcount > 0
+
+    def get_fact_entities(
+        self,
+        fact_id: str,
+        *,
+        now: str | None = None,
+    ) -> list[dict]:
+        """获取事实关联的所有实体（双时态筛选）。"""
+        now = now or utc_now()
+        with contextlib.closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT e.entity_id, e.entity_type, e.name, e.domain,
+                       e.description, e.sensitivity, e.visibility, e.status,
+                       e.valid_from, e.valid_to, e.created_at, e.updated_at,
+                       e.content_hash,
+                       fe.role, fe.confidence, fe.created_at AS linked_at
+                FROM entities e
+                JOIN fact_entities fe ON e.entity_id = fe.entity_id
+                JOIN facts f ON fe.fact_id = f.fact_id
+                WHERE fe.fact_id = ?
+                  AND e.status != 'suspended'
+                  AND (e.valid_to IS NULL OR e.valid_to > ?)
+                  AND f.status = 'active'
+                  AND f.valid_to IS NULL OR f.valid_to > ?
+                ORDER BY fe.confidence DESC, e.name
+                """,
+                (fact_id, now, now),
+            ).fetchall()
+        return [
+            {
+                "entity_id": r[0],
+                "entity_type": r[1],
+                "name": r[2],
+                "domain": r[3],
+                "description": r[4],
+                "sensitivity": r[5],
+                "visibility": r[6],
+                "status": r[7],
+                "valid_from": r[8],
+                "valid_to": r[9],
+                "created_at": r[10],
+                "updated_at": r[11],
+                "content_hash": r[12],
+                "role": r[13],
+                "confidence": r[14],
+                "linked_at": r[15],
+            }
+            for r in rows
+        ]
+
+    # =========================================================================
+    # v1.6.0: 实体关系
+    # =========================================================================
+
+    def create_entity_relation(
+        self,
+        from_entity_id: str,
+        to_entity_id: str,
+        relation_type: str,
+        *,
+        relation_direction: str = "forward",
+        strength: float = 1.0,
+        metadata: dict | None = None,
+        now: str | None = None,
+    ) -> bool:
+        """创建实体间的二元关系。
+
+        如果相同 (from, to, relation_type) 已存在，会 OR-Replace。
+        """
+        now = now or utc_now()
+        metadata_json = json.dumps(metadata) if metadata else None
+        with self.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO entity_relations
+                    (from_entity_id, to_entity_id, relation_type,
+                     relation_direction, strength, metadata_json, created_at)
+                VALUES
+                    (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(from_entity_id, to_entity_id, relation_type)
+                DO UPDATE SET
+                    relation_direction=excluded.relation_direction,
+                    strength=excluded.strength,
+                    metadata_json=excluded.metadata_json,
+                    created_at=excluded.created_at
+                """,
+                (
+                    from_entity_id,
+                    to_entity_id,
+                    relation_type,
+                    relation_direction,
+                    strength,
+                    metadata_json,
+                    now,
+                ),
+            )
+        return True
+
+    def get_entity_relations(
+        self,
+        from_entity_id: str,
+        *,
+        relation_type: str | None = None,
+        now: str | None = None,
+    ) -> list[dict]:
+        """获取指定实体的出边关系（双时态筛选）。"""
+        now = now or utc_now()
+        with contextlib.closing(self.connect()) as connection:
+            if relation_type:
+                rows = connection.execute(
+                    """
+                    SELECT e2.entity_id, e2.entity_type, e2.name, e2.domain,
+                           e2.description, e2.sensitivity, e2.visibility, e2.status,
+                           e2.valid_from, e2.valid_to, e2.created_at, e2.updated_at,
+                           e2.content_hash,
+                           er.relation_direction, er.strength, er.metadata_json, er.created_at AS related_at
+                    FROM entities e1
+                    JOIN entity_relations er ON e1.entity_id = er.from_entity_id
+                    JOIN entities e2 ON er.to_entity_id = e2.entity_id
+                    WHERE e1.entity_id = ?
+                      AND e1.status != 'suspended'
+                      AND e2.status != 'suspended'
+                      AND (e2.valid_to IS NULL OR e2.valid_to > ?)
+                      AND er.relation_type = ?
+                      AND (er.valid_to IS NULL OR er.valid_to > ?)
+                    ORDER BY er.strength DESC, e2.name
+                    """,
+                    (from_entity_id, now, relation_type, now),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT e2.entity_id, e2.entity_type, e2.name, e2.domain,
+                           e2.description, e2.sensitivity, e2.visibility, e2.status,
+                           e2.valid_from, e2.valid_to, e2.created_at, e2.updated_at,
+                           e2.content_hash,
+                           er.relation_direction, er.strength, er.metadata_json, er.created_at AS related_at
+                    FROM entities e1
+                    JOIN entity_relations er ON e1.entity_id = er.from_entity_id
+                    JOIN entities e2 ON er.to_entity_id = e2.entity_id
+                    WHERE e1.entity_id = ?
+                      AND e1.status != 'suspended'
+                      AND e2.status != 'suspended'
+                      AND (e2.valid_to IS NULL OR e2.valid_to > ?)
+                      AND (er.valid_to IS NULL OR er.valid_to > ?)
+                    ORDER BY er.strength DESC, e2.name
+                    """,
+                    (from_entity_id, now, now),
+                ).fetchall()
+
+        return [
+            {
+                "from_entity_id": from_entity_id,
+                "to_entity_id": r[0],
+                "to_entity_type": r[1],
+                "to_name": r[2],
+                "to_domain": r[3],
+                "to_description": r[4],
+                "to_sensitivity": r[5],
+                "to_visibility": r[6],
+                "to_status": r[7],
+                "to_valid_from": r[8],
+                "to_valid_to": r[9],
+                "to_created_at": r[10],
+                "to_updated_at": r[11],
+                "to_content_hash": r[12],
+                "relation_direction": r[13],
+                "strength": r[14],
+                "metadata_json": r[15],
+                "related_at": r[16],
+            }
+            for r in rows
+        ]
+
+    def get_incoming_relations(
+        self,
+        to_entity_id: str,
+        *,
+        relation_type: str | None = None,
+        now: str | None = None,
+    ) -> list[dict]:
+        """获取指定实体的入边关系（谁指向了该实体）。
+
+        通过反向查询 entity_relations 的 from_entity_id 来实现。
+        """
+        now = now or utc_now()
+        with contextlib.closing(self.connect()) as connection:
+            if relation_type:
+                rows = connection.execute(
+                    """
+                    SELECT e1.entity_id, e1.entity_type, e1.name, e1.domain,
+                           e1.description, e1.sensitivity, e1.visibility, e1.status,
+                           e1.valid_from, e1.valid_to, e1.created_at, e1.updated_at,
+                           e1.content_hash,
+                           er.relation_direction, er.strength, er.metadata_json, er.created_at AS related_at
+                    FROM entities e2
+                    JOIN entity_relations er ON e2.entity_id = er.to_entity_id
+                    JOIN entities e1 ON er.from_entity_id = e1.entity_id
+                    WHERE e2.entity_id = ?
+                      AND e2.status != 'suspended'
+                      AND e1.status != 'suspended'
+                      AND (e1.valid_to IS NULL OR e1.valid_to > ?)
+                      AND er.relation_type = ?
+                      AND (er.valid_to IS NULL OR er.valid_to > ?)
+                    ORDER BY er.strength DESC, e1.name
+                    """,
+                    (to_entity_id, now, relation_type, now),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT e1.entity_id, e1.entity_type, e1.name, e1.domain,
+                           e1.description, e1.sensitivity, e1.visibility, e1.status,
+                           e1.valid_from, e1.valid_to, e1.created_at, e1.updated_at,
+                           e1.content_hash,
+                           er.relation_direction, er.strength, er.metadata_json, er.created_at AS related_at
+                    FROM entities e2
+                    JOIN entity_relations er ON e2.entity_id = er.to_entity_id
+                    JOIN entities e1 ON er.from_entity_id = e1.entity_id
+                    WHERE e2.entity_id = ?
+                      AND e2.status != 'suspended'
+                      AND e1.status != 'suspended'
+                      AND (e1.valid_to IS NULL OR e1.valid_to > ?)
+                      AND (er.valid_to IS NULL OR er.valid_to > ?)
+                    ORDER BY er.strength DESC, e1.name
+                    """,
+                    (to_entity_id, now, now),
+                ).fetchall()
+
+        return [
+            {
+                "from_entity_id": r[0],
+                "from_entity_type": r[1],
+                "from_name": r[2],
+                "from_domain": r[3],
+                "from_description": r[4],
+                "from_sensitivity": r[5],
+                "from_visibility": r[6],
+                "from_status": r[7],
+                "from_valid_from": r[8],
+                "from_valid_to": r[9],
+                "from_created_at": r[10],
+                "from_updated_at": r[11],
+                "from_content_hash": r[12],
+                "relation_direction": r[13],
+                "strength": r[14],
+                "metadata_json": r[15],
+                "related_at": r[16],
+            }
+            for r in rows
+        ]
+
+    # =========================================================================
+    # v1.6.0 Step 2: 模型探针调度 + 断供欠账重放
+    # =========================================================================
+
+    def probe_model_endpoint(
+        self,
+        endpoint: str,
+        timeout: float = 30,
+        *,
+        _opener=None,
+    ) -> dict:
+        """对模型端点发送轻量 HTTP GET，返回探测结果。
+
+        返回结构：
+            {"status": "ok"|"unreachable", "latency_ms": float, "error": str|None}
+
+        该方法保证在 ``timeout`` 内返回（超时即视为 unreachable），不会阻塞
+        调用方。``_opener`` 仅供测试注入，生产环境使用标准 urllib 打开器。
+        """
+        opener = _opener or urllib.request.build_opener()
+        start = datetime.now(timezone.utc)
+        try:
+            req = urllib.request.Request(endpoint, method="GET")
+            with opener.open(req, timeout=timeout) as resp:
+                resp.status  # 触发网络 IO，确认端点可达
+            status = "ok"
+            error = None
+        except Exception as exc:  # noqa: BLE001 - 探针需把所有失败归一为 unreachable
+            status = "unreachable"
+            error = f"{type(exc).__name__}: {exc}"
+        elapsed_ms = (datetime.now(timezone.utc) - start).total_seconds() * 1000.0
+        return {"status": status, "latency_ms": round(elapsed_ms, 3), "error": error}
+
+    def record_model_probe(
+        self,
+        model_name: str,
+        domain: str,
+        outcome: dict,
+        *,
+        fact_id: str,
+        actor_principal: str,
+        now: str | None = None,
+    ) -> str:
+        """将一次模型探针的结果持久化到 entities 表并关联到目标 fact。
+
+        探测结果以 ``model_probe`` 类型的实体保存；探针为 ok 时实体状态为
+        active，为 unreachable 时状态为 suspended（供下游判定断供）。同时把
+        该实体以 ``probe_target`` 角色关联到传入的 fact。
+
+        返回新创建/复用的实体 entity_id。
+        """
+        now = now or utc_now()
+        status = "suspended" if outcome.get("status") == "unreachable" else "active"
+        metadata = {
+            "endpoint": outcome.get("endpoint"),
+            "status": outcome.get("status"),
+            "latency_ms": outcome.get("latency_ms"),
+            "error": outcome.get("error"),
+            "expected_status": outcome.get("expected_status"),
+            "probed_at": now,
+        }
+        entity = self.create_entity(
+            entity_type="model_probe",
+            name=model_name,
+            domain=domain,
+            description=f"探针结果：{outcome.get('status')} @ {outcome.get('endpoint')}",
+            metadata=metadata,
+            sensitivity="internal",
+            visibility="all",
+            status=status,
+            now=now,
+        )
+        self.link_fact_entity(
+            fact_id, entity["entity_id"], role="probe_target", confidence=1.0, now=now
+        )
+        return entity["entity_id"]
+
+    def queue_probe_task(
+        self,
+        entity_id: str,
+        endpoint: str,
+        snapshot: dict,
+        *,
+        due_at: str,
+        now: str | None = None,
+    ) -> str:
+        """将一次失败的探针排入断供欠账重放队列。
+
+        返回新创建的任务 task_id。``due_at`` 为该任务可被执行的最早时间
+        （ISO 8601 字符串），``snapshot`` 为失败时的探针结果快照。
+        """
+        now = now or utc_now()
+        task_id = new_id()
+        with self.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO probe_tasks
+                    (task_id, entity_id, endpoint, snapshot_json, status, due_at, created_at)
+                VALUES (?, ?, ?, ?, 'pending', ?, ?)
+                """,
+                (
+                    task_id,
+                    entity_id,
+                    endpoint,
+                    json.dumps(snapshot, ensure_ascii=False),
+                    due_at,
+                    now,
+                ),
+            )
+        return task_id
+
+    def get_due_probe_tasks(self, *, now: str) -> list[dict]:
+        """返回在 ``now`` 之前到期且仍未完成的探针重放任务。"""
+        with contextlib.closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT task_id, entity_id, endpoint, snapshot_json, status, due_at, completed_at
+                FROM probe_tasks
+                WHERE status = 'pending' AND due_at <= ?
+                ORDER BY due_at ASC
+                """,
+                (now,),
+            ).fetchall()
+        return [
+            {
+                "task_id": r[0],
+                "entity_id": r[1],
+                "endpoint": r[2],
+                "snapshot": json.loads(r[3]) if r[3] else None,
+                "status": r[4],
+                "due_at": r[5],
+                "completed_at": r[6],
+            }
+            for r in rows
+        ]
+
+    def complete_probe_task(self, task_id: str, result: dict, *, now: str | None = None) -> bool:
+        """标记重放任务完成，并写入最终探针结果。
+
+        返回是否有行被更新（任务存在且原本为 pending 时为 True）。
+        """
+        now = now or utc_now()
+        with self.transaction() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE probe_tasks
+                SET status = 'completed', completed_at = ?, snapshot_json = ?
+                WHERE task_id = ? AND status = 'pending'
+                """,
+                (now, json.dumps(result, ensure_ascii=False), task_id),
+            )
+            return cursor.rowcount > 0
+

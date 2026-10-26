@@ -1,0 +1,78 @@
+# Mímir v1.6.0 Sources Configuration
+# Declaration of external information sources to monitor and probe
+
+models:
+  # Free model pool entries
+  - name: "Nemotron-3-Ultra"
+    kind: "free_model_pool"
+    endpoint: "https://api.example.com/v1/models"
+    description: "NVIDIA的免费模型池入口"
+    tags: ["free", "ultra"]
+    probe:
+      timeout_seconds: 30
+      method: "GET"
+      path: "/v1/models"
+      expected_status: [200]
+
+  - name: "Llama-3.1-8B"
+    kind: "free_model_pool"
+    endpoint: "https://api.example.com/v1/models/llama"
+    description: "Meta的开放模型"
+    tags: ["free", "llama"]
+    probe:
+      timeout_seconds: 30
+      method: "GET"
+      path: "/v1/models/llama"
+      expected_status: [200]
+
+  - name: "Nemotron-3-Flash"
+    kind: "free_model_pool"
+    endpoint: "https://api.example.com/v1/models/flash"
+    description: "NVIDIA的快速模型变体"
+    tags: ["free", "flash"]
+    probe:
+      timeout_seconds: 15
+      method: "GET"
+      path: "/v1/models/flash"
+      expected_status: [200]
+
+github:
+  # GitHub Release 监听器
+  - repo: "litellm/litellm"
+    kind: "release_monitor"
+    description: "LiteLLM releases monitoring"
+    monitor: "releases"
+    filter:
+      # 只监控非预发布版本
+      prerelease: false
+      # 仅监控有实质变更的发布
+      tag_pattern: "^v\\d+\\.\\d+"
+
+  - repo: "mistralai/mistral-src"
+    kind: "release_monitor"
+    description: "Mistral开源项目 releases"
+    monitor: "releases"
+    filter:
+      prerelease: false
+
+tools:
+  # 工具目录条目
+  - name: "sing-box"
+    kind: "tool_catalog"
+    endpoint: "https://api.example.com/v1/tools"
+    description: "Sing-box工具目录"
+    probe:
+      timeout_seconds: 30
+      method: "GET"
+      path: "/v1/tools"
+      expected_status: [200]
+
+  - name: "vllm-tool"
+    kind: "tool_catalog"
+    endpoint: "https://api.example.com/v1/tools/vllm"
+    description: "vLLM工具条目"
+    probe:
+      timeout_seconds: 30
+      method: "GET"
+      path: "/v1/tools/vllm"
+      expected_status: [200]

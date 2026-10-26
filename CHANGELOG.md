@@ -6,6 +6,36 @@
 
 ---
 
+## v1.6.0 Step 2 — 2026-10-26 · 声明式探针与信源调度引擎
+
+> 在 v1.5.0 隔离模型基础上，为系统增加"主动抓取外部世界"的触角：信源登记册、
+> 模型探针引擎、断供欠账重放。
+
+- **信源登记册 `sources.yaml`** — 声明免费模型池（Nemotron-3-Ultra / Llama-3.1-8B /
+  Nemotron-3-Flash）、GitHub Release 监听器（litellm / mistral-src）、工具目录
+  （sing-box / vLLM）；`load_sources_yaml` 提供默认路径与防御性校验（缺文件 /
+  非映射 / 非列表均显式报错，不静默回落）。
+- **模型探针引擎 `probe_model_endpoint`** — 对端点发轻量 `GET`，返回
+  `{status: ok|unreachable, latency_ms, error?}`；保证在 `timeout` 内返回
+  （超时即 `unreachable`，不会阻塞调用方）。
+- **探针结果持久化 `record_model_probe`** — 写入 `entities` 表（`model_probe`
+  类型）：ok→`active`、unreachable→`suspended`，并以 `probe_target` 角色关联到
+  目标 fact。下游判定"模型是否断供"可经 `get_entity(..., include_suspended=True)`
+  读取 suspended 状态（默认仍与降级/断供标记隔离）。
+- **断供欠账重放队列 `probe_tasks`** — `queue_probe_task` / `get_due_probe_tasks`
+  / `complete_probe_task` 实现排队→到期→完成往返；`POST /v16/probe/replay`
+  （需 write 权限）重放所有到期任务。
+- **API 端点** — `GET /v16/probe/status`（需 read，汇总模型探针状态）、
+  `POST /v16/probe/replay`（需 write）。
+- **修复 Step 1 遗留版本不一致** — `migrate_schema_21_to_22` 写盘 `schema_version=22`
+  但运行时常量仍为 21，迁移库二次启动会校验失败；本次将 `SCHEMA_VERSION` 升为 22，
+  全新库 `SCHEMA_SQL` 直接纳入实体三表与 `probe_tasks`。
+
+测试：新增 `tests/test_probes_sources_engineering.py`（7）、`tests/test_probes_api.py`（4），
+v1.6.0 实体/sources/bootstrap 回归全绿。
+
+---
+
 ## v1.5.0 — 2026-10-26 · Federation & Shared Memory · 联邦与共享
 
 > **内核**：彻底打破过去多 Agent 之间「84% 记忆被锁死在各 Agent 内部」的孤岛现象，

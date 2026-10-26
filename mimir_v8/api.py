@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import json
 import re
 from contextlib import closing
 import threading
@@ -54,7 +55,14 @@ from .schema import (
 )
 from .lineage import (STATUS_BROKEN, STATUS_UNSEALED,
                       verify_all_facts, verify_lineage_chain)
-from .store import CanonicalStore, ConflictError, NotFoundError, sha256_text, utc_now
+from .store import (
+    CanonicalStore,
+    ConflictError,
+    NotFoundError,
+    load_sources_yaml,
+    sha256_text,
+    utc_now,
+)
 
 
 @dataclass(frozen=True)
@@ -391,6 +399,13 @@ class KnowledgeFeedbackBody(BaseModel):
     signal_type: str
     signal_text: str
     idempotency_key: str
+
+
+class ProbeReplayBody(BaseModel):
+    """请求体：手动触发断供欠账重放。"""
+    model_config = ConfigDict(extra="forbid")
+    # 可选：仅重放早于该时间的到期任务；缺省使用当前时间。
+    now: str | None = None
 
 
 class AuthFailureLimiter:
@@ -901,6 +916,79 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             "iron_rules": iron_rules,
             "user_prefs": user_prefs,
             "domain_counts": domain_counts,
+        }
+
+    # ---- v1.6.0 Step 2: probe & source registry ------------------------
+    @app.get("/v16/probe/status")
+    def probe_status(identity: Principal = Depends(scoped("read"))):
+        """返回已登记模型的探针状态摘要（需 read 权限）。
+
+        汇总 sources.yaml 中声明的模型，并附带最新的探针实体状态。
+        """
+        try:
+            sources = load_sources_yaml()
+        except FileNotFoundError:
+            sources = {"models": [], "github": [], "tools": []}
+
+        models = sources.get("models", [])
+        probes = []
+        with contextlib.closing(context.store.connect()) as connection:
+            for m in models:
+                name = m.get("name")
+                row = connection.execute(
+                    """
+                    SELECT status, metadata_json, updated_at
+                    FROM entities
+                    WHERE entity_type = 'model_probe' AND name = ?
+                    ORDER BY updated_at DESC LIMIT 1
+                    """,
+                    (name,),
+                ).fetchone()
+                entry = {
+                    "name": name,
+                    "endpoint": m.get("endpoint"),
+                    "last_status": row["status"] if row else None,
+                    "last_metadata": json.loads(row["metadata_json"]) if row and row["metadata_json"] else None,
+                    "updated_at": row["updated_at"] if row else None,
+                }
+                probes.append(entry)
+
+        return {
+            "models_total": len(models),
+            "probes": probes,
+            "github_watched": len(sources.get("github", [])),
+            "tools_total": len(sources.get("tools", [])),
+        }
+
+    @app.post("/v16/probe/replay")
+    def probe_replay(
+        body: ProbeReplayBody,
+        identity: Principal = Depends(scoped("write")),
+    ):
+        """手动触发断供欠账重放：重放所有到期且未完成的探针任务。
+
+        需 write（或 admin）权限。返回本轮重放的任务数与摘要。
+        """
+        now = body.now or utc_now()
+        due = context.store.get_due_probe_tasks(now=now)
+        replayed = []
+        for task in due:
+            endpoint = task["endpoint"]
+            # 重放一次真实探针，结果写回任务并完成队列项。
+            result = context.store.probe_model_endpoint(
+                endpoint, timeout=30,
+            )
+            ok = context.store.complete_probe_task(task["task_id"], result, now=now)
+            if ok:
+                replayed.append({
+                    "task_id": task["task_id"],
+                    "entity_id": task["entity_id"],
+                    "endpoint": endpoint,
+                    "result": result,
+                })
+        return {
+            "replayed": len(replayed),
+            "tasks": replayed,
         }
 
     # ---- v13.0 TKG: temporal knowledge graph ---------------------------
