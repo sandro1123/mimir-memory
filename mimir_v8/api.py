@@ -408,6 +408,25 @@ class ProbeReplayBody(BaseModel):
     now: str | None = None
 
 
+class BriefItemBody(BaseModel):
+    """双层结晶流水线输入条目（与 sources.yaml / 探针结果对齐）。"""
+    model_config = ConfigDict(extra="forbid")
+    kind: str
+    source_id: str
+    title: str
+    body: str
+    url: str | None = None
+    captured_at: str | None = None
+    status: str | None = None
+
+
+class BriefGenerateBody(BaseModel):
+    """请求体：触发一次早报生成 + 结构化实体入库。"""
+    model_config = ConfigDict(extra="forbid")
+    items: list[BriefItemBody]
+    as_of: str | None = None
+
+
 class AuthFailureLimiter:
     """P1-6 防爆破: per-client-IP auth-failure limiter.
 
@@ -989,6 +1008,35 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         return {
             "replayed": len(replayed),
             "tasks": replayed,
+        }
+
+    @app.post("/v16/brief/generate")
+    def brief_generate(
+        body: BriefGenerateBody,
+        identity: Principal = Depends(scoped("write")),
+    ):
+        """双层结晶：从感知条目生成早报文本并入库结构化实体（需 write 权限）。"""
+        from .morning_brief import MorningBriefService, SourceItem
+
+        svc = MorningBriefService(context.store)
+        items = [
+            SourceItem(
+                kind=it.kind,
+                source_id=it.source_id,
+                title=it.title,
+                body=it.body,
+                url=it.url,
+                captured_at=it.captured_at,
+                status=it.status,
+            )
+            for it in body.items
+        ]
+        result = svc.publish(items, actor_principal=identity.principal_id)
+        brief = context.store.get_fact(result["brief_fact_id"])
+        return {
+            "brief_fact_id": result["brief_fact_id"],
+            "brief_markdown": brief["content"] if brief else "",
+            "cards": [vars(c) for c in result["cards"]],
         }
 
     # ---- v13.0 TKG: temporal knowledge graph ---------------------------

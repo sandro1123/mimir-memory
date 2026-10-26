@@ -6,6 +6,26 @@
 
 ---
 
+## v1.6.0 Step 3 — 2026-10-26 · 双层结晶流水线（早报 + 实体入库）
+
+> 收尾 v1.6.0「实体知识与早报飞轮」：把第二步感知到的外部变化结晶成
+> 第一层早报文本 + 第二层结构化实体，形成"感知 → 结晶"闭环。
+
+- **第一层 早报 Markdown** — `MorningBriefService.render_markdown` 按 kind
+  （模型探针 / GitHub Release / 资讯）分节渲染确定性早报，空输入返回合法空早报。
+- **第二层 结构化实体抽取** — `extract_cards` 把 `model_probe`→`model_card`、
+  `github_release`/`rss`→`tool_card`，**确定性、不调用 LLM**，保证可测与幂等。
+- **入库闭环 `publish`** — 写一条早报 fact（domain=`system`），每张卡片经
+  `_upsert_card` 幂等写入（同 name+type 更新复用，不重复创建）`entities` 实体 +
+  `reference` fact，并以 `crystallized_entity` 角色关联到早报 fact。
+- **API `POST /v16/brief/generate`**（需 write）— 接收 `SourceItem` 列表，
+  返回 `{brief_fact_id, brief_markdown, cards}`。
+
+测试：新增 `tests/test_morning_brief.py`（6）、`tests/test_morning_brief_api.py`（2）。
+v1.6.0 三步（实体库 / 探针信源 / 双层结晶）全部落地。
+
+---
+
 ## v1.6.0 Step 2 — 2026-10-26 · 声明式探针与信源调度引擎
 
 > 在 v1.5.0 隔离模型基础上，为系统增加"主动抓取外部世界"的触角：信源登记册、
