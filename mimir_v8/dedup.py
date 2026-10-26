@@ -21,7 +21,6 @@ from __future__ import annotations
 import os
 import re
 from contextlib import closing
-from typing import Any
 
 from .store import CanonicalStore, sha256_text
 

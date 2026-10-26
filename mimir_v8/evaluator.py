@@ -12,8 +12,8 @@ import os
 import logging
 import re
 import urllib.request
-from dataclasses import dataclass, field, asdict
-from typing import Any, Callable
+from dataclasses import dataclass
+from typing import Any
 
 from .schema import FACT_TYPES, ValidationError, get_registered_domains
 

@@ -615,7 +615,7 @@ def replace_managed_sections(text: str, sections: dict[str, str]) -> str:
         block = f"{start}\n{content}\n{end}"
         if start in result:
             pattern = re.compile(re.escape(start) + r".*?" + re.escape(end), re.DOTALL)
-            result = pattern.sub(lambda _: block, result, count=1)
+            result = pattern.sub(lambda _, block=block: block, result, count=1)
         else:
             separator = "\n\n" if result and not result.endswith("\n\n") else ""
             result = f"{result}{separator}{block}\n"

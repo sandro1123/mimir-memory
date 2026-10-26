@@ -12,12 +12,9 @@ Long-term personalization (L0→L3) lives in core_memory.py and opinion.py.
 from __future__ import annotations
 
 import json
-import re
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any
+from dataclasses import dataclass
 
-from .store import CanonicalStore, new_id, sha256_text, utc_now
+from .store import CanonicalStore, new_id, utc_now
 
 
 V14_ADDITIVE_STATEMENTS = (

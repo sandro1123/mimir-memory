@@ -8,18 +8,14 @@ from __future__ import annotations
 
 import contextlib
 from contextlib import closing
-import json
-import os
 import re
-import urllib.request
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone, timedelta
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 from .schema import MIMIR_VERSION, SCHEMA_VERSION
 from .store import CanonicalStore
-from .evaluator import Evaluator, EvaluationResult, PolicyDecision
+from .evaluator import Evaluator, EvaluationResult
 
 
 from .tz import TZ  # noqa: E402  (configurable via MIMIR_TZ)
@@ -322,16 +318,16 @@ class DeepReader:
             "",
             f"# 深度研读：{title or '未命名'}",
             "",
-            f"## 来源",
+            "## 来源",
             f"- {source}",
             "",
-            f"## 价值评估",
+            "## 价值评估",
             f"- 价值分：{eval_result.salience}",
             f"- 风险等级：{eval_result.risk}",
             f"- 领域：{eval_result.domain}",
             f"- 类型：{eval_result.fact_type}",
             "",
-            f"## 摘要",
+            "## 摘要",
             f"{eval_result.summary}",
             "",
             "## 核心观点",
@@ -367,10 +363,9 @@ class DeepReader:
         keywords -= stop
         if not keywords:
             return []
-        placeholders = ",".join("?" for _ in keywords)
         with contextlib.closing(self.store.connect()) as connection:
             rows = connection.execute(
-                f"""SELECT fact_id, content_hash, summary, content
+                """SELECT fact_id, content_hash, summary, content
                 FROM facts WHERE status='active' LIMIT 200"""
             ).fetchall()
         matches: list[str] = []

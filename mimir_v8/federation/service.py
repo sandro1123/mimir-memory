@@ -17,7 +17,6 @@ import os
 import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
 

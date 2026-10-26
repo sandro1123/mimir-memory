@@ -18,8 +18,6 @@ appends rows and events — history is never mutated.
 from __future__ import annotations
 
 import json
-import sqlite3
-from typing import Any
 
 from .store import CanonicalStore, new_id, sha256_text, utc_now
 from contextlib import closing

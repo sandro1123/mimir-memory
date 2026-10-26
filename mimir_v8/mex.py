@@ -42,7 +42,6 @@ COGX 适配器（cogx_to_mex）：外部最小样本 → MEX。映射表：
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any
@@ -104,7 +103,6 @@ def mex_export(store: CanonicalStore, *, node_id: str,
             f"SELECT {', '.join(columns)} FROM facts{clause} ORDER BY fact_id",
             params).fetchall()
         fact_ids = [row["fact_id"] for row in fact_rows]
-        id_set = set(fact_ids)
         versions: list[dict] = []
         evidence: list[dict] = []
         sources: list[dict] = []

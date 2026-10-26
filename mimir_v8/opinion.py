@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from typing import Any
 
 from .store import CanonicalStore, new_id, sha256_text, utc_now
-from .schema import OPINION_CONFIDENCE_DELTA, OPINION_STALE_DAYS
+from .schema import OPINION_CONFIDENCE_DELTA
 
 # Minimum distinct opinion owners before a topic may consolidate into an observation.
 MIN_DISTINCT_OWNERS = 2

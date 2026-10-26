@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import re
 import urllib.parse
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from typing import Any
 
 from ..netsafe import safe_urlopen
-from .base import BaseCollector, CollectResult, CollectorError
+from .base import BaseCollector, CollectResult
 
 
 from ..tz import TZ  # noqa: E402  (configurable via MIMIR_TZ)

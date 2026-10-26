@@ -12,8 +12,6 @@ status 'disputed' so the record of the conflict survives.
 from __future__ import annotations
 
 import json
-import sqlite3
-from typing import Any
 
 from .dedup import jaccard_similarity
 from .schema import PROJECTORS

@@ -7,14 +7,12 @@ ready for ingestion into the learning pipeline.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from ..netsafe import safe_urlopen, validate_url
-from .base import BaseCollector, CollectResult, CollectorError
+from .base import BaseCollector, CollectResult
 
 
-from ..tz import TZ  # noqa: E402  (configurable via MIMIR_TZ)
 USER_AGENT = "Mozilla/5.0 (compatible; MimirCollector/2.0; +https://github.com/mimir-memory/mimir)"
 
 

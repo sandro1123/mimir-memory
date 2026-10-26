@@ -11,25 +11,22 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from .governance import run_governance_once, fast_track_commit_all
-from .opinion import OpinionService
-from .classifier import classify
 from .config import MimirPaths
 from .connectors import HermesStateCDC
 from .evaluator import Evaluator
 from .extraction import EvidenceInput, ExtractionService
 from .learning import ConversationEnvelope, ConversationMessage, LearningService
-from .collectors import RSSCollector, WebCollector, WebCrawler
+from .collectors import RSSCollector
 from .review import ReviewQueue, age_bucket
 from .reporting import ReportGenerator, DeepReader
 from .retention import RetentionService
-from .trust import TrustManager, TrustScore, SIGNAL_WEIGHTS
+from .trust import TrustManager
 from .store import CanonicalStore, new_id, sha256_text, utc_now
 from .evolve import EvolveMemService
 
 logger = logging.getLogger("mimir_v8.worker")
 
 
-from .tz import TZ  # noqa: E402  (configurable via MIMIR_TZ)
 
 # P48 抽取链 LLM 失败语义化（审计 09-07 P1-5 / 移交单 §2.2）：
 # 9router 抖动窗内 LLM 不可用 ≠ 对话无价值——failed(llm_unavailable)
@@ -773,7 +770,7 @@ def collect_all(
                 # "idempotency key reused with different content" guard.
                 ingested, errors = _ingest_collect_result(
                     learning, items, "web", actor_principal,
-                    key_fn=lambda item: f"web:{sha256_text(url)}:{sha256_text(item.get('content', ''))}",
+                    key_fn=lambda item, url=url: f"web:{sha256_text(url)}:{sha256_text(item.get('content', ''))}",
                 )
                 results["web"].append({
                     "source": source_name,

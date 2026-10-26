@@ -52,9 +52,9 @@ from .schema import (
     register_agent,
     get_registered_agents,
 )
-from .lineage import (STATUS_BROKEN, STATUS_SEALED_OK, STATUS_UNSEALED,
+from .lineage import (STATUS_BROKEN, STATUS_UNSEALED,
                       verify_all_facts, verify_lineage_chain)
-from .store import CanonicalStore, ConflictError, NotFoundError, new_id, sha256_text, utc_now
+from .store import CanonicalStore, ConflictError, NotFoundError, sha256_text, utc_now
 
 
 @dataclass(frozen=True)
@@ -1114,7 +1114,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         else:
             reports = []
             for fact_id in body.fact_ids:
-                fact = context.store.get_fact(fact_id)
+                context.store.get_fact(fact_id)  # raises NotFoundError for unknown ids
                 if not context.store.can_read(
                     fact_id, identity.principal_id,
                     is_admin=identity.is_admin, roles=set(identity.roles),
@@ -1871,7 +1871,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             return svc.resolve(conflict_id, winner, reason=reason,
                                actor_principal=identity.principal_id)
         except ConflictResolutionError as exc:
-            raise HTTPException(409, str(exc))
+            raise HTTPException(409, str(exc)) from exc
 
     @app.post("/v12/conflicts/{conflict_id}/dismiss")
     def conflict_dismiss(conflict_id: str, body: dict,
@@ -1884,7 +1884,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             return svc.dismiss(conflict_id, reason=reason,
                                actor_principal=identity.principal_id)
         except ConflictResolutionError as exc:
-            raise HTTPException(409, str(exc))
+            raise HTTPException(409, str(exc)) from exc
 
     # ── v12 Skill Crystallization (M3b) ──────────────────────────────
     @app.post("/v12/crystals/scan")
@@ -1897,7 +1897,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             return svc.scan(window_days=window_days, min_freq=min_freq,
                             actor_principal=identity.principal_id)
         except ValueError as exc:
-            raise HTTPException(422, str(exc))
+            raise HTTPException(422, str(exc)) from exc
 
     @app.get("/v12/crystals")
     def crystal_list(status: str = "candidate", limit: int = 50,
@@ -1908,7 +1908,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         try:
             return {"status": "ok", "candidates": svc.list(status=status, limit=limit)}
         except ValueError as exc:
-            raise HTTPException(422, str(exc))
+            raise HTTPException(422, str(exc)) from exc
 
     @app.post("/v12/crystals/{candidate_id}/approve")
     def crystal_approve(candidate_id: str, body: dict | None = None,
@@ -1923,7 +1923,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         try:
             return svc.approve(candidate_id, actor_principal=owner)
         except CrystalError as exc:
-            raise HTTPException(409, str(exc))
+            raise HTTPException(409, str(exc)) from exc
 
     @app.post("/v12/crystals/{candidate_id}/dismiss")
     def crystal_dismiss(candidate_id: str, body: dict,
@@ -1936,7 +1936,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             return svc.dismiss(candidate_id, reason=reason,
                                actor_principal=identity.principal_id)
         except CrystalError as exc:
-            raise HTTPException(409, str(exc))
+            raise HTTPException(409, str(exc)) from exc
 
     # ── v14.0 AutoSkill pipeline (WikiSkill evolution chain) ──────────
     @app.post("/v14/skills/record-success")
@@ -1955,7 +1955,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                 actor_principal=identity.principal_id,
             )
         except AutoSkillError as exc:
-            raise HTTPException(409, str(exc))
+            raise HTTPException(409, str(exc)) from exc
 
     @app.get("/v14/skills/candidates")
     def autoskill_candidates(identity: Principal = Depends(scoped("read"))):
@@ -1979,7 +1979,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                 topic, actor_principal=identity.principal_id
             )
         except AutoSkillError as exc:
-            raise HTTPException(409, str(exc))
+            raise HTTPException(409, str(exc)) from exc
 
     @app.post("/v14/projection")
     def cross_model_projection(body: dict,
@@ -2004,7 +2004,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         try:
             limit = int((body or {}).get("limit") or 10)
         except (TypeError, ValueError):
-            raise HTTPException(422, "limit must be an integer")
+            raise HTTPException(422, "limit must be an integer") from None
         if limit < 1:
             raise HTTPException(422, "limit must be >= 1")
         try:
@@ -2017,7 +2017,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             ))
             projection = project_context(result.get("results") or [], tier)
         except ProjectionError as exc:
-            raise HTTPException(422, str(exc))
+            raise HTTPException(422, str(exc)) from exc
         try:
             context.store.write_audit(
                 identity.principal_id, "projection",
@@ -2044,7 +2044,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             return svc.attach(fact_id, kind, ref,
                               actor_principal=identity.principal_id)
         except AssetError as exc:
-            raise HTTPException(409, str(exc))
+            raise HTTPException(409, str(exc)) from exc
 
     @app.get("/v12/facts/{fact_id}/assets")
     def fact_asset_list(fact_id: str,

@@ -13,9 +13,7 @@ evolution is auditable and reversible.
 from __future__ import annotations
 
 import json
-import sqlite3
 from datetime import datetime, timezone
-from typing import Any
 
 from .store import CanonicalStore, new_id, sha256_text, utc_now
 
@@ -95,9 +93,6 @@ class EvolveMemService:
         with self.store.transaction() as connection:
             # query volume / hit / zero-hit over the window
             query_count = 0
-            hit_count = 0
-            avg_score = 0.0
-            zero_hit_count = 0
             try:
                 row = connection.execute(
                     "SELECT COUNT(*) FROM audit_log WHERE action='query' "
