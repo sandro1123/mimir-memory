@@ -48,8 +48,11 @@ v1.6.0 三步（实体库 / 探针信源 / 双层结晶）全部落地。
 - **API 端点** — `GET /v16/probe/status`（需 read，汇总模型探针状态）、
   `POST /v16/probe/replay`（需 write）。
 - **修复 Step 1 遗留版本不一致** — `migrate_schema_21_to_22` 写盘 `schema_version=22`
-  但运行时常量仍为 21，迁移库二次启动会校验失败；本次将 `SCHEMA_VERSION` 升为 22，
-  全新库 `SCHEMA_SQL` 直接纳入实体三表与 `probe_tasks`。
+  但运行时常量仍为 21，迁移库二次启动会校验失败。修法是让该段写盘时改用
+  `str(SCHEMA_VERSION)`（**`SCHEMA_VERSION` 仍为 21**——迁移框架的
+  `MIGRATABLE_TARGET_VERSIONS` 是显式白名单，直接提到 22 会让 10→22 / 12→22
+  这类跨版本迁移链报 `unsupported schema migration`）。全新库 `SCHEMA_SQL`
+  直接纳入实体三表与 `probe_tasks`。
 
 测试：新增 `tests/test_probes_sources_engineering.py`（7）、`tests/test_probes_api.py`（4），
 v1.6.0 实体/sources/bootstrap 回归全绿。
