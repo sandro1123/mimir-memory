@@ -10,12 +10,12 @@ import hashlib
 import json
 import os
 import re
-import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
+from ..netsafe import safe_urlopen
 from .base import BaseCollector, CollectResult, CollectorError
 
 
@@ -23,10 +23,10 @@ _DTD_RE = re.compile(r"<!\s*(DOCTYPE|ENTITY)", re.IGNORECASE)
 
 
 def _parse_feed_xml(raw: str) -> ET.Element:
-    """Parse RSS/Atom without DTDs or entity declarations.
+    """Parse a feed, refusing DTDs/entities (billion-laughs / XXE class).
 
-    RSS and Atom feeds do not need a DOCTYPE; refusing it also blocks internal
-    entity expansion payloads before they reach the XML parser.
+    RSS and Atom never need a DOCTYPE; rejecting it outright is simpler and
+    stricter than relying on the bundled expat's amplification limits.
     """
     if _DTD_RE.search(raw):
         raise CollectorError("feed contains a DOCTYPE/ENTITY declaration; refused")
@@ -35,7 +35,7 @@ def _parse_feed_xml(raw: str) -> ET.Element:
 
 CACHE_DIR = Path.home() / ".hermes" / "mimir" / "collect"
 CACHE_FILE = CACHE_DIR / "rss_seen_urls.json"
-TZ = timezone(timedelta(hours=8))
+from ..tz import TZ  # noqa: E402  (configurable via MIMIR_TZ)
 
 
 class RSSCollector(BaseCollector):
@@ -106,8 +106,7 @@ class RSSCollector(BaseCollector):
         }
 
     def _fetch_feed(self, feed_url: str, category: str) -> list[dict]:
-        resp = urllib.request.urlopen(feed_url, timeout=15)
-        raw = resp.read().decode("utf-8", errors="replace")
+        raw = safe_urlopen(feed_url, timeout=15).text()
         root = _parse_feed_xml(raw)
 
         items = []

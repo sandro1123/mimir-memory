@@ -40,6 +40,13 @@ ENV MIMIR_ALLOW_NONLOOPBACK=0 \
     TOKENIZERS_PARALLELISM=false \
     PATH=/opt/mimir/bin:$PATH
 
+# Run as an unprivileged user. Existing root-owned volumes need a one-off
+#   docker run --rm -u 0 -v mirdata:/data <image> chown -R 10001:10001 /data
+RUN groupadd --system --gid 10001 mimir && \
+    useradd --system --uid 10001 --gid mimir --home-dir /home/mimir --create-home mimir && \
+    mkdir -p /data && chown mimir:mimir /data
+USER mimir
+
 VOLUME ["/data"]
 EXPOSE 8456
 

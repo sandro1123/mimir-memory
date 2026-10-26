@@ -17,7 +17,7 @@ from typing import Any
 
 from .base import BaseCollector, CollectResult, CollectorError
 
-TZ = timezone(timedelta(hours=8))
+from ..tz import TZ  # noqa: E402  (configurable via MIMIR_TZ)
 
 #: Directories never scanned, at any depth.
 DEFAULT_EXCLUDE_DIRS = frozenset({".obsidian", ".git", ".trash", ".smart-env"})

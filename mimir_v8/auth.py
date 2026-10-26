@@ -60,6 +60,10 @@ def atomic_write_registry(path: str | Path, content: str) -> None:
     _os.replace(tmp, target)
 
 
+def _file_key(stat) -> tuple[int, int, int]:
+    return (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
+
 class TokenStore:
     """Hot-reload a hash-only token registry and fail closed on errors."""
 
@@ -70,6 +74,17 @@ class TokenStore:
         self._records: tuple[tuple[str, Principal], ...] = ()
 
     def _load(self) -> None:
+        # Reload key: (inode, size, mtime_ns). mtime alone misses two writes
+        # inside one timestamp tick on coarse filesystems, which left a
+        # revoked token valid. atomic_write_registry always swaps the inode.
+        self._file_key: tuple[int, int, int] | None = None
+        self._records: tuple[tuple[str, Principal], ...] = ()
+
+    def _load(self) -> None:
+        try:
+            stat = self.path.stat()
+        except FileNotFoundError as exc:
+            raise AuthError("authentication is not configured", 503, "auth_unavailable") from exc
         with self._lock:
             try:
                 registry_bytes = self.path.read_bytes()
@@ -124,6 +139,7 @@ class TokenStore:
                 raise AuthError("authentication has no principals", 503, "auth_unavailable")
             self._records = tuple(records)
             self._digest = registry_digest
+            self._file_key = _file_key(stat)
 
     def validate(self) -> int:
         self._load()

@@ -18,6 +18,10 @@ ENV ADMIN_TOKEN_FILE=/data/admin.token
 ENV FRONTEND_DIR=/app/frontend
 ENV PORT=8800
 
+RUN groupadd --system --gid 10001 mimir && \
+    useradd --system --uid 10001 --gid mimir --no-create-home mimir
+USER mimir
+
 EXPOSE 8800
 
 CMD ["python3", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8800"]

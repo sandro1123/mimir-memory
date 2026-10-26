@@ -22,7 +22,7 @@ from .store import CanonicalStore
 from .evaluator import Evaluator, EvaluationResult, PolicyDecision
 
 
-TZ = timezone(timedelta(hours=8))
+from .tz import TZ  # noqa: E402  (configurable via MIMIR_TZ)
 REPORT_VERSION = "v8.2-report-1"
 
 
