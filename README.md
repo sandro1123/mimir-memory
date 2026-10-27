@@ -28,8 +28,8 @@ Mímir 从第一天起就是反着设计的——**每一条记忆都要过审�
 | **诚实遥测与预算控制** | 查询带 `recall_verdict ∈ {found, not_found, degraded}`；超 Token 显式暴露丢弃项，严禁虚假成功 stub |
 | **Obsidian 本地双链桥** | 实体事实自动投影为标准 Markdown + YAML Frontmatter + `[[双链]]`；带本地 Git 隐形快照安全气囊 |
 
-> **当前生产版本：`1.5.0 — Federation & Shared Memory（联邦与共享）`**  
-> 打破 84% 孤岛，技术域事实默认跨 Agent 共享；Principal 别名继承梯平滑退役冗余 profile；支持 `X-Mimir-Agent` 动态 Agent 零配置自举与 `mimir_bootstrap` 工具。  
+> **当前生产版本：`1.6.0 — Perception & Crystallization（感知与结晶）`**  
+> 给 Mímir 装上"感知外部世界"的触角：声明式信源登记册 + 模型探针引擎 + 断供欠账重放；感知结果经双层结晶流水线落成确定性早报与结构化实体。  
 > 完整 2.0 规格设计详见：[`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md)。
 
 ---
@@ -49,7 +49,7 @@ cd mimir-memory
 服务默认在 `http://127.0.0.1:8456` 启动。访问健康检查确认状态：
 ```bash
 curl http://127.0.0.1:8456/health
-# 返回: {"status":"ok","service":"mimir-api","version":"1.5.0","schema_version":21}
+# 返回: {"status":"ok","service":"mimir-api","version":"1.6.0","schema_version":21}
 ```
 
 ### 2. 挂载到你的 AI 智能体
@@ -163,7 +163,7 @@ Mímir 2.0 将“面向机器的上下文记忆”与“面向人类的结构化
 | | 诚实预算管控 (`budget` 块与丢弃清单，绝不换虚假 stub) | ✅ 生产实证 (1.4.0) |
 | | 三段式渐进披露 (HMAC 游标签名，detail=index) | ✅ 生产实证 (1.4.0) |
 | | 锚定通道 (Anchor Channel：L0 铁律与核心偏好免受相似度否决) | ✅ 生产实证 |
-| **知识与人类端** | 声明式早报与模型探活探针飞轮 | 📋 v1.6.0 |
+| **知识与人类端** | 声明式早报与模型探活探针飞轮 | ✅ 生产实证 (1.6.0) |
 | | Obsidian 本地双向投影器与 Git 快照气囊 | 📋 v1.7.0 |
 | | Mímir 2.0 Command Center 态势大盘 | 📋 v2.0.0 |
 
@@ -198,8 +198,8 @@ python scripts/run_benchmarks.py --golden --out report.json
 | **v1.3.0** | Ecosystem · 生态 | RECALL 漏斗面板、时序采集补齐、判重接通、Reflect 反思 | ✅ 已发布 |
 | **v1.4.0** | Legibility · 可读性 | 召回解释机器可读面、三段式渐进披露 (HMAC 游标)、预算诚实协议 | ✅ 已发布 |
 | **v1.4.1** | Extraction Fix | 抽取流水线双向打通，修复助手回复与工具实体遗漏 | ✅ 已发布 |
-| **v1.5.0** | Federation & Sharing | 突破 84% 孤岛、退役 mentor、零配置动态 Agent 自举 | ✅ 已发布 · **当前生产运行** |
-| **v1.6.0** | Entities & Synthesis | 结构化实体池、双时态时序失效、每日科技早报与模型探针 | 📋 计划中 (Issue #24) |
+| **v1.5.0** | Federation & Sharing | 突破 84% 孤岛、退役 mentor、零配置动态 Agent 自举 | ✅ 已发布 |
+| **v1.6.0** | Perception & Crystallization · 感知与结晶 | 实体知识库、声明式探针与信源调度、双层结晶早报 | ✅ 已发布 · **当前生产运行** |
 | **v1.7.0** | Obsidian Bridge | Obsidian 第五投影器、单向保护锁、本地 Git 隐形快照气囊 | 📋 计划中 (Issue #25) |
 | **v2.0.0** | The Unified Brain | 统一 MCP/CLI 一键分发、Command Center 大盘、开源正式发布 | 🎯 终极目标 (Milestone #6) |
 

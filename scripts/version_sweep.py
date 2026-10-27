@@ -62,6 +62,18 @@ REGISTRY: list[RegistryEntry] = [
         r'self\.assertEqual\(MIMIR_VERSION,\s*"(?P<ver>[^"]+)"\)',
         "发布身份闸门断言",
     ),
+    # README 的"当前生产版本"标注：v1.5.0 发布 commit 19baf82 证明这是正规
+    # 登记点（用户可见的版本声明），漏登记 = README 撒谎。
+    RegistryEntry(
+        "README.md",
+        r'当前生产版本[：:]\s*`(?P<ver>\d+\.\d+\.\d+)',
+        "README 中文当前生产版本标注",
+    ),
+    RegistryEntry(
+        "README_en.md",
+        r'Current Production Release:\s*`(?P<ver>\d+\.\d+\.\d+)',
+        "README 英文当前生产版本标注",
+    ),
 ]
 
 

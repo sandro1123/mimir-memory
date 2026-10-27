@@ -27,8 +27,8 @@ Mímir is designed the other way around — **every memory is reviewed, audited,
 | **Honest Telemetry & Budget Honesty** | Queries carry `recall_verdict ∈ {found, not_found, degraded}`; Token overages explicitly enumerate dropped items (no fake stubs). |
 | **Obsidian Local Bridge** | Technical entities auto-projected into standard Markdown cards with YAML frontmatter and `[[Wikilinks]]`, protected by background Git snapshots. |
 
-> **Current Production Release: `1.5.0 — Federation & Shared Memory`**  
-> Breaks the 84% context silo; technical domains shared across authenticated agents; Principal alias ladder smoothly retires mentor into Heimdallr-EX; zero-config dynamic onboarding via `X-Mimir-Agent` and `mimir_bootstrap`.  
+> **Current Production Release: `1.6.0 — Perception & Crystallization`**  
+> Gives Mímir a sensory surface for the outside world: a declarative source registry, a model probe engine, and debt-replay for outages; perceived changes crystallize into a deterministic morning brief plus structured entities.  
 > Full 2.0 design specification: [`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md).
 
 ---
@@ -48,7 +48,7 @@ cd mimir-memory
 Service starts at `http://127.0.0.1:8456`. Verify health:
 ```bash
 curl http://127.0.0.1:8456/health
-# Returns: {"status":"ok","service":"mimir-api","version":"1.5.0","schema_version":21}
+# Returns: {"status":"ok","service":"mimir-api","version":"1.6.0","schema_version":21}
 ```
 
 ### 2. Connect Your AI Agents
@@ -166,8 +166,8 @@ Mímir follows three strict benchmarking rules: **methodology travels with metri
 | **v1.3.0** | Ecosystem | RECALL Funnel, Temporal Ingestion, Dedup Activation, Reflect | ✅ Released |
 | **v1.4.0** | Legibility | Machine-readable explanations, Progressive Disclosure (HMAC), Budget Honesty | ✅ Released |
 | **v1.4.1** | Extraction Fix | Bidirectional conversation context, assistant reply ingestion | ✅ Released |
-| **v1.5.0** | Federation & Sharing | Silo elimination, mentor retirement, zero-config onboarding | ✅ Released · **In Production** |
-| **v1.6.0** | Entities & Synthesis | Entity graph (`entities`), bi-temporal decay, daily brief synthesis | 📋 Planned (Issue #24) |
+| **v1.5.0** | Federation & Sharing | Silo elimination, mentor retirement, zero-config onboarding | ✅ Released |
+| **v1.6.0** | Perception & Crystallization | Entity knowledge base, declarative probe & source registry, double-layer brief crystallization | ✅ Released · **In Production** |
 | **v1.7.0** | Obsidian Bridge | Obsidian Projector, Personal lock, Git snapshot airbag | 📋 Planned (Issue #25) |
 | **v2.0.0** | The Unified Brain | One-command CLI/Docker distribution, Command Center Dashboard | 🎯 Target (Milestone #6) |
 

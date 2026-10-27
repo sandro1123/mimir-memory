@@ -23,7 +23,7 @@ class TestVersionSweep(unittest.TestCase):
         """真仓跑一遍：当前版本号在所有登记点都在。"""
         expected = version_sweep._read_current_version(ROOT)
         results = version_sweep.sweep(ROOT, expected)
-        self.assertTrue(len(results) >= 5, f"登记点不足 5 条: {len(results)}")
+        self.assertTrue(len(results) >= 7, f"登记点不足 7 条: {len(results)}")
         for r in results:
             self.assertEqual(
                 r.status, "OK",
@@ -39,7 +39,7 @@ class TestVersionSweep(unittest.TestCase):
                            "假版本号 0.0.0-nonexistent 居然全 OK？扫描器失效")
 
     def test_all_five_known_registries_scanned(self):
-        """扫描器登记表至少覆盖已知五处。"""
+        """扫描器登记表至少覆盖已知七处。"""
         relpaths = {e.relpath for e in version_sweep.REGISTRY}
         for expected_path in (
             "mimir_v8/schema.py",
@@ -47,6 +47,8 @@ class TestVersionSweep(unittest.TestCase):
             "dashboard/backend/main.py",
             "ARCHITECTURE.md",
             "tests/test_r8_release.py",
+            "README.md",
+            "README_en.md",
         ):
             self.assertIn(expected_path, relpaths,
                           f"登记表缺少 {expected_path}")
