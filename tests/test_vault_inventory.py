@@ -101,3 +101,20 @@ def test_to_json_is_round_trippable(tmp_path):
     assert payload["vault_root"]
     assert len(payload["notes"]) == 3
     assert set(payload["counts"]) >= {"hub", "reference-only", "unknown"}
+
+
+def test_credential_shaped_content_is_downgraded_to_reference_only(tmp_path):
+    """A note holding credential values must not be treated as knowledge.
+
+    Reference-only is by directory today, but a key pasted into an
+    ordinary note would otherwise be classified as a topic and
+    crystallized. Conservative direction: downgrade, never upgrade.
+    """
+    root = _vault(tmp_path)
+    (root / "30-知识库" / "随手记.md").write_text(
+        "配置如下\napi_key = sk-abcdef0123456789abcdef\n", encoding="utf-8"
+    )
+    inv = scan_vault(root)
+    note = next(n for n in inv.notes if n.relpath.endswith("随手记.md"))
+    assert note.role == ROLE_REFERENCE_ONLY
+    assert "credential" in note.reason

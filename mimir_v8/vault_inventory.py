@@ -14,6 +14,7 @@ metadata is read. See ``vault_roles.yaml``.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,18 @@ import yaml
 
 from .collectors.vault import DEFAULT_EXCLUDE_DIRS
 from .vault_roles import ROLE_REFERENCE_ONLY, load_role_table, resolve_role
+
+#: Credential shapes that must never be treated as knowledge. Reference-only
+#: is normally a directory decision, but a key pasted into an ordinary note
+#: would otherwise be classified as a topic and crystallized. The check can
+#: only ever downgrade a note to reference-only, never upgrade one.
+CREDENTIAL_PATTERNS = (
+    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}"),
+)
 
 
 @dataclass
@@ -132,9 +145,24 @@ def scan_vault(
         readable, error = True, None
         if provisional_role != ROLE_REFERENCE_ONLY:
             try:
-                frontmatter = _parse_frontmatter(path.read_text(encoding="utf-8"))
+                body = path.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError) as exc:
-                readable, error = False, str(exc)
+                body, readable, error = None, False, str(exc)
+            if body is not None:
+                if any(p.search(body) for p in CREDENTIAL_PATTERNS):
+                    # Downgrade only: a note holding a credential looks
+                    # like knowledge but must never be crystallized.
+                    inventory.notes.append(
+                        NoteRecord(
+                            relpath=relpath,
+                            role=ROLE_REFERENCE_ONLY,
+                            reason="credential-shaped content",
+                            size=stat.st_size,
+                            mtime=stat.st_mtime,
+                        )
+                    )
+                    continue
+                frontmatter = _parse_frontmatter(body)
 
         role, reason = resolve_role(relpath, frontmatter, table)
         inventory.notes.append(

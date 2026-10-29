@@ -66,3 +66,8 @@ def test_unknown_falls_back_to_unknown():
 def test_table_missing_file_raises():
     with pytest.raises(FileNotFoundError):
         load_role_table(Path("/nonexistent/vault_roles.yaml"))
+
+
+def test_weekly_reflect_is_machine_log():
+    role, _ = resolve_role("x/mimir-weekly-reflect-2026-10-04.md", {}, _table())
+    assert role == ROLE_MACHINE_LOG

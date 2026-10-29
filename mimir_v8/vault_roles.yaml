@@ -29,6 +29,10 @@ by_filename_pattern:
   # 版本快照家族（白皮书 / 使用手册多版本并存）
   - pattern: "v[0-9]+\\.[0-9]+.*(白皮书|使用手册|使用指南|生产资料索引|状态矩阵)"
     role: versioned
+  # Mímir 自己产出的周期性报告（日报的 frontmatter 认得出，周报认不出，
+  # 靠文件名兜底）
+  - pattern: "^mimir-(daily-report|weekly-reflect)-"
+    role: machine-log
   # 一次性工作记录：施工卡、审计卷宗、讨论稿、复盘
   - pattern: "(TODO|草稿|初稿|讨论|会议|纪要|复盘|审计|报告|素材|设计稿|施工卡|卷宗|总账)"
     role: worklog
