@@ -1,0 +1,40 @@
+# Obsidian 库文档角色表 — 声明式，可扩展，新增库区不需改代码。
+#
+# 匹配顺序（先命中先返回）：
+#   1. reference_only      路径前缀 —— 命中即定，**绝不读取内容**
+#   2. by_path_prefix      目录归属
+#   3. by_filename_pattern 文件名特征
+#   4. frontmatter_type    frontmatter 的 type 字段
+#   5. default             兜底
+#
+# default 必须是最保守的 unknown（只索引、不结晶）。宁可漏判成 unknown，
+# 不可误判成 topic 而被结晶——这条是角色表的安全底线。
+
+reference_only:
+  # 凭据保管处。Mímir 知道文件存在、能列出，但不读内容、不结晶。
+  # 用户 2026-10-28：目前只此一个，未来可能增加。
+  - "60-敏感信息/"
+
+by_path_prefix:
+  # 早期投影器留下的机器沉积物（哈希文件名、两行正文）
+  "90-自动同步_已归档_v3/": machine-log
+  # 原始素材，待加工，暂不处理
+  "素材池/": raw
+  "40-归档/": raw
+
+by_filename_pattern:
+  # 索引 / 导航页 = 图谱 hub
+  - pattern: "(索引|首页|index|README)"
+    role: hub
+  # 版本快照家族（白皮书 / 使用手册多版本并存）
+  - pattern: "v[0-9]+\\.[0-9]+.*(白皮书|使用手册|使用指南|生产资料索引|状态矩阵)"
+    role: versioned
+  # 一次性工作记录：施工卡、审计卷宗、讨论稿、复盘
+  - pattern: "(TODO|草稿|初稿|讨论|会议|纪要|复盘|审计|报告|素材|设计稿|施工卡|卷宗|总账)"
+    role: worklog
+
+frontmatter_type:
+  # Mímir 自己产出的日报（worker.py 每日写入）
+  "mimir-daily-report": machine-log
+
+default: unknown
