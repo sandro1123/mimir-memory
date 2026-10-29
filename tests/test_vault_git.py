@@ -62,7 +62,7 @@ def test_status_reports_modified_and_untracked(tmp_path):
 def test_snapshot_message_is_recorded(tmp_path):
     repo = _repo(tmp_path)
     (repo / "a.md").write_text("v2", encoding="utf-8")
-    snap = GitProtector(repo).snapshot("mimir: baseline")
+    GitProtector(repo).snapshot("mimir: baseline")
     log = subprocess.run(
         ["git", "log", "-1", "--pretty=%s"], cwd=repo,
         capture_output=True, text=True, check=True,
