@@ -287,9 +287,9 @@
 
 ### 7.7 生产库实测（2026-10-28，批准前补查）
 
-**生产库定位纠错**：`~/.hermes/mimir/data/canonical.db` 是 10-09 残留（**全表 0 条**，
+**生产库定位纠错**：`$MIMIR_HOME/data/canonical.db` 是 10-09 残留（**全表 0 条**，
 查它会得出"没摄入过任何东西"的假阴性）。真生产库是
-`~/.hermes/mimir/v9/production-v9.0-20260805_214614/canonical.db`
+`$MIMIR_HOME/v9/production-v<版本>-<日期>/canonical.db`
 （服务 `mimir_v8.server` 自 10-09 跑在此路径），**1068 条事实 / 985 条来源记录**。
 
 | 检查项 | 结果 |

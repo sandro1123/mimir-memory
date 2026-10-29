@@ -75,6 +75,10 @@ def main(argv: list[str] | None = None) -> int:
     islands = find_islands(graph)
 
     payload = inventory.to_json()
+    # Release hygiene: never record an absolute path in the artifact.
+    # The vault root differs per machine and an absolute path leaks the
+    # operator's username into the public repo.
+    payload["vault_root"] = "."
     payload["link_graph"] = {
         "links_total": sum(len(targets) for targets in graph.values()),
         "dead_total": len(dead),
