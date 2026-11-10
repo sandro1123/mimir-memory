@@ -138,14 +138,43 @@ def _build_vector(root: Path, collection_name: str, model_name: str):
     client = chromadb.PersistentClient(
         path=str(root / "chroma"), settings=Settings(anonymized_telemetry=False)
     )
+    metadata = {
+        "hnsw:space": "cosine",
+        "mimir_schema": str(SCHEMA_VERSION),
+        "projection": projection,
+    }
     collection = client.get_or_create_collection(
-        name=collection_name,
-        metadata={"hnsw:space": "cosine", "mimir_schema": str(SCHEMA_VERSION), "projection": projection},
+        name=collection_name, metadata=metadata,
     )
     embedder = LockedEmbedder(
         SentenceTransformer(model_name, device="cpu", local_files_only=True)
     )
+    _verify_embedding_dimension(collection, embedder, collection_name)
     return VectorProjector(collection, embedder, collection_name=collection_name), collection, embedder
+
+
+def _verify_embedding_dimension(collection, embedder, collection_name: str) -> None:
+    """Fail at startup when the embedder cannot write into this collection.
+
+    Issue #39: without this probe a dimension mismatch "starts fine" and then
+    fails every single projection, which presents as a healthy service with
+    dead recall. The probe records the dimension on first use and compares it
+    afterwards, so a model swap is caught before the supervisor starts.
+    """
+    probe = embedder("dimension probe")
+    dimension = len(probe)
+    metadata = dict(collection.metadata or {})
+    recorded = metadata.get("mimir_dim")
+    if recorded is None:
+        if collection.count() == 0:
+            collection.modify(metadata={**metadata, "mimir_dim": dimension})
+        return
+    if int(recorded) != dimension:
+        raise RuntimeConfigurationError(
+            f"embedder dimension {dimension} does not match collection "
+            f"{collection_name!r} dimension {recorded}; refusing to start "
+            "(every projection would fail)"
+        )
 
 
 def normalize_knowledge_layers(layers: tuple[str, ...]) -> tuple[str, ...]:
