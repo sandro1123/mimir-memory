@@ -746,17 +746,29 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                 """SELECT p.projector_name, p.checkpoint_event_seq, p.status,
                 p.last_error_code,
                 SUM(CASE WHEN o.status IN ('pending','retry') THEN 1 ELSE 0 END) AS pending,
-                SUM(CASE WHEN o.status='dead_letter' THEN 1 ELSE 0 END) AS dead_letter
+                SUM(CASE WHEN o.status='dead_letter' THEN 1 ELSE 0 END) AS dead_letter,
+                MIN(CASE WHEN o.status='dead_letter' THEN o.available_at END)
+                    AS oldest_dead_letter_at
                 FROM projector_state p LEFT JOIN outbox o
                 ON o.projector_name=p.projector_name
                 GROUP BY p.projector_name, p.checkpoint_event_seq, p.status, p.last_error_code
                 ORDER BY p.projector_name"""
             ).fetchall()
+            details = {
+                item["projector_name"]: item["last_error_detail"]
+                for item in connection.execute(
+                    """SELECT projector_name, last_error_detail FROM outbox
+                    WHERE status='dead_letter' AND last_error_detail IS NOT NULL
+                    ORDER BY available_at"""
+                ).fetchall()
+            }
         return [
             {
                 **dict(row),
                 "pending": int(row["pending"] or 0),
                 "dead_letter": int(row["dead_letter"] or 0),
+                "oldest_dead_letter_at": row["oldest_dead_letter_at"],
+                "last_error_detail": details.get(row["projector_name"]),
             }
             for row in rows
         ]

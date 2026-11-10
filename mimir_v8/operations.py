@@ -104,7 +104,8 @@ def reset_projector_stream(store: CanonicalStore, projector_name: str) -> dict:
     with store.transaction() as connection:
         updated = connection.execute(
             """UPDATE outbox SET status='pending', attempts=0, available_at=?,
-            locked_at=NULL, last_error_code=NULL, completed_at=NULL
+            locked_at=NULL, last_error_code=NULL, last_error_detail=NULL,
+            completed_at=NULL
             WHERE projector_name=?""",
             (now, projector_name),
         ).rowcount
@@ -114,6 +115,34 @@ def reset_projector_stream(store: CanonicalStore, projector_name: str) -> dict:
             (now, projector_name),
         )
     return {"projector_name": projector_name, "events_reset": int(updated)}
+
+
+def requeue_dead_letters(store: CanonicalStore, projector_name: str) -> dict:
+    """Revive only the dead-lettered rows, leaving the checkpoint alone.
+
+    Issue #37: ``reset_projector_stream`` is the whole-stream replay (correct
+    for a corrupt projection, expensive for a transient failure — a 1185-event
+    backlog needs 34900 events re-embedded instead of 185). This is the narrow
+    path: the checkpoint is unchanged, so the projector resumes from where it
+    stopped and retries exactly the rows that failed.
+    """
+    if projector_name not in PROJECTORS:
+        raise OperationsError(f"unknown projector: {projector_name}")
+    now = utc_now()
+    with store.transaction() as connection:
+        revived = connection.execute(
+            """UPDATE outbox SET status='pending', attempts=0, available_at=?,
+            locked_at=NULL, last_error_code=NULL, last_error_detail=NULL,
+            completed_at=NULL
+            WHERE projector_name=? AND status='dead_letter'""",
+            (now, projector_name),
+        ).rowcount
+        connection.execute(
+            """UPDATE projector_state SET updated_at=?, status='idle',
+            last_error_code=NULL WHERE projector_name=?""",
+            (now, projector_name),
+        )
+    return {"projector_name": projector_name, "dead_letters_requeued": int(revived)}
 
 
 def remove_sqlite_projection(path: str | Path) -> None:

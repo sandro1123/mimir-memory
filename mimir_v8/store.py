@@ -241,6 +241,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     available_at TEXT NOT NULL,
     locked_at TEXT,
     last_error_code TEXT,
+    last_error_detail TEXT,
     completed_at TEXT,
     UNIQUE(event_seq, projector_name)
 ) STRICT;
@@ -890,8 +891,28 @@ class CanonicalStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.path.exists():
             self._validate_existing_schema()
+            self._ensure_additive_columns()
         else:
             self._initialize_fresh()
+
+    def _ensure_additive_columns(self) -> None:
+        """Add nullable columns introduced after a database was created.
+
+        These are pure additions that do not change row meaning, so they do not
+        need a schema-version bump and an explicit migration: an older runtime
+        ignores them, and a newer one can always read a database that was
+        created before they existed. Same guarded-ALTER shape as the graph
+        projector uses for its v13 columns.
+        """
+        with contextlib.closing(self.connect()) as connection:
+            existing = {
+                row[1] for row in connection.execute("PRAGMA table_info(outbox)")
+            }
+            if "last_error_detail" not in existing:
+                connection.execute(
+                    "ALTER TABLE outbox ADD COLUMN last_error_detail TEXT"
+                )
+                connection.commit()
 
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=5.0)
