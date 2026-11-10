@@ -1175,6 +1175,34 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         except CursorError as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    @app.get("/v8/facts/{fact_id}/timeline")
+    def fact_timeline(
+        fact_id: str,
+        before: int = Query(default=5, ge=0, le=50),
+        after: int = Query(default=5, ge=0, le=50),
+        identity: Principal = Depends(scoped("read")),
+    ):
+        """Issue #35 layer 2: what happened around this fact.
+
+        The index layer answers "which facts match", the hydrate layer answers
+        "what is in these facts"; this answers "what was going on when this
+        memory changed". Neighbouring events can belong to other principals,
+        so each row is dropped unless the caller can read that fact — the
+        anchor is already authorised by the explicit check below.
+        """
+        fact = context.store.get_fact(fact_id)
+        require_fact_permission(identity, fact, "read")
+        timeline = context.store.fact_timeline(fact_id, before=before, after=after)
+        timeline["events"] = [
+            event for event in timeline["events"]
+            if event["aggregate_id"] == fact_id
+            or context.store.can_access(
+                event["aggregate_id"], identity.principal_id, "read",
+                is_admin=identity.is_admin, roles=set(identity.roles),
+            )
+        ]
+        return timeline
+
     @app.get("/v8/memories/recent")
     def memories_recent(
         limit: int = Query(default=10, ge=1, le=100),
