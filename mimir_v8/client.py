@@ -132,6 +132,26 @@ class MimirAPIClient:
     def create_fact(self, body: dict) -> dict:
         return self.request("POST", "/v8/facts", body=body)
 
+    # ── issue #35 三段式渐进披露 ───────────────────────────────────────
+    def search_index(self, text: str, *, limit: int = 10, **filters) -> dict:
+        """Layer 1: index rows only (no content) plus a recall cursor."""
+        return self.request("POST", "/v8/query", body={
+            "text": text, "limit": limit, "detail": "index", **filters,
+        })
+
+    def hydrate(self, cursor: str, fact_ids: list[str]) -> dict:
+        """Layer 3: expand selected ids from a cursor handed out by layer 1."""
+        return self.request("POST", "/v8/query/expand", body={
+            "cursor": cursor, "fact_ids": fact_ids,
+        })
+
+    def fact_timeline(self, fact_id: str, *, before: int = 5,
+                      after: int = 5) -> dict:
+        """Layer 2: the events around an anchor fact."""
+        return self.request("GET", f"/v8/facts/{fact_id}/timeline", params={
+            "before": before, "after": after,
+        })
+
     def awareness(self, agent_id: str | None = None, hours: int | None = None) -> dict:
         return self.request("GET", "/awareness", params={
             "agent": agent_id or self.config.principal_id, "hours": hours,

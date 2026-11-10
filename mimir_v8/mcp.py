@@ -38,6 +38,68 @@ def tool_definitions() -> list[dict]:
             },
         },
         {
+            "name": "mimir_search",
+            "description": (
+                "Layer 1 of progressive disclosure: compact index rows "
+                "(fact_id, domain, type, one-line summary, status) plus a "
+                "recall cursor. Carries no fact body, so a scan costs tens of "
+                "tokens per hit. Pass the cursor to mimir_hydrate for the "
+                "1-2 rows actually worth reading."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "limit": {"type": "integer", "default": 10},
+                    "owner_principal": {"type": "string"},
+                    "domain": {"type": "string"},
+                    "fact_type": {"type": "string"},
+                    "include_superseded": {"type": "boolean", "default": False},
+                },
+                "required": ["text"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "mimir_hydrate",
+            "description": (
+                "Layer 3 of progressive disclosure: expand the selected "
+                "fact_ids from a cursor issued by mimir_search. Only ids that "
+                "were handed out by that recall are accepted, so this cannot "
+                "be used to read arbitrary facts."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "cursor": {"type": "string"},
+                    "fact_ids": {"type": "array", "items": {"type": "string"},
+                                 "minItems": 1, "maxItems": 100},
+                },
+                "required": ["cursor", "fact_ids"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "mimir_timeline",
+            "description": (
+                "Layer 2 of progressive disclosure: the events immediately "
+                "before and after a fact's latest change. Answers 'what was "
+                "going on when this memory changed', which neither search nor "
+                "hydrate can express. Neighbouring events are filtered to the "
+                "facts this principal can read."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "fact_id": {"type": "string"},
+                    "before": {"type": "integer", "default": 5, "minimum": 0, "maximum": 50},
+                    "after": {"type": "integer", "default": 5, "minimum": 0, "maximum": 50},
+                },
+                "required": ["fact_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
             "name": "mimir_write",
             "description": "Create a v8 candidate-free canonical fact for the caller principal.",
             "inputSchema": {
@@ -342,6 +404,22 @@ class MimirMCPServer:
                     owner_principal=args.get("owner_principal"), domain=args.get("domain"),
                     fact_type=args.get("fact_type"), use_vector=args.get("use_vector", True),
                     use_fts=args.get("use_fts", True), use_graph=args.get("use_graph", True),
+                )
+            elif name == "mimir_search":
+                filters = {
+                    key: args[key] for key in
+                    ("owner_principal", "domain", "fact_type", "include_superseded")
+                    if key in args
+                }
+                data = self.api.search_index(
+                    args.get("text", ""), limit=args.get("limit", 10), **filters,
+                )
+            elif name == "mimir_hydrate":
+                data = self.api.hydrate(args["cursor"], args["fact_ids"])
+            elif name == "mimir_timeline":
+                data = self.api.fact_timeline(
+                    args["fact_id"],
+                    before=args.get("before", 5), after=args.get("after", 5),
                 )
             elif name == "mimir_write":
                 data = self.api.create_fact({
