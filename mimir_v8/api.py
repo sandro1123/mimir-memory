@@ -1336,6 +1336,43 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             correlation_id=request.state.correlation_id,
         )
 
+    @app.delete("/v8/facts/{fact_id}")
+    def delete_fact_v8(
+        fact_id: str,
+        request: Request,
+        expected_version: int = Query(ge=1),
+        reason: str = Query(min_length=1),
+        idempotency_key: str | None = Query(default=None),
+        identity: Principal = Depends(scoped("delete")),
+    ):
+        """Issue #32: standard RESTful delete, bridged to the tombstone path.
+
+        Clients reach for ``DELETE`` and previously got 405, then fell back to
+        guessing. The semantics are unchanged — this is a soft delete that
+        records a tombstone version, not a row removal — so the audit chain
+        stays intact and ``POST /v8/facts/{id}/restore`` still works.
+
+        ``expected_version`` is required for the same reason it is on the
+        ``POST`` route: a delete issued against stale knowledge must not
+        silently discard a newer version.
+        """
+        fact = context.store.get_fact(fact_id)
+        require_fact_permission(identity, fact, "delete")
+        result = context.store.tombstone_fact(
+            TombstoneFact(
+                fact_id=fact_id,
+                expected_version=expected_version,
+                reason=reason,
+                idempotency_key=idempotency_key,
+            ),
+            actor_principal=identity.principal_id,
+            request_id=request.state.request_id,
+            correlation_id=request.state.correlation_id,
+        )
+        return JSONResponse(
+            {**result, "deleted": True, "status": "tombstoned"}, status_code=200
+        )
+
     @app.post("/v8/facts/{fact_id}/grants")
     def grant_access(fact_id: str, body: GrantBody, request: Request,
                      identity: Principal = Depends(scoped("manage"))):

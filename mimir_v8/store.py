@@ -1847,11 +1847,17 @@ class CanonicalStore:
             fact = connection.execute(
                 "SELECT owner_principal, status, domain, fact_type, sensitivity, visibility FROM facts WHERE fact_id=?", (fact_id,)
             ).fetchone()
-            if not fact or fact["status"] == "tombstoned":
+            if not fact:
                 return False
             from .auth import PRINCIPAL_ALIASES
             aliases = PRINCIPAL_ALIASES.get(principal_id, frozenset({principal_id}))
             owner_matches = (fact["owner_principal"] == principal_id) or (fact["owner_principal"] in aliases)
+            if fact["status"] == "tombstoned":
+                # Issue #32: restoring a tombstone is the inverse of the delete,
+                # so the owner must still be able to act on it — otherwise the
+                # documented 30-day restore window is unreachable for everyone
+                # but an admin. Every other permission stays denied.
+                return permission == "delete" and owner_matches
 
             # 1.5.0 共享放宽：仅对只读权限、非受限敏感度、且属于通用技术域的事实放行给已认证 Agent
             SHARED_DOMAINS = {"infrastructure", "knowledge", "tech_support"}

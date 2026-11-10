@@ -93,6 +93,18 @@ def build_parser() -> argparse.ArgumentParser:
     inject = sub.add_parser("core-memory", help="render CoreMemory injection")
     inject.add_argument("agent")
     inject.add_argument("--max-chars", type=int, default=2000)
+
+    # Issue #32: the standard delete/restore pair, alongside the learning
+    # boundary's ``forget``. Clients reach for these names first.
+    delete = sub.add_parser("delete", help="soft-delete (tombstone) a canonical fact")
+    delete.add_argument("fact_id")
+    delete.add_argument("--expected-version", type=int, required=True)
+    delete.add_argument("--reason", required=True)
+    delete.add_argument("--idempotency-key")
+
+    restore = sub.add_parser("restore", help="restore a tombstoned fact within the window")
+    restore.add_argument("fact_id")
+    restore.add_argument("--reason", default="restored via CLI")
     return parser
 
 
@@ -170,6 +182,15 @@ def run(args, client: MimirAPIClient) -> int:
         result = client.ready()
     elif args.command == "core-memory":
         result = client.core_memory_inject(args.agent, args.max_chars)
+    elif args.command == "delete":
+        result = client.delete_fact(
+            args.fact_id,
+            expected_version=args.expected_version,
+            reason=args.reason,
+            idempotency_key=args.idempotency_key,
+        )
+    elif args.command == "restore":
+        result = client.restore_fact(args.fact_id, reason=args.reason)
     else:
         raise ValueError(f"unknown command: {args.command}")
     print(json.dumps(result, ensure_ascii=False, indent=2))

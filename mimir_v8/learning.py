@@ -28,6 +28,12 @@ _SECRET_PATTERNS = (
     (re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{16,}"), "Bearer [REDACTED]"),
     (re.compile(r"(?i)\b(api[_ -]?key|token|secret|password|passwd)\s*[:=]\s*[^\s,;]+"), r"\1=[REDACTED]"),
     (re.compile(r"-----BEGIN [A-Z ]+ PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+ PRIVATE KEY-----"), "[PRIVATE KEY REDACTED]"),
+    # Issue #33: the old ``sk-[A-Za-z0-9_-]{16,}`` only caught long keys, so a
+    # real key like ``sk-4166fcd0`` read as prose. A purely hexadecimal body of
+    # eight or more characters is a key shape, not a word (``sk-learn`` and
+    # ``sk-image`` are letters outside the hex alphabet); longer general keys
+    # keep the 16-character floor so hyphenated prose is not over-redacted.
+    (re.compile(r"(?i)\bsk-[0-9a-f]{8,}\b"), "sk-[REDACTED]"),
     (re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{16,}"), "sk-[REDACTED]"),
 )
 
