@@ -32,7 +32,7 @@
 
 ## ⚠️ 计划前置：一个必须先由用户裁决的阻塞项
 
-**实测（2026-11-01，n100 生产库 `v9/production-v9.0-20260805_214614/canonical.db`）：**
+**实测（2026-11-01，n100 生产库 `<release-id>/canonical.db`）：**
 
 ```
 egress_policy:  local_only 1292 / 1292   ← 100%，无一例外

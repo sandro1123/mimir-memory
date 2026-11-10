@@ -4,7 +4,7 @@
 > **状态**：待用户确认后执行
 > **目标版本**：Mímir 1.7.0（阶段 0，前置，必须先做）
 > **关联设计稿**：`docs/superpowers/specs/2026-10-28-obsidian-knowledge-hub-design.md` §5 阶段 0
-> **执行机**：n100 (`ssh sandro1123@192.168.5.5`)，库路径 `$HOME/obsidian-vault/Sandro's Vault`
+> **执行机**：n100 (`ssh <user>@<n100-lan-ip>`)，库路径 `$HOME/obsidian-vault/Sandro's Vault`
 > **核心原则**：**只增不改，绝不改动任何 note 内容**。任何写入/整理操作前必须先有 git 快照。
 
 ---
@@ -33,7 +33,7 @@
 
 > 预检命令（已在本轮执行，只读，无副作用）：
 > ```bash
-> ssh sandro1123@192.168.5.5 'cd "$HOME/obsidian-vault/Sandro'\''s Vault" && git status --short | head -5; git status --short | wc -l; git remote -v; git log --oneline -1'
+> ssh <user>@<n100-lan-ip> 'cd "$HOME/obsidian-vault/Sandro'\''s Vault" && git status --short | head -5; git status --short | wc -l; git remote -v; git log --oneline -1'
 > ```
 
 ---
