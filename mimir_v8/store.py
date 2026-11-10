@@ -24,8 +24,12 @@ from .schema import (
     PROJECTORS,
     SCHEMA_VERSION,
     DECAY_TIER_MAP,
+    SUPERSESSION_RELATIONS,
+    SUPERSESSION_STATUSES,
+    SUPERSESSION_TARGET_STATUS,
     TombstoneFact,
     UpdateFact,
+    ValidationError,
 )
 
 
@@ -100,6 +104,48 @@ def _lineage_hash_for_new_version(
     return lineage_hash_for_new_version(connection, fact_id, version)
 
 
+_FACT_STATUS_CHECK_OLD = (
+    "status TEXT NOT NULL CHECK "
+    "(status IN ('active','tombstoned','disputed','archived'))"
+)
+_FACT_STATUS_CHECK_NEW = (
+    "status TEXT NOT NULL CHECK "
+    "(status IN ('active','tombstoned','disputed','archived',"
+    "'superseded','retracted'))"
+)
+
+
+def _widen_fact_status_check(ddl: str) -> str:
+    """issue #44:把 facts DDL 里冻结的 status CHECK 换成放宽版。
+
+    SQLite 改不了 CHECK,只能整表重建。这里不手写一份 facts 的 DDL 副本
+    ——那会在下次给 facts 加列时悄悄漂移——而是取出库里真实的 DDL,只替换
+    status 那一行的检查式,并把表名改成 facts_new。原 DDL 里若找不到预期
+    的检查式,抛错而不是猜:猜错会在 DROP 之后才发现,数据已经没了。
+    """
+    if _FACT_STATUS_CHECK_OLD not in ddl:
+        raise SchemaVersionError(
+            "unexpected facts DDL: the status CHECK does not match the known "
+            f"pre-#44 form; refusing to rebuild blind. DDL was: {ddl!r}"
+        )
+    rebuilt = ddl.replace(_FACT_STATUS_CHECK_OLD, _FACT_STATUS_CHECK_NEW)
+    # SQLite stores the table declaration verbatim, so it may be
+    # `CREATE TABLE facts`, `CREATE TABLE IF NOT EXISTS facts`, or
+    # `CREATE TABLE "facts"` (what a RENAME produces). Match any of them and
+    # only the first occurrence, so a column named facts is never touched.
+    for candidate in (
+        "CREATE TABLE IF NOT EXISTS facts",
+        'CREATE TABLE "facts"',
+        "CREATE TABLE facts",
+    ):
+        if candidate in rebuilt:
+            rebuilt = rebuilt.replace(candidate, "CREATE TABLE facts_new", 1)
+            break
+    else:
+        raise SchemaVersionError(f"cannot locate the facts table declaration in: {ddl!r}")
+    return rebuilt
+
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_meta (
     key TEXT PRIMARY KEY,
@@ -110,7 +156,7 @@ CREATE TABLE IF NOT EXISTS facts (
     fact_id TEXT PRIMARY KEY,
     legacy_id TEXT UNIQUE,
     current_version INTEGER NOT NULL CHECK (current_version >= 1),
-    status TEXT NOT NULL CHECK (status IN ('active','tombstoned','disputed','archived')),
+    status TEXT NOT NULL CHECK (status IN ('active','tombstoned','disputed','archived','superseded','retracted')),
     content TEXT NOT NULL CHECK (length(trim(content)) > 0),
     summary TEXT NOT NULL,
     domain TEXT NOT NULL,
@@ -204,6 +250,25 @@ CREATE TABLE IF NOT EXISTS relations (
     valid_from TEXT NOT NULL DEFAULT '',
     valid_until TEXT NOT NULL DEFAULT ''
 ) STRICT;
+
+-- issue #44: explicit, writer-declared supersession. This is NOT the
+-- conflict detector: conflict finds "two facts I noticed disagree",
+-- supersession records "the writer knows which record replaces which".
+-- Keeping the two apart matters because conflict is automatic and needs
+-- a similarity threshold, while a correction's wording almost never
+-- overlaps the text it corrects (measured Jaccard 0.06 on a real case).
+CREATE TABLE IF NOT EXISTS fact_supersessions (
+    newer_fact_id TEXT NOT NULL REFERENCES facts(fact_id),
+    older_fact_id TEXT NOT NULL REFERENCES facts(fact_id),
+    relation TEXT NOT NULL CHECK (relation IN ('supersede','amend','retract')),
+    reason TEXT,
+    actor_principal TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    supersession_event_id TEXT NOT NULL,
+    PRIMARY KEY (newer_fact_id, older_fact_id)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_supersede_older ON fact_supersessions(older_fact_id);
 
 CREATE TABLE IF NOT EXISTS resource_grants (
     grant_id TEXT PRIMARY KEY,
@@ -954,6 +1019,7 @@ class CanonicalStore:
             "ingestion_runs", "extraction_runs", "projector_state", "knowledge_items",
             "knowledge_feedback_signals", "governance_suggestions",
             "search_feedback", "quality_metrics", "conflict_resolutions",
+            "fact_supersessions",
             "crystal_candidates", "fact_assets",
         }
         present = {
@@ -1422,20 +1488,69 @@ class CanonicalStore:
     ) -> dict:
         """1.0-C1: tombstone 恢复——快照回插 + fact.restored 事件。
 
-        「可悔」的操作腿：30 天窗口内把 tombstone 前完整状态回插为
-        active。幂等：已 active 的事实重复 restore 返回现态不重复加版。
+        「可悔」的操作腿:30 天窗口内把 tombstone 前完整状态回插为
+        active。幂等:已 active 的事实重复 restore 返回现态不重复加版。
         事件链 tombstoned → restored 全程可审计。
+
+        issue #44:`superseded` / `retracted` 也走这条路——「取代」不是删除,
+        它必须能一键回滚(与 #12 的硬约束一致)。这条腿不用 tombstone 快照:
+        内容从未离开 facts 表,翻转 status 即可;链接表保留作为审计痕迹
+        (回滚后查 superseded_by 仍能看到当初是谁取代了它)。
         """
         request_id = request_id or new_id()
         correlation_id = correlation_id or request_id
         now = utc_now()
         with self.transaction() as connection:
             current = connection.execute(
-                "SELECT fact_id, status, current_version FROM facts WHERE fact_id=?",
+                "SELECT fact_id, status, current_version, content_hash FROM facts WHERE fact_id=?",
                 (fact_id,),
             ).fetchone()
             if not current:
                 raise NotFoundError(fact_id)
+            if current["status"] in SUPERSESSION_STATUSES:
+                new_version = int(current["current_version"]) + 1
+                event_id = new_id()
+                event_seq = self._insert_event(
+                    connection,
+                    event_id=event_id,
+                    fact_id=fact_id,
+                    version=new_version,
+                    event_type="fact.restored",
+                    actor_principal=actor_principal,
+                    request_id=request_id,
+                    correlation_id=correlation_id,
+                    occurred_at=now,
+                    payload={
+                        "fact_id": fact_id,
+                        "version": new_version,
+                        "reason": reason,
+                        "previous_status": current["status"],
+                    },
+                    idempotency_key=f"restore-{event_id}",
+                )
+                connection.execute(
+                    "UPDATE facts SET current_version=?, status='active', "
+                    "updated_at=? WHERE fact_id=?",
+                    (new_version, now, fact_id),
+                )
+                self._insert_version_and_side_effects(
+                    connection,
+                    fact_id=fact_id,
+                    version=new_version,
+                    snapshot={**dict(current), "status": "active",
+                              "current_version": new_version, "updated_at": now},
+                    change_type="fact.restored",
+                    change_reason=reason,
+                    actor_principal=actor_principal,
+                    event_id=event_id,
+                    event_seq=event_seq,
+                    request_id=request_id,
+                    now=now,
+                    content_hash=current["content_hash"],
+                )
+                return {"fact_id": fact_id, "status": "active",
+                        "restored": True, "reason": reason,
+                        "previous_status": current["status"]}
             if current["status"] == "active":
                 return {"fact_id": fact_id, "status": "active",
                         "restored": False, "reason": "already active"}
@@ -1593,6 +1708,216 @@ class CanonicalStore:
             "projection_status": "pending",
             "idempotent_replay": False,
         }
+
+    def supersede_fact(
+        self,
+        newer_fact_id: str,
+        *,
+        older_fact_ids: list[str],
+        relation: str = "supersede",
+        reason: str | None = None,
+        actor_principal: str,
+        expected_versions: dict[str, int] | None = None,
+        request_id: str | None = None,
+        correlation_id: str | None = None,
+        connection: sqlite3.Connection | None = None,
+    ) -> dict:
+        """issue #44:写入方**显式声明**新事实取代/修正/撤回旧事实。
+
+        与 `conflict.detect()` 的分工:conflict 是**自动**扫描相似度(阈值
+        Jaccard≥0.6),抓"我没注意到但系统发现的矛盾";supersede 是**写入方
+        已经判定**的更正,靠语义而非字面相似(真实案例里更正文本与原文的
+        Jaccard 只有 0.06)。两者并存。
+
+        与 ADD-only 闸的关系:本方法不跑任何后台推断,只在同一次显式写入
+        里翻转 `status` 一个枚举值并写事件;事实本体、内容、版本链全部保留,
+        `restore_fact` 可一键回滚。这不是"agent 自动 UPDATE"。
+
+        失败即整事务回滚(fail-closed):
+        - 未知 relation -> ValidationError
+        - 旧事实不存在 / 与新事实同域校验失败 / 权限不足 -> 抛错
+        - 任一旧事实已被 supersede/retract -> ConflictError(不静默覆盖)
+        """
+        if relation not in SUPERSESSION_RELATIONS:
+            raise ValidationError(
+                f"unknown supersede relation: {relation!r}; "
+                f"expected one of {sorted(SUPERSESSION_RELATIONS)}"
+            )
+        if not older_fact_ids:
+            raise ValidationError("older_fact_ids must not be empty")
+        if newer_fact_id in older_fact_ids:
+            raise ValidationError("a fact cannot supersede itself")
+
+        request_id = request_id or new_id()
+        correlation_id = correlation_id or request_id
+        now = utc_now()
+        expected_versions = expected_versions or {}
+
+        applied: list[dict] = []
+        # `connection` lets a caller compose this with its own write (the API
+        # create-with-supersedes path) so the whole thing is one transaction.
+        # Without one, open a transaction here like the other write methods.
+        if connection is None:
+            with self.transaction() as owned:
+                applied = self._supersede_fact_on(
+                    owned, newer_fact_id, older_fact_ids=older_fact_ids,
+                    relation=relation, reason=reason,
+                    actor_principal=actor_principal,
+                    expected_versions=expected_versions,
+                    request_id=request_id, correlation_id=correlation_id, now=now,
+                )
+        else:
+            applied = self._supersede_fact_on(
+                connection, newer_fact_id, older_fact_ids=older_fact_ids,
+                relation=relation, reason=reason,
+                actor_principal=actor_principal,
+                expected_versions=expected_versions,
+                request_id=request_id, correlation_id=correlation_id, now=now,
+            )
+        return {
+            "newer_fact_id": newer_fact_id,
+            "relation": relation,
+            "superseded": applied,
+        }
+
+    def _supersede_fact_on(
+        self,
+        connection: sqlite3.Connection,
+        newer_fact_id: str,
+        *,
+        older_fact_ids: list[str],
+        relation: str,
+        reason: str | None,
+        actor_principal: str,
+        expected_versions: dict[str, int],
+        request_id: str,
+        correlation_id: str,
+        now: str,
+    ) -> list[dict]:
+        """The supersede body, on a caller-supplied connection.
+
+        Split out so the API can run it inside the same transaction as the
+        new fact's insert (issue #44 acceptance #6: any failed supersession
+        must also drop the new fact).
+        """
+        applied: list[dict] = []
+        newer = connection.execute(
+            "SELECT * FROM facts WHERE fact_id=?", (newer_fact_id,)
+        ).fetchone()
+        if not newer:
+            raise NotFoundError(newer_fact_id)
+
+        for older_id in older_fact_ids:
+            older = connection.execute(
+                "SELECT * FROM facts WHERE fact_id=?", (older_id,)
+            ).fetchone()
+            if not older:
+                raise NotFoundError(older_id)
+            if older["domain"] != newer["domain"]:
+                raise ValidationError(
+                    f"cross-domain supersession refused: {older_id} is "
+                    f"{older['domain']!r}, {newer_fact_id} is {newer['domain']!r}"
+                )
+            expected = expected_versions.get(older_id)
+            if expected is not None and int(older["current_version"]) != expected:
+                raise ConflictError(
+                    f"expected version {expected} for {older_id}, "
+                    f"current version is {older['current_version']}"
+                )
+            if older["status"] in SUPERSESSION_STATUSES:
+                raise ConflictError(
+                    f"fact {older_id} is already {older['status']}"
+                )
+            if older["status"] == "tombstoned":
+                raise ConflictError(
+                    f"cannot supersede tombstoned fact {older_id}"
+                )
+
+            target_status = SUPERSESSION_TARGET_STATUS[relation]
+            new_version = int(older["current_version"])
+            event_id = new_id()
+            event_seq = None
+            if target_status is not None:
+                new_version += 1
+                payload = {
+                    "fact_id": older_id,
+                    "version": new_version,
+                    "superseded_by": newer_fact_id,
+                    "relation": relation,
+                    "reason": reason,
+                    "previous_status": older["status"],
+                }
+                event_seq = self._insert_event(
+                    connection,
+                    event_id=event_id,
+                    fact_id=older_id,
+                    version=new_version,
+                    event_type=f"fact.{target_status}",
+                    actor_principal=actor_principal,
+                    request_id=request_id,
+                    correlation_id=correlation_id,
+                    occurred_at=now,
+                    payload=payload,
+                    idempotency_key=None,
+                )
+                connection.execute(
+                    "UPDATE facts SET current_version=?, status=?, updated_at=? "
+                    "WHERE fact_id=?",
+                    (new_version, target_status, now, older_id),
+                )
+                snapshot = dict(older)
+                snapshot.update(
+                    {
+                        "current_version": new_version,
+                        "status": target_status,
+                        "updated_at": now,
+                    }
+                )
+                self._insert_version_and_side_effects(
+                    connection,
+                    fact_id=older_id,
+                    version=new_version,
+                    snapshot=snapshot,
+                    change_type=f"fact.{target_status}",
+                    change_reason=reason or f"superseded by {newer_fact_id}",
+                    actor_principal=actor_principal,
+                    event_id=event_id,
+                    event_seq=event_seq,
+                    request_id=request_id,
+                    now=now,
+                    content_hash=older["content_hash"],
+                )
+            else:
+                # amend: link only, the older fact stays active.
+                event_id = new_id()
+
+            connection.execute(
+                """INSERT INTO fact_supersessions(
+                    newer_fact_id, older_fact_id, relation, reason,
+                    actor_principal, created_at, supersession_event_id
+                ) VALUES(?,?,?,?,?,?,?)""",
+                (newer_fact_id, older_id, relation, reason,
+                 actor_principal, now, event_id),
+            )
+            applied.append({
+                "older_fact_id": older_id,
+                "relation": relation,
+                "status": target_status or older["status"],
+                "version": new_version,
+                "event_id": event_id,
+            })
+        return applied
+
+    def superseded_by(self, fact_id: str) -> list[dict]:
+        """issue #44:这条事实被谁取代过(检索侧解释用)。"""
+        with contextlib.closing(self.connect()) as connection:
+            rows = connection.execute(
+                """SELECT newer_fact_id, relation, reason, actor_principal, created_at
+                FROM fact_supersessions WHERE older_fact_id=?
+                ORDER BY created_at""",
+                (fact_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     @staticmethod
     def _idempotent_result(
@@ -2034,6 +2359,117 @@ class CanonicalStore:
                 )
             """)
             connection.execute("CREATE INDEX IF NOT EXISTS idx_probe_tasks_due ON probe_tasks(due_at, status)")
+
+    def migrate_schema_22_to_23(self) -> None:
+        """issue #44:为既有库加 `superseded` / `retracted` 两个状态。
+
+        `facts.status` 的 CHECK 是建表时冻结的,SQLite 无法 ALTER 约束,
+        所以只能按 12-step 配方重建 `facts` 表。facts 被 11 张表外键引用,
+        重建期间必须 `PRAGMA foreign_keys=OFF`,否则 DROP 会级联失败;
+        完成后用 `PRAGMA foreign_key_check` 证明没有留下悬空引用,并比对
+        行数,任一不符即抛错回滚。
+
+        **`PRAGMA foreign_keys` 在事务内是空操作**,所以它必须在 `BEGIN`
+        之前设好——用 `transaction()` 包住整段会让这条 PRAGMA 静默失效,
+        于是 DROP TABLE facts 撞上子表外键直接 IntegrityError。这里因此
+        自己开连接、自己管顺序。
+
+        与 21→22 一样保持**加法语义**:不动 schema_version 常量(仍是
+        运行时 SCHEMA_VERSION),只把库升到运行时形状,这样下次进程启动
+        仍能通过 `_validate_existing_schema`。
+        """
+        connection = self.connect()
+        try:
+            connection.isolation_level = None
+            existing = {
+                row[1] for row in connection.execute("PRAGMA table_info(facts)")
+            }
+            if not existing:
+                raise SchemaVersionError("facts table is missing; cannot migrate")
+
+            ddl_row = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='facts'"
+            ).fetchone()
+            if ddl_row is None:
+                raise SchemaVersionError("facts table is missing; cannot migrate")
+
+            if _FACT_STATUS_CHECK_NEW in ddl_row[0]:
+                # Already widened (re-run, or a DB created by a runtime that
+                # carries the new DDL). Nothing to rebuild — just make sure the
+                # additive table is there, so this stays idempotent like the
+                # 21→22 step.
+                connection.execute("BEGIN IMMEDIATE")
+                try:
+                    self._ensure_supersession_table(connection)
+                    connection.commit()
+                except BaseException:
+                    connection.rollback()
+                    raise
+                return
+
+            columns = [row[1] for row in connection.execute("PRAGMA table_info(facts)")]
+            new_ddl = _widen_fact_status_check(ddl_row[0])
+            before = connection.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
+
+            connection.execute("PRAGMA foreign_keys=OFF")
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute(new_ddl)
+                column_list = ", ".join(columns)
+                connection.execute(
+                    f"INSERT INTO facts_new ({column_list}) "
+                    f"SELECT {column_list} FROM facts"
+                )
+                connection.execute("DROP TABLE facts")
+                connection.execute("ALTER TABLE facts_new RENAME TO facts")
+
+                # Indexes are dropped along with the table; recreate them.
+                connection.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_facts_owner_status "
+                    "ON facts(owner_principal, status)"
+                )
+                connection.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_facts_scope "
+                    "ON facts(domain, fact_type, project_id, status)"
+                )
+                self._ensure_supersession_table(connection)
+
+                if connection.execute("PRAGMA foreign_key_check").fetchall():
+                    raise SchemaVersionError(
+                        "foreign-key violations detected rebuilding the facts table"
+                    )
+                after = connection.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
+                if after != before:
+                    raise SchemaVersionError(
+                        f"facts row count changed during rebuild: {before} -> {after}"
+                    )
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+            finally:
+                connection.execute("PRAGMA foreign_keys=ON")
+        finally:
+            connection.close()
+
+    @staticmethod
+    def _ensure_supersession_table(connection: sqlite3.Connection) -> None:
+        """issue #44 的加法部分:链接表 + 索引。重建与否都要保证存在。"""
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS fact_supersessions (
+                newer_fact_id TEXT NOT NULL REFERENCES facts(fact_id),
+                older_fact_id TEXT NOT NULL REFERENCES facts(fact_id),
+                relation TEXT NOT NULL CHECK (relation IN ('supersede','amend','retract')),
+                reason TEXT,
+                actor_principal TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                supersession_event_id TEXT NOT NULL,
+                PRIMARY KEY (newer_fact_id, older_fact_id)
+            ) STRICT"""
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_supersede_older ON fact_supersessions(older_fact_id)"
+        )
 
     # =========================================================================
     # v1.6.0: 实体 CRUD

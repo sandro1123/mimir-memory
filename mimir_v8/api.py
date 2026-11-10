@@ -105,6 +105,10 @@ class QueryBody(BaseModel):
     #: 1.4.0 #13 三段式渐进披露档位。**默认 "full" = 与从前一致**；
     #: 显式 "index" 才只回索引段并下发 recall_cursor。
     detail: str = "full"
+    #: issue #44: 默认不召回被取代/撤回的旧结论——一个无状态 agent 读到矛盾
+    #: 的两条时无从判断新旧,那正是本 issue 要修的事。置 true 走审计视图,
+    #: 每条附 superseded_by。
+    include_superseded: bool = False
 
 
 class ExpandBody(BaseModel):
@@ -133,6 +137,12 @@ class CreateFactBody(BaseModel):
     source_uri: str | None = None
     source_hash: str | None = None
     idempotency_key: str | None = None
+    #: issue #44: 写入方**显式**声明这条新事实取代/修正/撤回哪些旧事实。
+    #: 刻意不做任何自动推断——"以为在更正、其实写了个无关新事实"是写入方
+    #: 最常犯的错,自动取代会把它固化成"旧记忆被静默下线"。
+    supersedes: list[str] | None = None
+    relation: str = "supersede"
+    supersede_reason: str | None = None
 
 
 class UpdateFactBody(BaseModel):
@@ -847,6 +857,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             depth=body.depth,
             include_trace=include_trace,
             detail=body.detail,
+            include_superseded=body.include_superseded,
         ))
         try:
             context.store.write_audit(
@@ -1288,12 +1299,56 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                 "confirmed facts must be created through candidate review",
                 403, "review_required",
             )
-        return context.store.create_fact(
-            CreateFact(**body.model_dump()),
-            actor_principal=identity.principal_id,
-            request_id=request.state.request_id,
-            correlation_id=request.state.correlation_id,
-        )
+        # issue #44: `supersedes` rides the same request so the new fact and
+        # the status flips commit together. The body may not declare the
+        # supersession fields for the CreateFact dataclass (it has no such
+        # fields), so pull them out before construction.
+        payload = body.model_dump()
+        supersedes = payload.pop("supersedes", None)
+        relation = payload.pop("relation", "supersede")
+        supersede_reason = payload.pop("supersede_reason", None)
+
+        if not supersedes:
+            return context.store.create_fact(
+                CreateFact(**payload),
+                actor_principal=identity.principal_id,
+                request_id=request.state.request_id,
+                correlation_id=request.state.correlation_id,
+            )
+
+        # Declaring a supersession means acting on other principals' facts is
+        # not allowed unless we own them, so each older fact is checked with
+        # the same write permission the normal update path uses. Doing this
+        # before the transaction means a 403 never leaves a half-written
+        # supersession behind.
+        for older_fact_id in supersedes:
+            older = context.store.get_fact(older_fact_id)
+            require_fact_permission(identity, older, "write")
+
+        # One transaction: the new fact, the link rows, and the status flips
+        # either all land or none do (issue #44 acceptance #6). Both store
+        # methods accept a caller-owned connection for exactly this
+        # composition; nesting two BEGIN IMMEDIATE blocks would deadlock
+        # under SQLite's single-writer lock.
+        with context.store.transaction() as connection:
+            result = context.store.create_fact(
+                CreateFact(**payload),
+                actor_principal=identity.principal_id,
+                request_id=request.state.request_id,
+                correlation_id=request.state.correlation_id,
+                connection=connection,
+            )
+            supersession = context.store.supersede_fact(
+                result["fact_id"],
+                older_fact_ids=list(supersedes),
+                relation=relation,
+                reason=supersede_reason,
+                actor_principal=identity.principal_id,
+                request_id=request.state.request_id,
+                correlation_id=request.state.correlation_id,
+                connection=connection,
+            )
+        return {**result, "supersession": supersession}
 
     @app.patch("/v8/facts/{fact_id}")
     def update_fact(fact_id: str, body: UpdateFactBody, request: Request,

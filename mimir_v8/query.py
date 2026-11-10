@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from .store import CanonicalStore, NotFoundError
 from .relevance import RelevanceGate
-from .schema import DECAY_HALF_LIFE
+from .schema import DECAY_HALF_LIFE, SUPERSESSION_STATUSES
 from .dedup import jaccard_similarity
 
 
@@ -102,6 +102,10 @@ class QueryRequest:
     #: detail="index" 才只回索引段并下发游标——绝不在 #13 里
     #: 静默把调用方的载荷换成索引（那正是 #14 禁止的形态）。
     detail: str = "full"
+    #: issue #44:默认检索只回 status=='active',被取代/撤回的旧结论自动出局
+    #: (那正是「无状态 agent 只读到错的那条」的修复)。置 True 可把它们一并
+    #: 召回,每条附 superseded_by / superseded_at,供人工回溯——取代不是删除。
+    include_superseded: bool = False
 
 
 # ── 1.0-C3 出口包裹（The Trust Baseline）────────────────────────
@@ -469,7 +473,16 @@ class QueryKernel:
                 filtered["missing"] += 1
                 dropped_items.append({"fact_id": fact_id, "reason": "filtered:missing"})
                 continue
-            if fact["status"] not in ("active", "provisional") if request.include_provisional else fact["status"] != "active":
+            if request.include_provisional:
+                visible_statuses = ("active", "provisional")
+            else:
+                visible_statuses = ("active",)
+            if request.include_superseded:
+                # issue #44: opt-in only. A superseded conclusion is not a
+                # live answer, so it is never in the default surface; it comes
+                # back solely when the caller asks for the audit view.
+                visible_statuses = visible_statuses + tuple(SUPERSESSION_STATUSES)
+            if fact["status"] not in visible_statuses:
                 filtered["status"] += 1
                 dropped_items.append({"fact_id": fact_id, "reason": "filtered:status"})
                 continue
@@ -510,6 +523,15 @@ class QueryKernel:
                 "domain": fact["domain"],
                 "fact_type": fact["fact_type"],
                 "version": fact["current_version"],
+                "status": fact["status"],
+                # issue #44: a superseded/retracted row only reaches this point
+                # when the caller asked for the audit view. Carry the edge so
+                # the reader knows which record replaced it instead of having
+                # to guess from ordering.
+                "superseded_by": (
+                    [row["newer_fact_id"] for row in self.store.superseded_by(fact_id)]
+                    if fact["status"] in SUPERSESSION_STATUSES else []
+                ),
                 "score": round(final, 8),
                 "score_explanation": {
                     "rrf": round(score["rrf"], 8),
@@ -651,6 +673,8 @@ class QueryKernel:
             "domain": result.get("domain"),
             "fact_type": result.get("fact_type"),
             "version": result.get("version"),
+            "status": result.get("status"),
+            "superseded_by": result.get("superseded_by", []),
             "score": result.get("score"),
             "score_explanation": result.get("score_explanation", {}),
         }
@@ -1058,6 +1082,13 @@ class QueryKernel:
         where = ["status='active'", "fact_type IN ({})".format(
             ",".join("?" for _ in types))]
         params: list = list(types)
+        if request.include_superseded:
+            # issue #44: the sweep is a *source* of candidates and its own
+            # status filter is hardcoded to active. Under
+            # include_superseded=true the caller asked for the audit view,
+            # so leaving this narrow makes the request half-work (the FTS
+            # lane returns superseded rows, the sweep lane does not).
+            where[0] = "status IN ('active','superseded','retracted')"
         if request.owner_principal:
             where.append("owner_principal=?")
             params.append(request.owner_principal)
@@ -1097,6 +1128,13 @@ class QueryKernel:
         where = ["status='active'", "fact_type IN ({})".format(
             ",".join("?" for _ in types))]
         params: list = list(types)
+        if request.include_superseded:
+            # issue #44: the sweep is a *source* of candidates and its own
+            # status filter is hardcoded to active. Under
+            # include_superseded=true the caller asked for the audit view,
+            # so leaving this narrow makes the request half-work (the FTS
+            # lane returns superseded rows, the sweep lane does not).
+            where[0] = "status IN ('active','superseded','retracted')"
         if request.owner_principal:
             where.append("owner_principal=?")
             params.append(request.owner_principal)

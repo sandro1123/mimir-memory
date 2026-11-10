@@ -57,7 +57,20 @@ FACT_TYPES = frozenset(
 VISIBILITIES = frozenset({"all", "shared", "owner_only"})
 SENSITIVITIES = frozenset({"internal", "confidential", "restricted"})
 EGRESS_POLICIES = frozenset({"local_only", "redacted_external", "external_allowed"})
-FACT_STATUSES = frozenset({"active", "tombstoned", "disputed", "archived"})
+FACT_STATUSES = frozenset({"active", "tombstoned", "disputed", "archived",
+                           "superseded", "retracted"})
+#: issue #44:`superseded` / `retracted` 是**记录性**状态,不是删除。
+#: 事实仍在库中、可 GET、可 restore、`include_superseded=true` 可检索;
+#: 默认检索按 status=='active' 过滤即自动把它们挡在外面。
+SUPERSESSION_STATUSES = frozenset({"superseded", "retracted"})
+#: issue #44:`relation` 三值语义。
+SUPERSESSION_RELATIONS = frozenset({"supersede", "amend", "retract"})
+#: relation -> 旧事实证明的新状态;`amend` 不改状态(只建链)。
+SUPERSESSION_TARGET_STATUS = {
+    "supersede": "superseded",
+    "amend": None,
+    "retract": "retracted",
+}
 HUMAN_STATUSES = frozenset({"unreviewed", "confirmed", "rejected", "disputed"})
 RELATION_TYPES = frozenset(
     {
