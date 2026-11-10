@@ -171,6 +171,18 @@ class GrantBody(BaseModel):
     idempotency_key: str | None = None
 
 
+class PrincipalMintBody(BaseModel):
+    """#30 新 Agent 开通：签发 principal + token（仅 admin）。"""
+    model_config = ConfigDict(extra="forbid")
+    principal_id: str = Field(min_length=1, max_length=64)
+    scopes: list[str] = Field(default_factory=lambda: ["read", "write"])
+    roles: list[str] = Field(default_factory=lambda: ["authenticated"])
+    admin: bool = False
+
+class PrincipalRevokeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    principal_id: str = Field(min_length=1, max_length=64)
+
 class VerifyBody(BaseModel):
     """1.1.0 谱系链对账请求：fact_ids 缺省=全库扫描（admin-only）。"""
     model_config = ConfigDict(extra="forbid")
@@ -1146,6 +1158,70 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             board_id, actor_principal=identity.principal_id,
             reason=str(body.get("reason") or ""),
         )
+
+    # ---- v1.7.0 #30: principal lifecycle (onboarding / retirement) -------
+    @app.post("/v8/principals/register", status_code=201)
+    def register_principal(body: PrincipalMintBody, request: Request,
+                           identity: Principal = Depends(scoped("admin"))):
+        """为新的 Agent 签发身份与 token。明文 token 只在此响应中出现一次。
+
+        走 `mint_principal`（原子写 + 只存 sha256），因此正在运行的
+        TokenStore 会热加载到新主体，无需重启。同时把名字登记进 agent
+        名册（落盘），使 worker 进程与重启后的 API 都能识别该 owner。
+        """
+        from .auth import mint_principal
+        from .schema import register_agent
+        token_file = context.token_store.path
+        try:
+            token, record = mint_principal(
+                token_file,
+                principal_id=body.principal_id,
+                scopes=body.scopes,
+                roles=body.roles,
+                admin=body.admin,
+            )
+        except AuthError as exc:
+            raise HTTPException(exc.status_code, str(exc)) from exc
+        # 名字进名册：owner_principal 校验与 X-Mimir-Agent 头共用同一集合。
+        try:
+            register_agent(record["id"])
+        except Exception:
+            pass
+        context.store.write_audit(
+            identity.principal_id, "principal.register", record["id"],
+            payload={"scopes": record["scopes"], "admin": record["admin"]},
+        )
+        return {"principal": record, "token": token,
+                "token_file": str(token_file)}
+
+    @app.post("/v8/principals/revoke")
+    def revoke_principal_route(body: PrincipalRevokeBody, request: Request,
+                               identity: Principal = Depends(scoped("admin"))):
+        """注销 Agent：从 registry 移除后其 token 立即失效（无可回滚窗口）。"""
+        from .auth import revoke_principal
+        token_file = context.token_store.path
+        try:
+            result = revoke_principal(token_file, principal_id=body.principal_id)
+        except AuthError as exc:
+            raise HTTPException(exc.status_code, str(exc)) from exc
+        context.store.write_audit(
+            identity.principal_id, "principal.revoke", body.principal_id,
+            payload={"remaining": result["remaining"]},
+        )
+        return result
+
+    @app.get("/v8/principals")
+    def list_principals(identity: Principal = Depends(scoped("admin"))):
+        """列出已签发主体（不含 token 哈希，仅身份与授权面）。"""
+        from .auth import _read_registry
+        data = _read_registry(context.token_store.path)
+        return {
+            "principals": [
+                {"id": item.get("id"), "scopes": item.get("scopes", []),
+                 "roles": item.get("roles", []), "admin": bool(item.get("admin", False))}
+                for item in data["principals"]
+            ]
+        }
 
     @app.get("/v8/projectors")
     def get_projectors(identity: Principal = Depends(scoped("admin"))):

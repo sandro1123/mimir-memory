@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable
 
 MIMIR_VERSION = "1.6.0"
@@ -86,12 +88,75 @@ import os as _os
 _DYNAMIC_AGENTS: set[str] = set(AGENT_IDS)
 _DYNAMIC_DOMAINS: set[str] = set(DOMAINS)
 
-for _extra in (a.strip() for a in _os.environ.get("MIMIR_AGENTS", "").split(",")):
-    if _extra:
-        _DYNAMIC_AGENTS.add(_extra)
-for _extra in (d.strip() for d in _os.environ.get("MIMIR_DOMAINS", "").split(",")):
-    if _extra:
-        _DYNAMIC_DOMAINS.add(_extra)
+#: Roster learned at runtime, persisted next to the service config so the API
+#: process and the worker process agree and a restart does not forget names
+#: (issue #30: register_agent() used to live only in process memory).
+#: ``None`` disables persistence entirely — used by tests and by callers that
+#: only want the env-var roster.
+AGENT_REGISTRY_FILE: Path | None = None
+
+def _default_registry_file() -> Path | None:
+    raw = _os.environ.get("MIMIR_AGENT_REGISTRY", "").strip()
+    if not raw:
+        return None
+    return Path(raw)
+
+def _read_dynamic_registry(path: Path) -> dict:
+    if not path.is_file():
+        return {"agents": [], "domains": []}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, ValueError, TypeError):
+        return {"agents": [], "domains": []}
+    if not isinstance(data, dict):
+        return {"agents": [], "domains": []}
+    return {
+        "agents": [str(a) for a in data.get("agents", []) if str(a).strip()],
+        "domains": [str(d) for d in data.get("domains", []) if str(d).strip()],
+    }
+
+def _write_dynamic_registry(path: Path, data: dict) -> None:
+    # Same protocol as the token registry: temp file + fsync + os.replace so a
+    # concurrent reader never sees a half-written roster.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp-atomic")
+    payload = json.dumps(
+        {"agents": sorted(set(data["agents"])), "domains": sorted(set(data["domains"]))},
+        indent=2,
+    )
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(payload)
+        handle.flush()
+        _os.fsync(handle.fileno())
+    _os.replace(tmp, path)
+
+def _registry_path() -> Path | None:
+    return AGENT_REGISTRY_FILE or _default_registry_file()
+
+def reset_dynamic_registry() -> None:
+    """Drop runtime-learned names, keeping the built-in roster and env extras."""
+    _DYNAMIC_AGENTS.clear()
+    _DYNAMIC_AGENTS.update(AGENT_IDS)
+    _DYNAMIC_DOMAINS.clear()
+    _DYNAMIC_DOMAINS.update(DOMAINS)
+    for _extra in (a.strip() for a in _os.environ.get("MIMIR_AGENTS", "").split(",")):
+        if _extra:
+            _DYNAMIC_AGENTS.add(_extra)
+    for _extra in (d.strip() for d in _os.environ.get("MIMIR_DOMAINS", "").split(",")):
+        if _extra:
+            _DYNAMIC_DOMAINS.add(_extra)
+
+def load_dynamic_registry() -> None:
+    """Merge the persisted roster into memory (idempotent)."""
+    path = _registry_path()
+    if path is None:
+        return
+    data = _read_dynamic_registry(path)
+    _DYNAMIC_AGENTS.update(data["agents"])
+    _DYNAMIC_DOMAINS.update(data["domains"])
+
+reset_dynamic_registry()
+load_dynamic_registry()
 
 
 def get_registered_agents() -> frozenset[str]:
@@ -105,10 +170,31 @@ def get_registered_domains() -> frozenset[str]:
 
 
 def register_agent(agent_id: str) -> None:
-    """Dynamically register a new agent identifier."""
+    """Register a new agent identifier and persist it for other processes."""
     if not isinstance(agent_id, str) or not agent_id.strip():
         raise ValidationError("agent_id must be non-empty text")
-    _DYNAMIC_AGENTS.add(agent_id.strip())
+    clean = agent_id.strip().lower()
+    _DYNAMIC_AGENTS.add(clean)
+    path = _registry_path()
+    if path is not None:
+        data = _read_dynamic_registry(path)
+        if clean not in data["agents"]:
+            data["agents"].append(clean)
+            _write_dynamic_registry(path, data)
+
+def retire_agent(agent_id: str) -> None:
+    """Remove a runtime-registered agent; the built-in roster is not removable."""
+    if not isinstance(agent_id, str) or not agent_id.strip():
+        raise ValidationError("agent_id must be non-empty text")
+    clean = agent_id.strip().lower()
+    if clean in AGENT_IDS:
+        raise ValidationError(f"built-in agent cannot be retired: {clean}")
+    _DYNAMIC_AGENTS.discard(clean)
+    path = _registry_path()
+    if path is not None:
+        data = _read_dynamic_registry(path)
+        data["agents"] = [a for a in data["agents"] if a != clean]
+        _write_dynamic_registry(path, data)
 
 
 def register_domain(domain: str) -> None:
