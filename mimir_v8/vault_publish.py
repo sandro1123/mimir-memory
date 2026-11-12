@@ -17,8 +17,6 @@ from pathlib import Path
 
 from .publication import (
     PublicationService,
-    RegisterDocument,
-    RequestPublication,
     PublicationPolicyError,
     VAULT_ADAPTER_PRINCIPAL,
     _CARD_ROOT,
