@@ -3,18 +3,19 @@ import subprocess
 
 import pytest
 
-from mimir_v8.vault_git import GitProtector, VaultGitError
+from mimir_v8.vault_git import GitProtector, VaultGitError, _clean_git_env
 
 
 def _repo(tmp_path):
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    env = _clean_git_env()
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True, env=env)
     subprocess.run(
-        ["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True
+        ["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True, env=env
     )
-    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True, env=env)
     (tmp_path / "a.md").write_text("v1", encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "commit", "-qm", "init"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True, env=env)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=tmp_path, check=True, env=env)
     return tmp_path
 
 
@@ -65,6 +66,6 @@ def test_snapshot_message_is_recorded(tmp_path):
     GitProtector(repo).snapshot("mimir: baseline")
     log = subprocess.run(
         ["git", "log", "-1", "--pretty=%s"], cwd=repo,
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, check=True, env=_clean_git_env(),
     ).stdout.strip()
     assert log == "mimir: baseline"

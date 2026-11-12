@@ -11,6 +11,7 @@ are excluded from scanning.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,28 @@ DEFAULT_EXCLUDE_DIRS = frozenset({".obsidian", ".git", ".trash", ".smart-env"})
 
 #: Max bytes read per note — guard against pathological files.
 MAX_NOTE_BYTES = 512_000
+
+#: Frontmatter head size consulted by the self-ingest guard. The marker must
+#: sit in the YAML header; a guard reading post-truncation content could miss
+#: it, so the head is read separately and BEFORE the body.
+_FRONTMATTER_HEAD_BYTES = 4096
+
+_GENERATED_LINE = re.compile(r"^mimir_generated:\s*\"?true\"?\s*$", re.MULTILINE)
+
+
+def _is_mimir_generated(text: str) -> bool:
+    """True when the note's YAML frontmatter carries the Mímir-generated marker.
+
+    Only the frontmatter block (first ``---`` to the second ``---``) is
+    consulted; body text claiming to be generated is not trusted, and
+    ``mimir_generated: false`` is not a marker.
+    """
+    if not text.startswith("---"):
+        return False
+    end = text.find("\n---", 3)
+    if end == -1:
+        return False
+    return bool(_GENERATED_LINE.search(text[:end]))
 
 
 class VaultCollector(BaseCollector):
@@ -60,6 +83,18 @@ class VaultCollector(BaseCollector):
     def collect(self) -> list[CollectResult]:
         results: list[CollectResult] = []
         for note in self._scan_notes():
+            try:
+                head = note.read_text(encoding="utf-8", errors="replace")[
+                    : _FRONTMATTER_HEAD_BYTES
+                ]
+            except OSError as e:
+                raise CollectorError(f"cannot read note {note}: {e}") from e
+            if _is_mimir_generated(head):
+                # Self-ingest guard (§7.2): Mímir-generated cards are never
+                # fed back through the learning pipeline, or the bridge
+                # loops. They are not even registered as skipped items —
+                # from the collector's perspective they are not sources.
+                continue
             try:
                 content = note.read_text(encoding="utf-8", errors="replace")[
                     : MAX_NOTE_BYTES // 4  # chars ≈ bytes guard
