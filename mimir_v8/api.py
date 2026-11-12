@@ -1251,6 +1251,34 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         except CursorError as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    @app.get("/v8/facts/{fact_id}/timeline")
+    def fact_timeline(
+        fact_id: str,
+        before: int = Query(default=5, ge=0, le=50),
+        after: int = Query(default=5, ge=0, le=50),
+        identity: Principal = Depends(scoped("read")),
+    ):
+        """Issue #35 layer 2: what happened around this fact.
+
+        The index layer answers "which facts match", the hydrate layer answers
+        "what is in these facts"; this answers "what was going on when this
+        memory changed". Neighbouring events can belong to other principals,
+        so each row is dropped unless the caller can read that fact — the
+        anchor is already authorised by the explicit check below.
+        """
+        fact = context.store.get_fact(fact_id)
+        require_fact_permission(identity, fact, "read")
+        timeline = context.store.fact_timeline(fact_id, before=before, after=after)
+        timeline["events"] = [
+            event for event in timeline["events"]
+            if event["aggregate_id"] == fact_id
+            or context.store.can_access(
+                event["aggregate_id"], identity.principal_id, "read",
+                is_admin=identity.is_admin, roles=set(identity.roles),
+            )
+        ]
+        return timeline
+
     @app.get("/v8/memories/recent")
     def memories_recent(
         limit: int = Query(default=10, ge=1, le=100),
@@ -1410,6 +1438,43 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             actor_principal=identity.principal_id,
             request_id=request.state.request_id,
             correlation_id=request.state.correlation_id,
+        )
+
+    @app.delete("/v8/facts/{fact_id}")
+    def delete_fact_v8(
+        fact_id: str,
+        request: Request,
+        expected_version: int = Query(ge=1),
+        reason: str = Query(min_length=1),
+        idempotency_key: str | None = Query(default=None),
+        identity: Principal = Depends(scoped("delete")),
+    ):
+        """Issue #32: standard RESTful delete, bridged to the tombstone path.
+
+        Clients reach for ``DELETE`` and previously got 405, then fell back to
+        guessing. The semantics are unchanged — this is a soft delete that
+        records a tombstone version, not a row removal — so the audit chain
+        stays intact and ``POST /v8/facts/{id}/restore`` still works.
+
+        ``expected_version`` is required for the same reason it is on the
+        ``POST`` route: a delete issued against stale knowledge must not
+        silently discard a newer version.
+        """
+        fact = context.store.get_fact(fact_id)
+        require_fact_permission(identity, fact, "delete")
+        result = context.store.tombstone_fact(
+            TombstoneFact(
+                fact_id=fact_id,
+                expected_version=expected_version,
+                reason=reason,
+                idempotency_key=idempotency_key,
+            ),
+            actor_principal=identity.principal_id,
+            request_id=request.state.request_id,
+            correlation_id=request.state.correlation_id,
+        )
+        return JSONResponse(
+            {**result, "deleted": True, "status": "tombstoned"}, status_code=200
         )
 
     @app.post("/v8/facts/{fact_id}/grants")

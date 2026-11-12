@@ -152,6 +152,28 @@ class MimirAPIClient:
     def forget(self, body: dict) -> dict:
         return self.request("POST", "/v8/learning/forget", body=body)
 
+    def delete_fact(self, fact_id: str, *, expected_version: int, reason: str,
+                    idempotency_key: str | None = None) -> dict:
+        """Soft-delete through the standard RESTful route (issue #32).
+
+        Kept separate from ``forget`` on purpose: ``forget`` goes through the
+        learning boundary (candidate/review semantics) while this is the
+        canonical tombstone with its 30-day restore window.
+        """
+        return self.request(
+            "DELETE", f"/v8/facts/{fact_id}",
+            params={
+                "expected_version": expected_version,
+                "reason": reason,
+                "idempotency_key": idempotency_key,
+            },
+        )
+
+    def restore_fact(self, fact_id: str, *, reason: str = "restored") -> dict:
+        return self.request(
+            "POST", f"/v8/facts/{fact_id}/restore", body={"reason": reason}
+        )
+
     def correct(self, body: dict) -> dict:
         return self.request("POST", "/v8/learning/correct", body=body)
 

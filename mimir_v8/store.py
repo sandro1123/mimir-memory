@@ -1847,11 +1847,17 @@ class CanonicalStore:
             fact = connection.execute(
                 "SELECT owner_principal, status, domain, fact_type, sensitivity, visibility FROM facts WHERE fact_id=?", (fact_id,)
             ).fetchone()
-            if not fact or fact["status"] == "tombstoned":
+            if not fact:
                 return False
             from .auth import PRINCIPAL_ALIASES
             aliases = PRINCIPAL_ALIASES.get(principal_id, frozenset({principal_id}))
             owner_matches = (fact["owner_principal"] == principal_id) or (fact["owner_principal"] in aliases)
+            if fact["status"] == "tombstoned":
+                # Issue #32: restoring a tombstone is the inverse of the delete,
+                # so the owner must still be able to act on it — otherwise the
+                # documented 30-day restore window is unreachable for everyone
+                # but an admin. Every other permission stays denied.
+                return permission == "delete" and owner_matches
 
             # 1.5.0 共享放宽：仅对只读权限、非受限敏感度、且属于通用技术域的事实放行给已认证 Agent
             SHARED_DOMAINS = {"infrastructure", "knowledge", "tech_support"}
@@ -1898,6 +1904,51 @@ class CanonicalStore:
             if not row:
                 raise NotFoundError(fact_id)
             return dict(row)
+
+    def fact_timeline(
+        self,
+        fact_id: str,
+        *,
+        before: int = 5,
+        after: int = 5,
+    ) -> dict:
+        """Issue #35 layer 2: the events around a fact, in sequence order.
+
+        The anchor event is the latest event for this fact (the index layer
+        returns the fact's *current* state, so "now" is the useful anchor).
+        Neighbours are the events immediately before and after it in the
+        global stream — that is the "what happened around this memory"
+        question, which neither the index layer nor the hydrate layer answers.
+        """
+        before = max(0, min(int(before), 50))
+        after = max(0, min(int(after), 50))
+        with contextlib.closing(self.connect()) as connection:
+            anchor = connection.execute(
+                """SELECT event_seq FROM memory_events
+                WHERE aggregate_id=? ORDER BY event_seq DESC LIMIT 1""",
+                (fact_id,),
+            ).fetchone()
+            if anchor is None:
+                raise NotFoundError(fact_id)
+            anchor_seq = int(anchor["event_seq"])
+            rows = connection.execute(
+                """SELECT event_seq, event_id, event_type, aggregate_id,
+                aggregate_version, actor_principal, occurred_at
+                FROM memory_events
+                WHERE event_seq BETWEEN ? AND ?
+                ORDER BY event_seq""",
+                (anchor_seq - before, anchor_seq + after),
+            ).fetchall()
+        return {
+            "fact_id": fact_id,
+            "anchor_event_seq": anchor_seq,
+            "before": before,
+            "after": after,
+            "events": [
+                {**dict(row), "is_anchor": int(row["event_seq"]) == anchor_seq}
+                for row in rows
+            ],
+        }
 
     def counts(self) -> dict:
         with contextlib.closing(self.connect()) as connection:

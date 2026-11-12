@@ -29,6 +29,9 @@ from .vault_roles import ROLE_REFERENCE_ONLY, load_role_table, resolve_role
 #: would otherwise be classified as a topic and crystallized. The check can
 #: only ever downgrade a note to reference-only, never upgrade one.
 CREDENTIAL_PATTERNS = (
+    # Issue #33: keep parity with learning._SECRET_PATTERNS so the scanner and
+    # the redactor cannot disagree about what a key looks like.
+    re.compile(r"\bsk-[0-9a-f]{8,}\b", re.IGNORECASE),
     re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
