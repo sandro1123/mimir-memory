@@ -60,6 +60,37 @@ _ALLOWED_ROOTS = frozenset(_TARGETS["allowed_roots"])
 _FORBIDDEN_ROOTS = frozenset(_TARGETS["forbidden_roots"])
 _CARD_ROOT = _TARGETS["card_root"]
 _SECTION_NAME = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+
+# Same truth as the learning pipeline: credential-shape detection is
+# learning.redact_text, never a second regex set (spec §7.7 gate 3).
+from .learning import redact_text as _redact_text  # noqa: E402
+
+
+def is_publishable_fact(fact: dict, body: str, *, target_scope: str) -> tuple[bool, str]:
+    """Four-gate admission for a fact into the Obsidian publisher candidate set.
+
+    Returns ``(publishable, reason)`` where reason is ``"ok"`` or a short
+    gate name like ``"egress:local_only"``. Gates are checked in order and
+    short-circuit; missing labels fail closed.
+    """
+    if not isinstance(fact, dict) or not fact:
+        return False, "missing:fact"
+    sensitivity = fact.get("sensitivity")
+    visibility = fact.get("visibility")
+    egress = fact.get("egress_policy")
+    if not sensitivity or not visibility or not egress:
+        return False, "missing:labels"
+    if sensitivity == "restricted":
+        return False, "sensitivity:restricted"
+    if visibility == "all":
+        return False, "visibility:all"
+    if not isinstance(body, str) or not body.strip():
+        return False, "empty:body"
+    if _redact_text(body).redacted:
+        return False, "credential:redacted"
+    if target_scope != "private" and egress != "external_allowed":
+        return False, f"egress:{egress}"
+    return True, "ok"
 _START = "<!-- mimir:managed:start name={name} -->"
 _END = "<!-- mimir:managed:end name={name} -->"
 
