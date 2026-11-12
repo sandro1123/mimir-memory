@@ -3,12 +3,37 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import re
 import sqlite3
 from pathlib import Path
 from typing import Callable
 
 from .store import CanonicalStore, utc_now
+
+logger = logging.getLogger("mimir_v8.projector")
+
+#: Upper bound on the stored failure detail. The outbox is a STRICT table and
+#: the detail is operator-facing, not forensic: enough to tell a write-lock
+#: conflict from a dimension mismatch, without turning the outbox into a log
+#: store (issue #38).
+DEAD_LETTER_DETAIL_LIMIT = 512
+
+
+def _failure_detail(exc: BaseException) -> str:
+    """Render ``str(exc)`` for the outbox, redacted and truncated.
+
+    Exception messages can quote fact content, so they go through the same DLP
+    rules as ingested text before being persisted.
+    """
+    from .learning import redact_text
+
+    message = str(exc).strip() or type(exc).__name__
+    try:
+        message = redact_text(message).text
+    except Exception:  # redaction must never mask the original failure
+        pass
+    return message[:DEAD_LETTER_DETAIL_LIMIT]
 
 
 class ProjectionError(RuntimeError):
@@ -257,7 +282,7 @@ class ProjectorRunner:
                             raise ProjectionError("projector checkpoint cannot move backwards")
                         connection.execute(
                             """UPDATE outbox SET status='done', attempts=attempts+1,
-                            completed_at=?, locked_at=NULL, last_error_code=NULL
+                            completed_at=?, locked_at=NULL, last_error_code=NULL, last_error_detail=NULL
                             WHERE outbox_id=?""",
                             (utc_now(), row["outbox_id"]),
                         )
@@ -286,7 +311,7 @@ class ProjectorRunner:
                         raise ProjectionError("projector checkpoint cannot move backwards")
                     connection.execute(
                         """UPDATE outbox SET status='done', attempts=attempts+1,
-                        completed_at=?, locked_at=NULL, last_error_code=NULL
+                        completed_at=?, locked_at=NULL, last_error_code=NULL, last_error_detail=NULL
                         WHERE outbox_id=?""",
                         (utc_now(), row["outbox_id"]),
                     )
@@ -299,18 +324,34 @@ class ProjectorRunner:
                 processed += 1
             except Exception as exc:
                 failed += 1
+                detail = _failure_detail(exc)
+                # Issue #38: the only record of a line-level failure used to be
+                # the exception class name. Log the full traceback here (the
+                # supervisor hook never sees it) and persist a redacted message.
+                logger.exception(
+                    "projector %s failed on outbox %s (event_seq=%s, attempt=%s)",
+                    self.projector.name, row["outbox_id"], row["event_seq"],
+                    int(row["attempts"]) + 1,
+                )
                 with self.store.transaction() as connection:
                     attempts = int(row["attempts"]) + 1
                     status = "dead_letter" if attempts >= 5 else "retry"
                     connection.execute(
                         """UPDATE outbox SET status=?, attempts=?, available_at=?,
-                        locked_at=NULL, last_error_code=? WHERE outbox_id=?""",
-                        (status, attempts, utc_now(), type(exc).__name__, row["outbox_id"]),
+                        locked_at=NULL, last_error_code=?, last_error_detail=?
+                        WHERE outbox_id=?""",
+                        (status, attempts, utc_now(), type(exc).__name__, detail,
+                         row["outbox_id"]),
                     )
                     connection.execute(
                         """UPDATE projector_state SET status=?, updated_at=?, last_error_code=?
                         WHERE projector_name=?""",
                         (status, utc_now(), type(exc).__name__, self.projector.name),
+                    )
+                if status == "dead_letter":
+                    logger.error(
+                        "projector %s dead-lettered outbox %s after %s attempts: %s",
+                        self.projector.name, row["outbox_id"], attempts, detail,
                     )
                 # Projectors are ordered streams. Never advance a later event
                 # while an earlier event is retrying or dead-lettered.
@@ -331,4 +372,27 @@ class ProjectorRunner:
                 "SELECT COUNT(*) FROM outbox WHERE projector_name=? AND status='dead_letter'",
                 (self.projector.name,),
             ).fetchone()[0]
-            return {**dict(row), "pending": pending, "dead_letter": dead_letter}
+            dead_letter_row = connection.execute(
+                """SELECT MIN(available_at) AS oldest_dead_letter_at
+                FROM outbox WHERE projector_name=? AND status='dead_letter'""",
+                (self.projector.name,),
+            ).fetchone()
+            dead_letter_detail = connection.execute(
+                """SELECT last_error_detail FROM outbox
+                WHERE projector_name=? AND status='dead_letter'
+                  AND last_error_detail IS NOT NULL
+                ORDER BY available_at DESC LIMIT 1""",
+                (self.projector.name,),
+            ).fetchone()
+            return {
+                **dict(row),
+                "pending": pending,
+                "dead_letter": dead_letter,
+                "oldest_dead_letter_at": (
+                    dead_letter_row["oldest_dead_letter_at"] if dead_letter else None
+                ),
+                "last_error_detail": (
+                    dead_letter_detail["last_error_detail"]
+                    if dead_letter_detail is not None else None
+                ),
+            }

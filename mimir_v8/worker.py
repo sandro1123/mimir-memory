@@ -135,6 +135,18 @@ def build_parser() -> argparse.ArgumentParser:
     conflict.add_argument("--threshold", type=float, default=0.6)
     conflict.add_argument("--actor", default=os.environ.get("MIMIR_CONFLICT_ACTOR", "service:conflict"))
 
+    # ── issue #37: dead_letter has no supported recovery entry ─────────
+    proj_reset = sub.add_parser(
+        "projector-reset",
+        help="revive a dead-lettered projector stream (--requeue-only keeps the checkpoint)",
+    )
+    proj_reset.add_argument("--name", required=True,
+                            help="projector name: vector / fts / graph / core_memory")
+    proj_reset.add_argument("--data-dir", default=os.environ.get("MIMIR_DATA_DIR", ""),
+                            help="directory holding canonical.db (default: MIMIR_DATA_DIR)")
+    proj_reset.add_argument("--requeue-only", action="store_true",
+                            help="only revive dead-letter rows, do not rewind the checkpoint")
+
     return parser
 
 
@@ -1152,6 +1164,16 @@ def main(argv=None) -> int:
         register_agent(args.agent_id)
         result = {"status": "ok", "registered": args.agent_id,
                   "known_agents": sorted(get_registered_agents())}
+    elif args.command == "projector-reset":
+        from .operations import requeue_dead_letters, reset_projector_stream
+        if not args.data_dir:
+            raise SystemExit("--data-dir or MIMIR_DATA_DIR is required")
+        target = CanonicalStore(Path(args.data_dir) / "canonical.db")
+        if args.requeue_only:
+            result = requeue_dead_letters(target, args.name)
+        else:
+            result = reset_projector_stream(target, args.name)
+        result["status"] = "ok"
     elif args.command == "register-domain":
         from .schema import register_domain, get_registered_domains
         register_domain(args.domain)
