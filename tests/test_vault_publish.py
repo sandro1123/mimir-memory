@@ -15,11 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mimir_v8.publication import (
-    RegisterDocument,
-    RequestPublication,
-    VAULT_ADAPTER_PRINCIPAL,
-)
+from mimir_v8.publication import VAULT_ADAPTER_PRINCIPAL
 from mimir_v8.store import CanonicalStore
 
 CARD_ROOT = "90-机器收件箱/Mímir 卡片"
