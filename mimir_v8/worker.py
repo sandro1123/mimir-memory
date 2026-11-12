@@ -113,6 +113,18 @@ def build_parser() -> argparse.ArgumentParser:
     reflect.add_argument("--max-domains", type=int, default=None)
     reflect.add_argument("--actor", default=os.environ.get("MIMIR_REFLECT_ACTOR", "service:reflect"))
 
+    # ── #30 principal lifecycle: mint / revoke an agent credential ─────
+    mint = sub.add_parser("principal-mint")
+    mint.add_argument("--principal-id", required=True)
+    mint.add_argument("--scopes", default="read,write")
+    mint.add_argument("--admin", action="store_true")
+    mint.add_argument("--token-file", default="")
+    revoke = sub.add_parser("principal-revoke")
+    revoke.add_argument("--principal-id", required=True)
+    revoke.add_argument("--token-file", default="")
+    retire = sub.add_parser("retire-agent")
+    retire.add_argument("--agent-id", required=True)
+
     # ── P0-1 fix: requeue stuck human_review candidates ────────────────
     requeue = sub.add_parser("review-requeue")
     requeue.add_argument("--actor", default=os.environ.get("MIMIR_REQUEUE_ACTOR", "service:maintenance"))
@@ -1113,6 +1125,28 @@ def main(argv=None) -> int:
         )
     elif args.command == "evolve":
         result = EvolveMemService(store).evolve(actor_principal=args.actor)
+    elif args.command == "principal-mint":
+        from .auth import mint_principal
+        token_file = args.token_file or str(paths.secrets_dir / "api_tokens.json")
+        token, record = mint_principal(
+            token_file,
+            principal_id=args.principal_id,
+            scopes=[s.strip() for s in args.scopes.split(",") if s.strip()],
+            admin=args.admin,
+        )
+        result = {"status": "ok", "principal": record, "token": token,
+                  "token_file": token_file}
+    elif args.command == "principal-revoke":
+        from .auth import revoke_principal
+        token_file = args.token_file or str(paths.secrets_dir / "api_tokens.json")
+        result = {
+            "status": "ok",
+            **revoke_principal(token_file, principal_id=args.principal_id),
+        }
+    elif args.command == "retire-agent":
+        from .schema import retire_agent
+        retire_agent(args.agent_id)
+        result = {"status": "ok", "retired": args.agent_id}
     elif args.command == "register-agent":
         from .schema import register_agent, get_registered_agents
         register_agent(args.agent_id)

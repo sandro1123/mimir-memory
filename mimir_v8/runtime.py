@@ -177,7 +177,11 @@ def build_runtime(
 ):
     enabled_knowledge_layers = normalize_knowledge_layers(enabled_knowledge_layers)
     from .config import load_federation_registry
+    from .schema import load_dynamic_registry
     load_federation_registry(None)
+    # #30: merge roster names persisted by a previous process so an agent
+    # onboarded via the API is usable by the worker and survives restarts.
+    load_dynamic_registry()
     root = Path(data_dir)
     root.mkdir(parents=True, exist_ok=True)
     store = CanonicalStore(root / "canonical.db")
