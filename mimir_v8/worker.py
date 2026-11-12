@@ -871,7 +871,8 @@ def decay_scan(store: CanonicalStore, actor_principal: str = "service:decay_work
     errors = []
     with contextlib.closing(store.connect()) as connection:
         rows = connection.execute(
-            "SELECT fact_id, fact_type, decay_tier, valid_to, updated_at, content_hash FROM facts WHERE status='active'"
+            "SELECT fact_id, fact_type, decay_tier, valid_to, updated_at, content_hash,"
+            " current_version FROM facts WHERE status='active'"
         ).fetchall()
     for row in rows:
         try:
@@ -908,13 +909,23 @@ def decay_scan(store: CanonicalStore, actor_principal: str = "service:decay_work
                 # rest of the event pipeline does) and hash that same string, so
                 # integrity re-verification of fact.decayed events succeeds.
                 payload_json = canonical_json({"decay_tier": decay_tier, "elapsed_days": elapsed_days})
+                # request_id / correlation_id are NOT NULL with no default: omitting
+                # them raised IntegrityError on every decayed fact. Share one id,
+                # matching how create_fact() defaults correlation_id to request_id.
+                event_request_id = new_id()
                 connection.execute(
-                    "INSERT INTO memory_events(event_id,aggregate_type,aggregate_id,aggregate_version,event_type,actor_principal,occurred_at,payload_json,payload_hash) VALUES(?,?,?,?,?,?,?,?,?)",
-                    (new_id(), "fact", fact_id, row["current_version"] if "current_version" in row else 1, "fact.decayed", actor_principal, now.isoformat(), payload_json, sha256_text(payload_json)),
+                    "INSERT INTO memory_events(event_id,aggregate_type,aggregate_id,"
+                    "aggregate_version,event_type,actor_principal,request_id,correlation_id,"
+                    "occurred_at,payload_json,payload_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    (new_id(), "fact", fact_id, row["current_version"], "fact.decayed",
+                     actor_principal, event_request_id, event_request_id, now.isoformat(),
+                     payload_json, sha256_text(payload_json)),
                 )
             marked += 1
         except Exception as e:
-            errors.append({"fact_id": row.get("fact_id", "?"), "error": type(e).__name__})
+            # sqlite3.Row has no .get(); the old handler crashed with
+            # AttributeError and masked the original failure.
+            errors.append({"fact_id": row["fact_id"], "error": type(e).__name__})
     return {"marked": marked, "skipped": skipped, "errors": errors, "total_processed": marked + skipped + len(errors)}
 
 
