@@ -14,9 +14,24 @@ not a git work tree, rather than silently doing nothing.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+
+
+def _clean_git_env() -> dict[str, str]:
+    """Strip ambient GIT_CONFIG_* / GIT_* vars from the child env.
+
+    Tools like mirasim write ``GIT_CONFIG_COUNT=13`` + per-index
+    ``GIT_CONFIG_KEY_N``/``GIT_CONFIG_VALUE_N`` (url rewrites, credential
+    helpers). They are meant for the *parent* repo, not for a child git
+    process operating on a different repository — GIT_CONFIG_COUNT makes
+    git require every indexed value, and an empty one aborts with
+    ``missing config value GIT_CONFIG_VALUE_0``. Filter by prefix; leave
+    PATH and friends alone.
+    """
+    return {k: v for k, v in os.environ.items() if not k.upper().startswith("GIT_")}
 
 
 class VaultGitError(RuntimeError):
@@ -42,6 +57,8 @@ class GitProtector:
         self.git_binary = git_binary
 
     def _run(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+        env = _clean_git_env()
+        env["LC_ALL"] = "C"
         result = subprocess.run(
             [self.git_binary, *args],
             cwd=self.repo_root,
@@ -50,7 +67,7 @@ class GitProtector:
             # Vault paths may contain CJK/emoji (e.g. "Mímir 卡片"); the
             # default Windows codepage cannot decode them. Git quotes
             # non-ASCII paths as escaped octal by default, which IS ASCII.
-            env={"LC_ALL": "C", "PATH": __import__("os").environ.get("PATH", ""), "SYSTEMROOT": __import__("os").environ.get("SYSTEMROOT", "")},
+            env=env,
         )
         result.stdout = (result.stdout or b"").decode("utf-8", errors="replace")
         result.stderr = (result.stderr or b"").decode("utf-8", errors="replace")

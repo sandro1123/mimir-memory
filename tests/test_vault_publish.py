@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mimir_v8.publication import VAULT_ADAPTER_PRINCIPAL
 from mimir_v8.store import CanonicalStore
+from mimir_v8.vault_git import _clean_git_env
 
 CARD_ROOT = "90-机器收件箱/Mímir 卡片"
 
@@ -32,9 +33,10 @@ def _fact(**over):
 
 
 def _git_init(root: Path) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    subprocess.run(["git", "config", "user.email", "t@t"], cwd=root, check=True)
-    subprocess.run(["git", "config", "user.name", "t"], cwd=root, check=True)
+    env = _clean_git_env()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True, env=env)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=root, check=True, env=env)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=root, check=True, env=env)
 
 
 class _Env(unittest.TestCase):
@@ -116,19 +118,21 @@ class TestPublishEntity(_Env):
         git 里留下人编辑的快照，可回滚。"""
         self._publish()
         path = self.vault / "90-机器收件箱/Mímir 卡片/ent_1.md"
-        subprocess.run(["git", "add", "-A"], cwd=self.vault, check=True)
+        env = _clean_git_env()
+        subprocess.run(["git", "add", "-A"], cwd=self.vault, check=True, env=env)
         subprocess.run(
             ["git", "commit", "-q", "--allow-empty", "-m", "human edit"],
             cwd=self.vault,
             check=True,
+            env=env,
         )
         head_before = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.vault, capture_output=True, text=True
+            ["git", "rev-parse", "HEAD"], cwd=self.vault, capture_output=True, text=True, env=env
         ).stdout.strip()
         result = self._publish(sections={"mimir-card": "正文 v9"})
         self.assertEqual(result["status"], "published")
         head_after = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.vault, capture_output=True, text=True
+            ["git", "rev-parse", "HEAD"], cwd=self.vault, capture_output=True, text=True, env=env
         ).stdout.strip()
         self.assertNotEqual(head_before, head_after)
 
