@@ -46,9 +46,14 @@ class GitProtector:
             [self.git_binary, *args],
             cwd=self.repo_root,
             capture_output=True,
-            text=True,
             check=False,
+            # Vault paths may contain CJK/emoji (e.g. "Mímir 卡片"); the
+            # default Windows codepage cannot decode them. Git quotes
+            # non-ASCII paths as escaped octal by default, which IS ASCII.
+            env={"LC_ALL": "C", "PATH": __import__("os").environ.get("PATH", ""), "SYSTEMROOT": __import__("os").environ.get("SYSTEMROOT", "")},
         )
+        result.stdout = (result.stdout or b"").decode("utf-8", errors="replace")
+        result.stderr = (result.stderr or b"").decode("utf-8", errors="replace")
         if check and result.returncode != 0:
             raise VaultGitError(
                 f"git {' '.join(args)} failed: {result.stderr.strip()}"
