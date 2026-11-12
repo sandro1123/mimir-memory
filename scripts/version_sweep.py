@@ -31,9 +31,18 @@ class RegistryEntry(NamedTuple):
     relpath: str
     pattern: str          # regex with named group (?P<ver>...)
     description: str      # 人读的说明
+    requires_version: bool = True   # False = presence-only 登记（数据文件无版本号）
 
 
 REGISTRY: list[RegistryEntry] = [
+    RegistryEntry(
+        "mimir_v8/publication_targets.yaml",
+        # 数据文件无版本号；presence-only 登记确保 version_sweep 覆盖面
+        # （stage2 Task 1：声明式发布白名单）。
+        r'^# Declarative publication targets',
+        "声明式发布白名单（Obsidian 桥 stage2）",
+        requires_version=False,
+    ),
     RegistryEntry(
         "mimir_v8/schema.py",
         r'^MIMIR_VERSION\s*=\s*["\'](?P<ver>[^"\']+)["\']',
@@ -153,6 +162,16 @@ def sweep(root: Path, expected: str) -> list[Finding]:
                 found_version="(pattern not matched)",
                 expected_version=expected,
                 status="MISSING",
+            ))
+            continue
+
+        # presence-only 登记（数据文件，无版本号）：命中即 OK，防删防改名
+        if not entry.requires_version:
+            results.append(Finding(
+                entry.relpath, entry.description,
+                found_version="present",
+                expected_version="present",
+                status="OK",
             ))
             continue
 

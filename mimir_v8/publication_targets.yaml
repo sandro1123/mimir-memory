@@ -1,0 +1,23 @@
+# Declarative publication targets for the Obsidian bridge (stage 2, Task 1).
+#
+# The allowlist used to be a hardcoded set written against a directory layout
+# the real vault does not use. This table is data, not code: adding a new vault
+# root must not require a code change. The sensitive root stays forbidden.
+#
+# Roots are the first path component of a vault_path, exactly as they exist in
+# the real vault (vault inventory 2026-10-29).
+allowed_roots:
+  - 004-项目档案
+  - 005-系统设计
+  - 10-项目
+  - 10-Projects
+  - 20-领域
+  - 30-知识库
+  - 40-归档
+  - 50-运维记录
+  - 70-日记
+  - 90-机器收件箱
+forbidden_roots:
+  - 60-敏感信息
+# Where Mímir-generated entity cards live. New namespace, never existing files.
+card_root: 90-机器收件箱/Mímir 卡片

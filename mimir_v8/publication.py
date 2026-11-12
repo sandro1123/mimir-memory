@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+
+import yaml
 
 from .schema import (
     DOCUMENT_STATUSES,
@@ -20,8 +22,43 @@ from .schema import (
 )
 from .store import CanonicalStore, ConflictError, canonical_json, new_id, sha256_text, utc_now
 
-_ALLOWED_ROOTS = {"00-系统", "10-项目", "20-领域", "30-知识", "50-运维", "90-机器收件箱"}
-_FORBIDDEN_ROOTS = {"60-敏感信息"}
+_DEFAULT_TARGETS_PATH = Path(__file__).resolve().parent / "publication_targets.yaml"
+
+
+def load_publication_targets(path: str | Path | None = None) -> dict:
+    """Load the declarative publication-target table.
+
+    Returns ``{"allowed_roots": tuple, "forbidden_roots": tuple, "card_root": str}``.
+    Fail-closed: a missing or malformed table raises instead of silently falling
+    back to a stale hardcoded set.
+    """
+    table_path = Path(path) if path else _DEFAULT_TARGETS_PATH
+    raw = yaml.safe_load(table_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"publication_targets must be a mapping, got {type(raw).__name__}")
+    allowed = raw.get("allowed_roots")
+    forbidden = raw.get("forbidden_roots")
+    card_root = raw.get("card_root")
+    if not isinstance(allowed, list) or not allowed:
+        raise ValueError("publication_targets.allowed_roots must be a non-empty list")
+    if not isinstance(forbidden, list):
+        raise ValueError("publication_targets.forbidden_roots must be a list")
+    if not isinstance(card_root, str) or not card_root:
+        raise ValueError("publication_targets.card_root must be a non-empty string")
+    overlap = set(allowed) & set(forbidden)
+    if overlap:
+        raise ValueError(f"roots appear in both allow and forbid lists: {sorted(overlap)}")
+    return {
+        "allowed_roots": tuple(allowed),
+        "forbidden_roots": tuple(forbidden),
+        "card_root": card_root,
+    }
+
+
+_TARGETS = load_publication_targets()
+_ALLOWED_ROOTS = frozenset(_TARGETS["allowed_roots"])
+_FORBIDDEN_ROOTS = frozenset(_TARGETS["forbidden_roots"])
+_CARD_ROOT = _TARGETS["card_root"]
 _SECTION_NAME = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 _START = "<!-- mimir:managed:start name={name} -->"
 _END = "<!-- mimir:managed:end name={name} -->"
