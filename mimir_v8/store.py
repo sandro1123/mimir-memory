@@ -10,6 +10,7 @@ import contextlib
 import hashlib
 import json
 import sqlite3
+import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -956,9 +957,25 @@ class CanonicalStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.path.exists():
             self._validate_existing_schema()
-            self._ensure_additive_columns()
         else:
             self._initialize_fresh()
+
+    def _ensure_additive_tables(self) -> None:
+        """Create additive tables that a newer runtime requires but an older
+        one never created.
+
+        Same class as `_ensure_additive_columns`: pure additions, no row
+        meaning changes, so no schema-version bump. The bug this closes
+        (measured 2026-11-13): the 1.6.0 production database is schema 21
+        without `fact_supersessions` (#44 added it, but only the 22->23
+        rebuild path ever created it). Putting the table in the required set
+        made `CanonicalStore(path)` raise SchemaVersionError — an upgrade
+        would have stopped the service outright. Idempotent, like the
+        migration that owns the same DDL.
+        """
+        with contextlib.closing(self.connect()) as connection:
+            self._ensure_supersession_table(connection)
+            connection.commit()
 
     def _ensure_additive_columns(self) -> None:
         """Add nullable columns introduced after a database was created.
@@ -1028,6 +1045,19 @@ class CanonicalStore:
                     f"database schema {existing} is {direction} than runtime schema {SCHEMA_VERSION}; "
                     "run an explicit migration or use a matching runtime"
                 )
+        finally:
+            connection.close()
+        # Version is right; now repair additive-only gaps before asserting.
+        # These are the same class of change as `_ensure_additive_columns`
+        # (pure additions, no row-meaning change), so they carry no version
+        # bump and must not be able to fail a valid database open.
+        self._ensure_additive_columns()
+        self._ensure_additive_tables()
+        self._assert_required_schema_file()
+
+    def _assert_required_schema_file(self) -> None:
+        connection = self.connect()
+        try:
             self._assert_required_schema(connection)
         finally:
             connection.close()
@@ -1063,7 +1093,7 @@ class CanonicalStore:
     def transaction(self) -> Iterator[sqlite3.Connection]:
         connection = self.connect()
         try:
-            connection.execute("BEGIN IMMEDIATE")
+            self._begin_immediate(connection)
             yield connection
             connection.commit()
         except BaseException:
@@ -1071,6 +1101,25 @@ class CanonicalStore:
             raise
         finally:
             connection.close()
+
+    # Lock contention on BEGIN IMMEDIATE: bounded retry with growing back-off.
+    # Born as an unrecorded production hot-patch (2026-11-08 audit); now a
+    # tested contract (tests/test_txn_lock_retry.py). Only "locked" is retried.
+    TXN_BEGIN_ATTEMPTS = 5
+    TXN_BEGIN_BACKOFF_STEP = 0.5
+
+    @classmethod
+    def _begin_immediate(cls, connection: sqlite3.Connection) -> None:
+        for attempt in range(cls.TXN_BEGIN_ATTEMPTS):
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                return
+            except sqlite3.OperationalError as exc:
+                last_attempt = attempt == cls.TXN_BEGIN_ATTEMPTS - 1
+                if "locked" in str(exc).lower() and not last_attempt:
+                    time.sleep(cls.TXN_BEGIN_BACKOFF_STEP * (attempt + 1))
+                    continue
+                raise
 
     def create_fact(
         self,

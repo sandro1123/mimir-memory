@@ -121,3 +121,17 @@ description = "Mímir — event-sourced, governed, federated memory for multi-ag
 
 - GitHub API(2026-11-12)：About 描述、Topics 9 个、stars=5、homepage=Releases、默认分支 `master`、最新 Release `v1.6.0 (2026-10-26)`。
 - 仓库实测：`README.md` 219 行、`README_en.md` ~186 行、`pyproject.toml` description 滞后、CONTRIBUTING/SECURITY/CODE_OF_CONDUCT 已存在。
+
+---
+
+## 8. 复勘（2026-11-13 · 1.7.0 发布前）
+
+实测三处 README 数字/机制失真已修：
+
+| 声明 | 实测真相 | 处置 |
+|---|---|---|
+| 「52 张核心表」 | 空库 47 张表（无虚拟表） | README 两处改为「47 张」并改述为触发器禁改禁删 |
+| `ObsidianProjector` 第五投影器 / `Personal/` 锁 | 代码中不存在；实际投影器为 FTS / CoreMemory / Graph / Vector | 1.7.0 桥的真实形态是 `vault_publish.publish_entity`（库级接口）+ 四道准入闸 + `mimir:managed` 托管段；README 已改写并注明当前边界（未接调度、无 HTTP 端点） |
+| 「生产运行 1.6.0」 | 1.7.0 合并部署后即为当前生产 | README 当前生产版本已升 1.7.0（部署完成后此行才为真——部署核对单见 docs/plans） |
+
+About / Topics / Website 三面按第 2–4 节执行，其余清单仍有效。第 5.5 节 SECURITY.md 缺口未在本轮处理，留待后续 PR。

@@ -58,6 +58,7 @@ CODENAMES = {
     "1.4.1": "Extraction Fix · 抽取修复",
     "1.5.0": "Federation & Shared Memory · 联邦与共享",
     "1.6.0": "Perception & Crystallization · 感知与结晶",
+    "1.7.0": "Vault Bridge · 知识库桥",
 }
 CODENAME_FALLBACK = "未登记（版本代号表缺此号）"
 

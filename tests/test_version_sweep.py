@@ -53,6 +53,11 @@ class TestVersionSweep(unittest.TestCase):
             self.assertIn(expected_path, relpaths,
                           f"登记表缺少 {expected_path}")
 
+    def test_publication_targets_is_registered(self):
+        """stage2 Task 6：声明式发布白名单必须在登记表里（防删防改名）。"""
+        relpaths = {e.relpath for e in version_sweep.REGISTRY}
+        self.assertIn("mimir_v8/publication_targets.yaml", relpaths)
+
     def test_changelog_old_versions_not_flagged(self):
         """CHANGELOG 中引用旧版本号属于历史记录，不应出现在扫描结果中。"""
         # version_sweep 只扫 REGISTRY 里列出的文件，CHANGELOG 不在其中。
