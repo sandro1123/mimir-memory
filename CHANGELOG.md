@@ -6,6 +6,40 @@
 
 ---
 
+## v1.7.0 — 2026-11-13 · Vault Bridge · 知识库桥
+
+> 把 1.6.0「感知与结晶」之后缺的人类知识库一侧补齐：声明式发布白名单、
+> 四道准入闸、机器卡片、防反馈环、Git 快照；同时固化此前只存在于生产
+> 目录里的事务锁重试热补丁。
+
+- **声明式发布白名单** (`mimir_v8/publication_targets.yaml`) — 允许发布的
+  目录根 + 禁止目录（含 `60-敏感信息/`）；loader fail-closed（根交集、
+  路径穿越、后缀越界即拒绝）。
+- **四道准入闸** (`publication.is_publishable_fact`) — `sensitivity:restricted`
+  / `visibility:all` / 空 body / 凭据形态（与学习管线共用 `redact_text`）
+  依次拒绝，缺标签 fail-closed；非 external_allowed 的 egress 只能发布到
+  private 目标。
+- **机器卡片** (`vault_card.render_card`) — Frontmatter `mimir_generated: true`
+  + `mimir_id`；正文由 `mimir:managed` 标记圈定托管段；稳定文件名
+  `<entity_id>.md`。
+- **发布闭环** (`vault_publish.publish_entity`) — 资格检查 → 写前 Git 快照 →
+  渲染 → 托管段 upsert → 人类改动检测（`human_content_changed` 即跳过）→
+  落盘 → 写后 Git 提交。幂等键 = 路径 + 托管内容指纹；非 vault-adapter
+  actor 拒绝。
+- **防反馈环** — vault 采集器读文件头 4096 字节识别 `mimir_generated` 卡片
+  并跳过，机器输出不再回灌为记忆。
+- **事务锁重试转正** (`store._begin_immediate`) — `BEGIN IMMEDIATE` 遇
+  "locked" 有限重试（≤5 次，退避 0.5s×n），非锁错误不重试。行为与
+  2026-11-08 生产热补丁逐语义一致，`tests/test_txn_lock_retry.py` 钉死。
+- **角色表** (`vault_roles.yaml`) — `60-敏感信息/` 一律 reference_only
+  （只列存在、不读内容、不结晶），default 兜底为 unknown。
+- **环境修复** — `vault_git._clean_git_env()` 过滤 ambient `GIT_CONFIG_*`
+  （mirasim 等外壳会向子进程导出 GIT_CONFIG_COUNT 导致 `git init` 崩溃）。
+
+**边界（诚实账）**：`publish_entity` 为库级接口，后台调度与 HTTP 端点未接；
+README 历史描述中的 `ObsidianProjector` 与 `Personal/` 物理锁不存在，已改写
+为可证伪表述（47 张表、四个真实投影器）。
+
 ## v1.6.0 Step 3 — 2026-10-26 · 双层结晶流水线（早报 + 实体入库）
 
 > 收尾 v1.6.0「实体知识与早报飞轮」：把第二步感知到的外部变化结晶成

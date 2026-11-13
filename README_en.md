@@ -22,13 +22,13 @@ Mímir is designed the other way around — **every memory is reviewed, audited,
 |---|---|
 | **Dual-Pool & Bridge Architecture (2.0)** | Subjective conversational context (Memory Pool) physically decoupled from objective technical entities (Knowledge Pool), linked via fact-entity bridge for multi-hop recall. |
 | **Governance Pipeline & Physical Gates** | New memories enter a candidate queue with Tier-0/1/2 dedup; `block_strong` physically prevents duplicate writes; includes 72h aging alerts. |
-| **Event-Sourced & Tamper-Evident** | 52 core tables with full event sourcing and `previous_version_hash` cryptographic chains; fully auditable from day one. |
+| **Event-Sourced & Tamper-Evident** | The event ledger `memory_events` and `fact_versions` are protected by DB triggers that forbid UPDATE/DELETE; version rows carry a `previous_version_hash` chain; auditable from day one. |
 | **Fine-Grained ACL & Federation** | Cross-agent sharing across technical domains while strictly isolating private facts; cross-node Fernet encrypted federation sync. |
 | **Honest Telemetry & Budget Honesty** | Queries carry `recall_verdict ∈ {found, not_found, degraded}`; Token overages explicitly enumerate dropped items (no fake stubs). |
-| **Obsidian Local Bridge** | Technical entities auto-projected into standard Markdown cards with YAML frontmatter and `[[Wikilinks]]`, protected by background Git snapshots. |
+| **Obsidian Vault Bridge (1.7.0)** | Facts that pass a four-gate admission check can be published as machine-owned cards (Markdown + YAML frontmatter) with a Git snapshot before and after each write; only a dedicated card folder is written, human-authored text is never touched. |
 
-> **Current Production Release: `1.6.0 — Perception & Crystallization`**  
-> Gives Mímir a sensory surface for the outside world: a declarative source registry, a model probe engine, and debt-replay for outages; perceived changes crystallize into a deterministic morning brief plus structured entities.  
+> **Current Production Release: `1.7.0 — Vault Bridge`**  
+> Builds on 1.6.0 (Perception & Crystallization) by completing the human-knowledge side: a declarative publication allowlist, four admission gates, machine card rendering, a self-ingest guard and Git snapshots. It also turns the transaction lock-retry from an unrecorded production hot-patch into a tested behaviour.  
 > Full 2.0 design specification: [`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md).
 
 ---
@@ -48,7 +48,7 @@ cd mimir-memory
 Service starts at `http://127.0.0.1:8456`. Verify health:
 ```bash
 curl http://127.0.0.1:8456/health
-# Returns: {"status":"ok","service":"mimir-api","version":"1.6.0","schema_version":21}
+# Returns: {"status":"ok","service":"mimir-api","version":"1.7.0","schema_version":21}
 ```
 
 ### 2. Connect Your AI Agents
@@ -130,10 +130,14 @@ Mímir 2.0 decouples machine-facing context from human-readable knowledge while 
 - **Dual-Layer Crystallization**: Generates both human-readable Markdown digests and machine-executable `ToolCard` and `Runbook` entities.
 - **Debt-Replay Mechanism**: Gracefully handles upstream LLM 429 rate limits by queuing raw feeds and auto-replaying distillation once connectivity recovers.
 
-### 3. Local Obsidian Bridge
-- **5th Projector (`ObsidianProjector`)**: Automatically renders facts into standard Obsidian Markdown with YAML frontmatter, tags, and `[[Wikilinks]]`.
-- **Human Thought Protection**: The `/Personal` folder is enforced as read-only for AI, preventing accidental overwrites of user reflections.
-- **Git Safety Airbag**: Background Git commits snapshot the vault before any automated entity restructuring, enabling single-command rollback.
+### 3. Obsidian Vault Bridge (1.7.0)
+- **Declarative publication allowlist**: `mimir_v8/publication_targets.yaml` names the folder roots that may be published to and the forbidden ones (including `60-敏感信息`); validated at load time, rejecting overlaps, path traversal and disallowed suffixes (fail-closed).
+- **Four admission gates** (`is_publishable_fact`): `sensitivity: restricted` is refused, then `visibility: all`, then an empty body, then credential-shaped content (same `redact_text` the learning pipeline uses); external targets additionally need `egress_policy=external_allowed`. Missing labels are refused too.
+- **Machine cards** (`vault_card.render_card`): frontmatter carries `mimir_generated: true` and `mimir_id`; machine-owned text sits between `mimir:managed` markers; stable filename `<entity_id>.md`; writes go only to the dedicated card folder.
+- **Human content protection**: `publish_entity` returns `human_content_changed` and skips when a human edited the non-managed part of a card; callers other than the vault adapter principal are rejected.
+- **Self-ingest guard**: the vault collector reads the first 4096 bytes of each file, recognises `mimir_generated` cards and skips them, so machine output is never re-ingested as new memory.
+- **Git snapshots**: one local Git commit before and one after each publish (`vault_git.GitProtector`), enabling rollback.
+- **Current boundary**: `publish_entity` is a library-level API. It is not yet wired into background scheduling and has no HTTP endpoint. There is no `ObsidianProjector`; the existing projectors are FTS / CoreMemory / Graph / Vector.
 
 ### 4. Hardened Governance & Honest Telemetry
 - **Tier-0/1/2 Dedup**: O(1) hash merging + gated fuzzy Jaccard matching + physical blocking via `MIMIR_DEDUP_GATE=block_strong`.
@@ -167,8 +171,8 @@ Mímir follows three strict benchmarking rules: **methodology travels with metri
 | **v1.4.0** | Legibility | Machine-readable explanations, Progressive Disclosure (HMAC), Budget Honesty | ✅ Released |
 | **v1.4.1** | Extraction Fix | Bidirectional conversation context, assistant reply ingestion | ✅ Released |
 | **v1.5.0** | Federation & Sharing | Silo elimination, mentor retirement, zero-config onboarding | ✅ Released |
-| **v1.6.0** | Perception & Crystallization | Entity knowledge base, declarative probe & source registry, double-layer brief crystallization | ✅ Released · **In Production** |
-| **v1.7.0** | Obsidian Bridge | Obsidian Projector, Personal lock, Git snapshot airbag | 📋 Planned (Issue #25) |
+| **v1.6.0** | Perception & Crystallization | Entity knowledge base, declarative probe & source registry, double-layer brief crystallization | ✅ Released |
+| **v1.7.0** | Vault Bridge | Publication allowlist, four admission gates, machine cards, self-ingest guard, Git snapshots, transaction lock-retry | ✅ Released · **In Production** |
 | **v2.0.0** | The Unified Brain | One-command CLI/Docker distribution, Command Center Dashboard | 🎯 Target (Milestone #6) |
 
 ---

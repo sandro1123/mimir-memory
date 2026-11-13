@@ -23,13 +23,13 @@ Mímir 从第一天起就是反着设计的——**每一条记忆都要过审�
 |---|---|
 | **双池一桥架构 (2.0)** | 主观会话偏好（Memory 池）与客观技术实体（Knowledge 池）物理分离，通过事实-实体桥精准多跳召回 |
 | **治理管线与物理闸** | 新记忆先进候选队列，带 Tier-0/1/2 三档判重；`block_strong` 物理拦截完全重复；带 72h 待审老化告警 |
-| **事件溯源与防篡改** | 52 张核心表全量溯源 + `previous_version_hash` 密码学哈希链，从写入起全程可审计 |
+| **事件溯源与防篡改** | 事件账本 `memory_events` 与版本表 `fact_versions` 由数据库触发器禁止 UPDATE/DELETE，版本行带 `previous_version_hash` 哈希链，从写入起可审计 |
 | **细粒度 ACL 与联邦** | 跨 Agent 共享阅读（技术域打破孤岛、私密域物理防穿透）；支持多节点 Fernet 加密联邦同步 |
 | **诚实遥测与预算控制** | 查询带 `recall_verdict ∈ {found, not_found, degraded}`；超 Token 显式暴露丢弃项，严禁虚假成功 stub |
-| **Obsidian 本地双链桥** | 实体事实自动投影为标准 Markdown + YAML Frontmatter + `[[双链]]`；带本地 Git 隐形快照安全气囊 |
+| **Obsidian 知识库桥 (1.7.0)** | 经四道准入闸的实体事实可发布为库内「机器卡片」（Markdown + YAML Frontmatter），写前写后各一次 Git 快照；只写专属卡片目录，绝不改人类手写文字 |
 
-> **当前生产版本：`1.6.0 — Perception & Crystallization（感知与结晶）`**  
-> 给 Mímir 装上"感知外部世界"的触角：声明式信源登记册 + 模型探针引擎 + 断供欠账重放；感知结果经双层结晶流水线落成确定性早报与结构化实体。  
+> **当前生产版本：`1.7.0 — Vault Bridge（知识库桥）`**  
+> 在 1.6.0「感知与结晶」之上，补齐人类知识库一侧：声明式发布白名单 + 四道准入闸 + 机器卡片渲染 + 防反馈环 + Git 快照；同时把「事务遇锁冲突有限重试」从未入库的生产热补丁固化为带测试的正式行为。  
 > 完整 2.0 规格设计详见：[`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md)。
 
 ---
@@ -49,7 +49,7 @@ cd mimir-memory
 服务默认在 `http://127.0.0.1:8456` 启动。访问健康检查确认状态：
 ```bash
 curl http://127.0.0.1:8456/health
-# 返回: {"status":"ok","service":"mimir-api","version":"1.6.0","schema_version":21}
+# 返回: {"status":"ok","service":"mimir-api","version":"1.7.0","schema_version":21}
 ```
 
 ### 2. 挂载到你的 AI 智能体
@@ -131,10 +131,14 @@ Mímir 2.0 将“面向机器的上下文记忆”与“面向人类的结构化
 - **双层结晶流水线**：不仅产出人类快报，更自动提炼出客观可执行的 `ToolCard` 与 `Runbook` 实体卡片入库。
 - **断供欠账自愈重放**：上游 API 发生 429 或故障时自动转入规则兜底并标记欠账，待网络恢复后自动重放补算，坚决不丢弃技术资讯。
 
-### 3. 本地 Obsidian 双链桥 · 人机共生
-- **第五投影器 (`ObsidianProjector`)**：底层知识变更时，自动将实体渲染为标准的 Obsidian Markdown（带 YAML Frontmatter、Tags 与 `[[双向链接]]`）。
-- **人类思考绝对保护锁**：Obsidian `Personal/` 目录设置单向物理防改写锁，AI 严禁覆盖人类手写思考笔记。
-- **Git 隐形快照安全气囊**：机器在执行卡片重构或合并前，底层自动提交本地 Git 快照，人类随时可一键撤销。
+### 3. Obsidian 知识库桥 · 人机共生（1.7.0）
+- **声明式发布白名单**：`mimir_v8/publication_targets.yaml` 列明允许发布的目录根与禁止目录（含 `60-敏感信息`）；加载即校验，目录交集、路径穿越、后缀越界一律拒绝（fail-closed）。
+- **四道准入闸** (`is_publishable_fact`)：敏感度 `restricted` 不发布 → 可见性 `all` 不发布 → 正文为空不发布 → 命中凭据形态（与学习管线共用同一套 `redact_text`）不发布；对外目标另需 `egress_policy=external_allowed`。标签缺失同样拒绝。
+- **机器卡片** (`vault_card.render_card`)：Frontmatter 带 `mimir_generated: true` 与 `mimir_id`，正文用 `mimir:managed` 标记圈出机器托管段，文件名稳定为 `<entity_id>.md`；只写入专属卡片目录。
+- **人类内容保护**：`publish_entity` 发现人类改过卡片的非托管部分时返回 `human_content_changed` 并跳过，不覆盖；非 vault-adapter 身份的调用方被拒绝。
+- **防反馈环**：知识库采集器读取文件头 4096 字节，识别 `mimir_generated` 的卡片并跳过，机器写出的内容不会被当作新记忆回灌。
+- **Git 快照**：每次发布前后各一次本地 Git 提交（`vault_git.GitProtector`），可一键回滚。
+- **当前边界**：`publish_entity` 目前是库级接口，尚未接入后台调度，也没有 HTTP 端点；不存在 `ObsidianProjector` 这样的第五投影器，现有投影器为 FTS / CoreMemory / Graph / Vector。
 
 ### 4. 硬核防腐治理与诚实遥测 · 架构深耕
 - **三档判重防御**：Tier-0（O(1) 哈希精确合并）+ Tier-1（Jaccard 模糊匹配 `is_fuzzy_ready` 门控）+ Tier-2（人工审阅）；开启 `block_strong` 物理硬拦截完全重复事实。
@@ -149,7 +153,7 @@ Mímir 2.0 将“面向机器的上下文记忆”与“面向人类的结构化
 | 维度 | 能力特性 | 状态 |
 |---|---|---|
 | **核心架构** | 双池一桥架构 (Memory 池 vs Knowledge 池物理解耦) | 🎯 2.0 规格就绪 |
-| | 全量事件溯源 (52 张核心表，不可篡改触发器) | ✅ 生产实证 |
+| | 事件溯源 (47 张表；`memory_events`/`fact_versions` 触发器禁改禁删) | ✅ 生产实证 |
 | | 密码学防篡改哈希链 (`previous_version_hash`) | ✅ 生产实证 |
 | **多 Agent 联邦** | 跨 Agent 共享阅读 (技术域打破 84% 孤岛，私有域物理防穿透) | ✅ 生产实证 (1.5.0) |
 | | Principal 别名继承梯 (平滑退役 mentor，Heimdallr-EX 无感接管) | ✅ 生产实证 (1.5.0) |
@@ -164,7 +168,8 @@ Mímir 2.0 将“面向机器的上下文记忆”与“面向人类的结构化
 | | 三段式渐进披露 (HMAC 游标签名，detail=index) | ✅ 生产实证 (1.4.0) |
 | | 锚定通道 (Anchor Channel：L0 铁律与核心偏好免受相似度否决) | ✅ 生产实证 |
 | **知识与人类端** | 声明式早报与模型探活探针飞轮 | ✅ 生产实证 (1.6.0) |
-| | Obsidian 本地双向投影器与 Git 快照气囊 | 📋 v1.7.0 |
+| | Obsidian 知识库桥：四道准入闸 + 机器卡片 + 防反馈环 + Git 快照 | ✅ 1.7.0（库级接口，调度接入见路线图） |
+| | 事务锁冲突有限重试 (`BEGIN IMMEDIATE`，≤5 次，递增退避，仅重试 locked) | ✅ 1.7.0 |
 | | Mímir 2.0 Command Center 态势大盘 | 📋 v2.0.0 |
 
 ---
@@ -199,8 +204,8 @@ python scripts/run_benchmarks.py --golden --out report.json
 | **v1.4.0** | Legibility · 可读性 | 召回解释机器可读面、三段式渐进披露 (HMAC 游标)、预算诚实协议 | ✅ 已发布 |
 | **v1.4.1** | Extraction Fix | 抽取流水线双向打通，修复助手回复与工具实体遗漏 | ✅ 已发布 |
 | **v1.5.0** | Federation & Sharing | 突破 84% 孤岛、退役 mentor、零配置动态 Agent 自举 | ✅ 已发布 |
-| **v1.6.0** | Perception & Crystallization · 感知与结晶 | 实体知识库、声明式探针与信源调度、双层结晶早报 | ✅ 已发布 · **当前生产运行** |
-| **v1.7.0** | Obsidian Bridge | Obsidian 第五投影器、单向保护锁、本地 Git 隐形快照气囊 | 📋 计划中 (Issue #25) |
+| **v1.6.0** | Perception & Crystallization · 感知与结晶 | 实体知识库、声明式探针与信源调度、双层结晶早报 | ✅ 已发布 |
+| **v1.7.0** | Vault Bridge · 知识库桥 | 发布白名单、四道准入闸、机器卡片、防反馈环、Git 快照、事务锁重试固化 | ✅ 已发布 · **当前生产运行** |
 | **v2.0.0** | The Unified Brain | 统一 MCP/CLI 一键分发、Command Center 大盘、开源正式发布 | 🎯 终极目标 (Milestone #6) |
 
 ---
