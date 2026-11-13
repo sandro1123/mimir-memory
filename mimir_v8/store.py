@@ -957,9 +957,25 @@ class CanonicalStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.path.exists():
             self._validate_existing_schema()
-            self._ensure_additive_columns()
         else:
             self._initialize_fresh()
+
+    def _ensure_additive_tables(self) -> None:
+        """Create additive tables that a newer runtime requires but an older
+        one never created.
+
+        Same class as `_ensure_additive_columns`: pure additions, no row
+        meaning changes, so no schema-version bump. The bug this closes
+        (measured 2026-11-13): the 1.6.0 production database is schema 21
+        without `fact_supersessions` (#44 added it, but only the 22->23
+        rebuild path ever created it). Putting the table in the required set
+        made `CanonicalStore(path)` raise SchemaVersionError — an upgrade
+        would have stopped the service outright. Idempotent, like the
+        migration that owns the same DDL.
+        """
+        with contextlib.closing(self.connect()) as connection:
+            self._ensure_supersession_table(connection)
+            connection.commit()
 
     def _ensure_additive_columns(self) -> None:
         """Add nullable columns introduced after a database was created.
@@ -1029,6 +1045,19 @@ class CanonicalStore:
                     f"database schema {existing} is {direction} than runtime schema {SCHEMA_VERSION}; "
                     "run an explicit migration or use a matching runtime"
                 )
+        finally:
+            connection.close()
+        # Version is right; now repair additive-only gaps before asserting.
+        # These are the same class of change as `_ensure_additive_columns`
+        # (pure additions, no row-meaning change), so they carry no version
+        # bump and must not be able to fail a valid database open.
+        self._ensure_additive_columns()
+        self._ensure_additive_tables()
+        self._assert_required_schema_file()
+
+    def _assert_required_schema_file(self) -> None:
+        connection = self.connect()
+        try:
             self._assert_required_schema(connection)
         finally:
             connection.close()
