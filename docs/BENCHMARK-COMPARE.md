@@ -17,7 +17,7 @@
 feedback_id TEXT PK, query_text TEXT, fact_id TEXT,
 signal IN (useful/useless/correction), user_principal TEXT, created_at TEXT
 ```
-生产实测（`C:\Users\sandr\.hermes\mimir\data\canonical.db`）：facts=0 / memory_events=0（空库，生产数据在 n100，不在此）。迁移回填成本待 n100 实测。
+本机开发库实测（路径已脱敏）：facts=0 / memory_events=0（空库，生产数据在 n100，不在此）。迁移回填成本待 n100 实测。
 
 ---
 
