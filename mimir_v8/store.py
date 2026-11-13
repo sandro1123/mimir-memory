@@ -10,6 +10,7 @@ import contextlib
 import hashlib
 import json
 import sqlite3
+import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -1063,7 +1064,7 @@ class CanonicalStore:
     def transaction(self) -> Iterator[sqlite3.Connection]:
         connection = self.connect()
         try:
-            connection.execute("BEGIN IMMEDIATE")
+            self._begin_immediate(connection)
             yield connection
             connection.commit()
         except BaseException:
@@ -1071,6 +1072,25 @@ class CanonicalStore:
             raise
         finally:
             connection.close()
+
+    # Lock contention on BEGIN IMMEDIATE: bounded retry with growing back-off.
+    # Born as an unrecorded production hot-patch (2026-11-08 audit); now a
+    # tested contract (tests/test_txn_lock_retry.py). Only "locked" is retried.
+    TXN_BEGIN_ATTEMPTS = 5
+    TXN_BEGIN_BACKOFF_STEP = 0.5
+
+    @classmethod
+    def _begin_immediate(cls, connection: sqlite3.Connection) -> None:
+        for attempt in range(cls.TXN_BEGIN_ATTEMPTS):
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                return
+            except sqlite3.OperationalError as exc:
+                last_attempt = attempt == cls.TXN_BEGIN_ATTEMPTS - 1
+                if "locked" in str(exc).lower() and not last_attempt:
+                    time.sleep(cls.TXN_BEGIN_BACKOFF_STEP * (attempt + 1))
+                    continue
+                raise
 
     def create_fact(
         self,
