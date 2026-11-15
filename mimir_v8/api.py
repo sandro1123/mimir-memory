@@ -933,10 +933,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             )
 
     # ---- v15.0 Bootstrap: zero-config agent onboarding -----------------
-    @app.get("/v15/bootstrap")
-    @app.get("/bootstrap")
-    def bootstrap_handshake(identity: Principal = Depends(scoped("read"))):
-        """1.5.0 新 Agent 自举握手协议：返回精简世界观，消除失忆症。"""
+    def _bootstrap_payload(identity: Principal) -> dict:
         with contextlib.closing(context.store.connect()) as conn:
             rows = conn.execute(
                 """SELECT fact_id, content, summary, domain, fact_type, status
@@ -947,11 +944,9 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         # its type is useful to a newly connected agent. Counts must use the same visible set.
         visible = [
             dict(row) for row in rows
-            if row["status"] == "active" and context.store.can_read(
-                row["fact_id"], identity.principal_id,
-                is_admin=identity.is_admin, roles=set(identity.roles),
-            )
+            if row["status"] == "active" and context.store.can_read(identity.principal_id, dict(row))
         ]
+
         iron_rules = [
             {"fact_id": row["fact_id"], "content": row["content"], "summary": row["summary"]}
             for row in visible if row["fact_type"] == "iron_rule"
@@ -971,6 +966,17 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             "user_prefs": user_prefs,
             "domain_counts": domain_counts,
         }
+
+    @app.get("/v15/bootstrap")
+    @app.get("/bootstrap")
+    def bootstrap_handshake(identity: Principal = Depends(scoped("read"))):
+        """1.5.0 新 Agent 自举握手协议：返回精简世界观，消除失忆症。"""
+        return _bootstrap_payload(identity)
+
+    @app.get("/v8/hooks/session-start")
+    def session_start_hook(identity: Principal = Depends(scoped("read"))):
+        """SessionStart hook (#34 A-tier): identity-scoped bootstrap payload."""
+        return _bootstrap_payload(identity)
 
     # ---- v1.6.0 Step 2: probe & source registry ------------------------
     @app.get("/v16/probe/status")
