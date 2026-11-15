@@ -337,46 +337,62 @@ class FederationService:
 
     # ── CRDT ledger ───────────────────────────────────────────────────
 
-    def append_event(self, event: dict) -> dict:
-        """Append one CRDT event (local or ingested) to the stream.
-
-        The ledger is append-only; crdt_state() folds it on demand.
-        """
-        key = str(event.get("key") or "")
-        op = str(event.get("op") or "")
+    @staticmethod
+    def _validate_event(event: dict) -> tuple[str, int, str, str, object]:
+        """Validate a complete wire event before it can mutate the ledger."""
+        if not isinstance(event, dict):
+            raise FederationError("event must be an object")
+        key = event.get("key")
+        op = event.get("op")
         lamport = event.get("lamport")
-        node_id = str(event.get("node_id") or "")
-        if not key:
+        node_id = event.get("node_id")
+        if not isinstance(key, str) or not key:
             raise FederationError("event.key is required")
         if op not in ("set", "delete"):
             raise FederationError(f"unsupported op: {op}")
-        # P0-L（#5 硬化4）：上界 10^8——lamport 是逻辑计数器，真实节
-        # 点终生量级远低于此；恶意 peer 用 1e9（#5 实测攻击值）恒久删
-        # 除任意键（LWW 高者胜且无 tombstone 回滚路）在协议层拒绝。
-        if not isinstance(lamport, int) or lamport < 0 or lamport >= 10**8:
+        # bool is an int subclass but is never a valid logical clock.
+        if type(lamport) is not int or lamport < 0 or lamport >= 10**8:
             raise FederationError("event.lamport must be a non-negative int < 10^8")
-        if not node_id:
+        if not isinstance(node_id, str) or not node_id:
             raise FederationError("event.node_id is required")
         value = event.get("value")
         if op == "set" and value is None:
             raise FederationError("op=set requires a value")
         if op == "delete" and value is not None:
             raise FederationError("op=delete must not carry a value")
+        return key, lamport, node_id, op, value
+
+    @staticmethod
+    def _insert_event(
+        connection: sqlite3.Connection,
+        event: dict,
+        recorded_at: str,
+        *,
+        event_id: str | None = None,
+    ) -> bool:
+        key, lamport, node_id, op, value = FederationService._validate_event(event)
+        cursor = connection.execute(
+            """INSERT INTO federation_events(
+                   event_id, crdt_key, lamport, node_id, op, value, recorded_at
+               ) VALUES(?,?,?,?,?,?,?)
+               ON CONFLICT(crdt_key, lamport, node_id) DO NOTHING""",
+            (event_id or new_id(), key, lamport, node_id, op,
+             json.dumps(value, ensure_ascii=False) if value is not None else None,
+             recorded_at),
+        )
+        return cursor.rowcount == 1
+
+    def append_event(self, event: dict) -> dict:
+        """Append one CRDT event (local or ingested) to the stream.
+
+        The ledger is append-only; crdt_state() folds it on demand.
+        """
+        key, lamport, _node_id, _op, _value = self._validate_event(event)
         now = utc_now()
+        event_id = new_id()
         with self.store.transaction() as connection:
             self._ensure_tables(connection)
-            event_id = new_id()
-            cursor = connection.execute(
-                """INSERT INTO federation_events(
-                       event_id, crdt_key, lamport, node_id, op, value,
-                       recorded_at
-                   ) VALUES(?,?,?,?,?,?,?)
-                   ON CONFLICT(crdt_key, lamport, node_id) DO NOTHING""",
-                (event_id, key, lamport, node_id, op,
-                 json.dumps(value, ensure_ascii=False) if value is not None else None,
-                 now),
-            )
-            fresh = cursor.rowcount == 1
+            fresh = self._insert_event(connection, event, now, event_id=event_id)
         return {"event_id": event_id, "key": key, "lamport": lamport,
                 "replayed": not fresh}
 
@@ -476,9 +492,11 @@ class FederationService:
         — the ledger is append-only and folds deterministically, so
         duplicates are harmless.
         """
-        from_node = str((envelope or {}).get("from_node") or "")
-        ciphertext = str((envelope or {}).get("ciphertext") or "")
-        to_peer = str((envelope or {}).get("to_peer") or "")
+        if not isinstance(envelope, dict):
+            raise FederationError("envelope must be an object")
+        from_node = str(envelope.get("from_node") or "")
+        ciphertext = str(envelope.get("ciphertext") or "")
+        to_peer = str(envelope.get("to_peer") or "")
         if not from_node or not ciphertext:
             raise FederationError("envelope requires from_node and ciphertext")
         # P0-L（#5 硬化5）：收件人必须是本节点——误投/劫持的 envelope
@@ -497,12 +515,15 @@ class FederationService:
                 f"sender {from_node} is not a registered peer — refusing"
             )
         payload = decrypt_envelope(ciphertext, row["public_key"])
+        if not isinstance(payload, dict):
+            raise FederationError("envelope payload must be an object")
         if payload.get("from_node") != from_node:
             raise FederationError("envelope from_node mismatch")
-        # P0-L（#5 硬化3/4）：载荷纪律——事件数上限防内存面轰炸；
-        # 每事件 node_id 必须与 envelope 发送者一致——封死「C 持自己
-        # 钥匙伪造 A 署名事件」的通道（解密钥持有者与事件署名解耦）。
-        events = payload.get("events") or []
+        if payload.get("to_peer") != self.node_id:
+            raise FederationError("envelope payload is addressed to another node")
+        events = payload.get("events")
+        if not isinstance(events, list):
+            raise FederationError("envelope events must be a list")
         if len(events) > MAX_ENVELOPE_EVENTS:
             raise FederationError(
                 f"envelope carries {len(events)} events; cap is {MAX_ENVELOPE_EVENTS}")
@@ -515,9 +536,11 @@ class FederationService:
         # 本身 / 本节点账本里已见过的节点（此前同步引入的）。第 4 面：
         # 署名者均非以上 → 伪造（#5 的 C 伪造 A 署名攻击在此拦截）。
         known_signers = registered | self._seen_node_ids()
+        # Validate the complete batch before policy checks or writes. This keeps
+        # malformed suffixes from leaving a valid prefix committed.
         for event in events:
-            signer = str(event.get("node_id") or "")
-            if signer and signer not in known_signers and signer != from_node:
+            _key, _lamport, signer, _op, _value = self._validate_event(event)
+            if signer not in known_signers and signer != from_node:
                 raise FederationError(
                     f"event signer {signer!r} is neither a registered peer,"
                     " a previously seen node, nor the envelope sender"
@@ -536,16 +559,20 @@ class FederationService:
         if enforced:
             moment = utc_now()
             for event in events:
-                key = str(event.get("key") or "")
+                key = event["key"]
                 if not self._grant_allows(inbound_rows, key, moment):
                     raise FederationError(
                         f"grant_denied: no inbound sync grant from "
                         f"{from_node!r} covers key {key!r}")
+        # Apply the validated batch in one transaction. The protocol promises
+        # all-or-nothing ingestion, including database failures.
+        now = utc_now()
         applied = 0
-        for event in events:
-            result = self.append_event(event)
-            if not result.get("replayed"):
-                applied += 1
+        with self.store.transaction() as connection:
+            self._ensure_tables(connection)
+            for event in events:
+                if self._insert_event(connection, event, now):
+                    applied += 1
         return {"from_node": from_node, "applied": applied,
                 "received": len(events)}
 
