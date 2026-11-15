@@ -177,6 +177,10 @@ CREATE TABLE IF NOT EXISTS facts (
     tombstoned_at TEXT,
     decay_tier TEXT NOT NULL DEFAULT 'L0_never' CHECK (decay_tier IN ('L0_never','L1_preference','L2_config','L3_event','L4_temporary','L5_ephemeral')),
     decayed_at TEXT,
+    recall_count INTEGER NOT NULL DEFAULT 0,
+    useful_count INTEGER NOT NULL DEFAULT 0,
+    last_recalled_at TEXT,
+    last_spaced_at TEXT,
     schema_version INTEGER NOT NULL,
     content_hash TEXT NOT NULL,
     CHECK (sensitivity != 'restricted' OR egress_policy = 'local_only')
@@ -994,6 +998,25 @@ class CanonicalStore:
                 connection.execute(
                     "ALTER TABLE outbox ADD COLUMN last_error_detail TEXT"
                 )
+                connection.commit()
+            # 1.8.0 heat: additive usage/spacing signals on facts. Guarded
+            # ALTER keeps legacy databases openable; defaults never fabricate
+            # usage history (counters 0, timestamps NULL).
+            fact_columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(facts)")
+            }
+            heat_columns = (
+                ("recall_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("useful_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("last_recalled_at", "TEXT"),
+                ("last_spaced_at", "TEXT"),
+            )
+            added = False
+            for name, decl in heat_columns:
+                if name not in fact_columns:
+                    connection.execute(f"ALTER TABLE facts ADD COLUMN {name} {decl}")
+                    added = True
+            if added:
                 connection.commit()
 
     def connect(self) -> sqlite3.Connection:
