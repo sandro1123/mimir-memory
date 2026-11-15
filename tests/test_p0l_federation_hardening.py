@@ -115,8 +115,55 @@ class TestFederationHardening(unittest.TestCase):
                                {"key": f"k{i}", "lamport": 1,
                                 "node_id": "node-b", "op": "set", "value": "x"}
                                for i in range(6000)]}
-            env = {"from_node": "node-b",
+            env = {"from_node": "node-b", "to_peer": "node-a",
                    "ciphertext": encrypt_envelope(big_payload, sb.public_key)}
+            with self.assertRaises(FederationError):
+                sa.ingest_envelope(env)
+
+    def test_payload_recipient_must_match_outer_recipient(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = _store(tmp)
+            sa = self._service(store)
+            sb = FederationService(store, node_id="node-b")
+            sa.register_peer("node-b", sb.public_key)
+            payload = {"from_node": "node-b", "to_peer": "node-c", "events": []}
+            env = {"from_node": "node-b", "to_peer": "node-a",
+                   "ciphertext": encrypt_envelope(payload, sb.public_key)}
+            with self.assertRaises(FederationError):
+                sa.ingest_envelope(env)
+
+    def test_malformed_late_event_does_not_partially_commit_batch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = _store(tmp)
+            sa = self._service(store)
+            sb = FederationService(store, node_id="node-b")
+            sa.register_peer("node-b", sb.public_key)
+            payload = {
+                "from_node": "node-b",
+                "to_peer": "node-a",
+                "events": [
+                    {"key": "valid-prefix", "lamport": 1, "node_id": "node-b",
+                     "op": "set", "value": "must roll back"},
+                    {"key": "invalid-suffix", "lamport": 2, "node_id": "",
+                     "op": "set", "value": "invalid"},
+                ],
+            }
+            env = {"from_node": "node-b", "to_peer": "node-a",
+                   "ciphertext": encrypt_envelope(payload, sb.public_key)}
+            with self.assertRaises(FederationError):
+                sa.ingest_envelope(env)
+            self.assertIsNone(sa.crdt_state("valid-prefix"))
+            self.assertIsNone(sa.crdt_state("invalid-suffix"))
+
+    def test_envelope_events_must_be_a_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = _store(tmp)
+            sa = self._service(store)
+            sb = FederationService(store, node_id="node-b")
+            sa.register_peer("node-b", sb.public_key)
+            payload = {"from_node": "node-b", "to_peer": "node-a", "events": {}}
+            env = {"from_node": "node-b", "to_peer": "node-a",
+                   "ciphertext": encrypt_envelope(payload, sb.public_key)}
             with self.assertRaises(FederationError):
                 sa.ingest_envelope(env)
 
