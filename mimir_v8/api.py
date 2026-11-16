@@ -1556,6 +1556,30 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             correlation_id=request.state.correlation_id,
         )
 
+    @app.post("/v8/hooks/session-end", status_code=201)
+    def session_end_hook(body: ConversationEnvelopeBody, identity: Principal = Depends(scoped("ingest"))):
+        """SessionEnd hook (#34 A-tier): ingest + auto-crystallize one candidate."""
+        if context.learning is None:
+            raise HTTPException(503, "learning service is not configured")
+        if not identity.can_act_as(body.owner_principal):
+            raise AuthError("cannot ingest for another principal", 403, "owner_boundary")
+        envelope = ConversationEnvelope(
+            connector_type=body.connector_type,
+            connector_id=body.connector_id,
+            session_id=body.session_id,
+            owner_principal=body.owner_principal,
+            memory_mode=body.memory_mode,
+            retention_class=body.retention_class,
+            messages=tuple(ConversationMessage(**item.model_dump()) for item in body.messages),
+            source_uri=body.source_uri,
+            title=body.title,
+            started_at=body.started_at,
+            ended_at=body.ended_at,
+            metadata=body.metadata,
+            idempotency_key=body.idempotency_key,
+        )
+        return context.learning.session_end(envelope, identity.principal_id)
+
     @app.post("/v8/ingestion/conversations", status_code=201)
     def ingest_conversation(body: ConversationEnvelopeBody, identity: Principal = Depends(scoped("ingest"))):
         if context.learning is None:
