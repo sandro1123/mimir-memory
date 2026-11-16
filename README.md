@@ -21,7 +21,7 @@ Mímir 从第一天起就是反着设计的——**每一条记忆都要过审�
 
 | 硬核特性 | 说明 |
 |---|---|
-| **双池一桥架构 (2.0)** | 主观会话偏好（Memory 池）与客观技术实体（Knowledge 池）物理分离，通过事实-实体桥精准多跳召回 |
+| **双池一桥架构 (1.6.0 起)** | 主观会话偏好（Memory 池）与客观技术实体（Knowledge 池）物理分离，通过事实-实体桥精准多跳召回 |
 | **治理管线与物理闸** | 新记忆先进候选队列，带 Tier-0/1/2 三档判重；`block_strong` 物理拦截完全重复；带 72h 待审老化告警 |
 | **事件溯源与防篡改** | 事件账本 `memory_events` 与版本表 `fact_versions` 由数据库触发器禁止 UPDATE/DELETE，版本行带 `previous_version_hash` 哈希链，从写入起可审计 |
 | **细粒度 ACL 与联邦** | 跨 Agent 共享阅读（技术域打破孤岛、私密域物理防穿透）；支持多节点 Fernet 加密联邦同步 |
@@ -30,7 +30,9 @@ Mímir 从第一天起就是反着设计的——**每一条记忆都要过审�
 
 > **当前生产版本：`1.7.0 — Vault Bridge（知识库桥）`**  
 > 在 1.6.0「感知与结晶」之上，补齐人类知识库一侧：声明式发布白名单 + 四道准入闸 + 机器卡片渲染 + 防反馈环 + Git 快照；同时把「事务遇锁冲突有限重试」从未入库的生产热补丁固化为带测试的正式行为。  
-> 完整 2.0 规格设计详见：[`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md)。
+> **2.0 的范围与验收判据**：[`docs/superpowers/specs/2026-11-16-mimir-2.0-scope-and-acceptance.md`](docs/superpowers/specs/2026-11-16-mimir-2.0-scope-and-acceptance.md)；
+> **执行计划**：[`docs/superpowers/plans/2026-11-16-mimir-1.8-to-2.0-execution-plan.md`](docs/superpowers/plans/2026-11-16-mimir-1.8-to-2.0-execution-plan.md)。
+> `2026-10-26` 的设计稿仅保留架构叙事，其里程碑与「`ObsidianProjector` / 52 张表」表述已作废。
 
 ---
 
@@ -206,7 +208,9 @@ python scripts/run_benchmarks.py --golden --out report.json
 | **v1.5.0** | Federation & Sharing | 突破 84% 孤岛、退役 mentor、零配置动态 Agent 自举 | ✅ 已发布 |
 | **v1.6.0** | Perception & Crystallization · 感知与结晶 | 实体知识库、声明式探针与信源调度、双层结晶早报 | ✅ 已发布 |
 | **v1.7.0** | Vault Bridge · 知识库桥 | 发布白名单、四道准入闸、机器卡片、防反馈环、Git 快照、事务锁重试固化 | ✅ 已发布 · **当前生产运行** |
-| **v2.0.0** | The Unified Brain | 统一 MCP/CLI 一键分发、Command Center 大盘、开源正式发布 | 🎯 终极目标 (Milestone #6) |
+| **v1.8.0** | Auto Memory · 自动记忆 | STM 会话层（只产候选）、热量单一所有者、Adapter Contract v1、archive→purge 策略 | 📋 计划中（执行计划 A 阶段） |
+| **v1.9.0** | Agent Knowledge · 知识消费面 | MCP 知识工具、确定性双池路由、实体层 supersession、Runbook 执行回写 | 📋 计划中（执行计划 C 阶段） |
+| **v2.0.0** | The Unified Brain | 双时态语义（`as_of` 查询）、谱系归一、开源安全门、可分发性 | 🎯 终极目标（四项 gate，见范围裁决） |
 
 ---
 
