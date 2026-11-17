@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone, timedelta
 
-from mimir_v8.query import QueryKernel, QueryRequest
+from mimir_v8.query import QueryKernel
 
 
 def _now():
