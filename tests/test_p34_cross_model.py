@@ -145,7 +145,7 @@ class TestProjectContext(unittest.TestCase):
     def test_budget_shrinks_l2_first(self):
         """预算吃紧时先牺牲 L2（摘要化）而非丢 L3。"""
         facts = self._facts()
-        wide = project_context(facts, "claude")
+        project_context(facts, "claude")
         tiny = project_context(facts, "local-small")
         # L2 pattern content is truncated on the compact tier
         tiny_blob = "\n".join(b["text"] for b in tiny["blocks"])

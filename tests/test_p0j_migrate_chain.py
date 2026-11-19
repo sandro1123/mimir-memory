@@ -42,7 +42,7 @@ def _make_v12_db(path: Path) -> None:
     夹具用 CanonicalStore 建全套 DDL 后把版本戳降回 12 模拟 v12 实库。
     """
     from mimir_v8.store import CanonicalStore
-    store = CanonicalStore(path)          # runtime DDL 全套（v20 形态）
+    CanonicalStore(path)                  # runtime DDL 全套（v20 形态）
     with sqlite3.connect(path) as conn:
         conn.execute(
             "UPDATE schema_meta SET value='12' WHERE key='schema_version'")

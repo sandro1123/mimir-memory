@@ -5,7 +5,6 @@ to match the validated main source_id and have source_category='conversation'.
 Every reject scenario asserts full state unchanged across all affected tables.
 """
 
-import os
 import sys
 import tempfile
 import unittest
@@ -13,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mimir_v8.store import CanonicalStore, new_id, sha256_text, utc_now
+from mimir_v8.store import CanonicalStore, new_id
 from mimir_v8.learning import LearningService, ConversationEnvelope, ConversationMessage
 from mimir_v8.extraction import ExtractionService, EvidenceInput
 from mimir_v8.schema import ValidationError
@@ -79,7 +78,7 @@ class TestEvidenceGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = CanonicalStore(Path(tmp) / "canonical.db")
             r = self._ingest(store, "hermes_cdc", "请记住这条规则")
-            before = self._snapshot(store, "before")
+            self._snapshot(store, "before")
             result = self._extract(store, r["run_id"], r["source_id"], [
                 EvidenceInput(source_id=r["source_id"], message_id=self._get_msg(store, r["source_id"]), quote_text="evidence"),
             ])
@@ -208,7 +207,7 @@ class TestEvidenceGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "canonical.db"
             store = CanonicalStore(db)
-            conv = self._ingest(store, "hermes_cdc", "请记住")
+            self._ingest(store, "hermes_cdc", "请记住")
             before = self._snapshot(store, "before")
             # Drop source_category column
             import sqlite3

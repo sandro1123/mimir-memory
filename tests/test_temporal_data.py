@@ -28,7 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from mimir_v8.benchmarks_external import (  # noqa: E402
-    load_locomo, load_longmemeval, BenchmarkCorpus, SessionRecord,
+    load_locomo, BenchmarkCorpus, SessionRecord,
     parse_locomo_date)
 
 

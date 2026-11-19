@@ -18,7 +18,6 @@ TDD RED → GREEN.
 """
 from __future__ import annotations
 
-import json
 import sys
 import tempfile
 import unittest
@@ -26,8 +25,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mimir_v8.crystallize import CrystalService, V17_ADDITIVE_STATEMENTS
-from mimir_v8.schema import CreateFact, SCHEMA_VERSION
+from mimir_v8.crystallize import CrystalService
+from mimir_v8.schema import CreateFact
 from mimir_v8.store import CanonicalStore
 
 

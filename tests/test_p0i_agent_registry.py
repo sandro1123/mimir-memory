@@ -8,7 +8,6 @@ register-domain CLI、运行时 register_agent() API。
 """
 from __future__ import annotations
 
-import os
 import sys
 import unittest
 from pathlib import Path
@@ -16,11 +15,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mimir_v8.schema import (
-    AGENT_IDS, DOMAINS,
     get_registered_agents, get_registered_domains,
     register_agent, register_domain,
     validate_agent_id, validate_domain,
-    CreateFact,
 )
 
 
@@ -33,7 +30,7 @@ class TestEnvBootstrap(unittest.TestCase):
 
     def test_env_bootstrap_extends_roster(self):
         """MIMIR_AGENTS=juggernaut,nyx → 新成员可建 fact（干净进程语义）。"""
-        import subprocess, json, tempfile
+        import subprocess, tempfile
         code = (
             "import os, json; "
             "os.environ['MIMIR_AGENTS'] = 'juggernaut,nyx'; "
@@ -45,7 +42,7 @@ class TestEnvBootstrap(unittest.TestCase):
             "print(json.dumps({'ok': f.owner_principal}))"
         )
         root = Path(__file__).resolve().parent.parent
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as _tmp:
             r = subprocess.run(
                 [sys.executable, "-c", code], capture_output=True, text=True,
                 cwd=str(root), timeout=60)

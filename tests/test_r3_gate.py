@@ -5,7 +5,6 @@ source_category='conversation' in its transaction boundary, and that
 non-conversation sources are rejected without side effects.
 """
 
-import os
 import sys
 import tempfile
 import unittest
@@ -13,10 +12,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mimir_v8.store import CanonicalStore, new_id, sha256_text, utc_now
+from mimir_v8.store import CanonicalStore, new_id
 from mimir_v8.learning import LearningService, ConversationEnvelope, ConversationMessage
-from mimir_v8.extraction import ExtractionService, EvidenceInput
-from mimir_v8.classifier import classify
+from mimir_v8.extraction import ExtractionService
 from mimir_v8.schema import ValidationError
 from mimir_v8.worker import extract_once, llm_extract_once
 
@@ -50,7 +48,6 @@ class TestExtractionServiceGate(unittest.TestCase):
 
     def _check_state_unchanged(self, store, run_id, label=""):
         """Verify no extraction_run completed, no candidate, ingestion unchanged."""
-        import sqlite3
         with store.connect() as conn:
             er = conn.execute("SELECT status,error_code FROM extraction_runs WHERE run_id=?", (run_id,)).fetchone()
             cf = conn.execute("SELECT COUNT(*) FROM candidate_facts").fetchone()[0]
@@ -110,7 +107,7 @@ class TestExtractionServiceGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "canonical.db"
             store = CanonicalStore(db)
-            r = self._ingest(store, "hermes_cdc", "请记住")
+            self._ingest(store, "hermes_cdc", "请记住")
             # Drop the source_category column using raw SQL
             import sqlite3
             raw = sqlite3.connect(str(db))

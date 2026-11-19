@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from .candidates import CandidateService, CreateCandidate
 from .classifier import classify
+from .sources.registry import policy_for as source_policy_for
 from .schema import (
     CONVERSATION_ROLES,
     FACT_TYPES,
@@ -139,8 +140,40 @@ class LearningService:
         self.store = store
         self.candidates = CandidateService(store)
 
+    @staticmethod
+    def _check_source_policy(env: ConversationEnvelope, *, require_auto_candidate: bool = False) -> None:
+        """Fail closed on registry policy violations (1.8.0 spec §5.3/§5.4).
+
+        Baseline parity (R2/R3 contracts): unknown/unregistered connector
+        types are **stored but quarantined** — classification marks them
+        ``unknown/quarantine`` and the extraction gate denies them later.
+        Registry policy therefore gates only two things here:
+
+        - **registered** connectors: ``memory_mode`` must be within the
+          connector's allowed set (fail closed on disallowed modes);
+        - **auto-promotion** (session_end candidate crystallization): the
+          connector must declare ``auto_candidate=True`` — unknown/
+          quarantined connectors (policy fallback: ``auto_candidate=False``)
+          can never auto-promote content into a review candidate.
+        """
+        policy = source_policy_for(env.connector_type)
+        registered = policy.metadata.get("quarantine") is not True
+        if registered and env.memory_mode not in policy.allowed_memory_modes:
+            raise ValidationError(
+                f"connector_type {env.connector_type!r} does not allow "
+                f"memory_mode={env.memory_mode!r} (allowed: {sorted(policy.allowed_memory_modes)})"
+            )
+        if require_auto_candidate and not policy.auto_candidate:
+            category = classify(env.connector_type)
+            raise ValidationError(
+                f"connector_type {env.connector_type!r} (category: {category}) is not "
+                "allowed to auto-crystallize candidates; register the source or route "
+                "through an explicit governed path"
+            )
+
     def ingest_conversation(self, envelope: ConversationEnvelope, actor_principal: str) -> dict:
         env = envelope.validated()
+        self._check_source_policy(env)
         redacted = [redact_text(message.content) for message in env.messages]
         fingerprint = sha256_text(canonical_json({
             "connector_type": env.connector_type,
@@ -191,6 +224,67 @@ class LearningService:
             self._event(connection, "conversation", source_id, "conversation.source_registered", actor_principal, now, {"source_id": source_id, "run_id": run_id, "message_count": len(env.messages), "redacted_count": redacted_count})
             self._event(connection, "conversation", source_id, "conversation.ingested", actor_principal, now, {"source_id": source_id, "run_id": run_id, "memory_mode": env.memory_mode})
         return {"run_id": run_id, "source_id": source_id, "status": "stored", "message_count": len(env.messages), "redacted_count": redacted_count, "source_category": source_category, "idempotent_replay": False}
+
+    def session_end(self, envelope: ConversationEnvelope, actor_principal: str) -> dict:
+        """SessionEnd hook: ingest the session and crystallize one candidate.
+
+        #34 A-tier. The conversation body is stored (STM layer) via the
+        same DLP + fingerprint + idempotency logic as ``ingest_conversation``,
+        then a single candidate is created so a reviewer can promote it.
+        Never writes facts directly. ``explicit`` memory_mode is rejected
+        here — that is ``remember``'s path, which has its own review reasons.
+        """
+        env = envelope.validated()
+        if env.memory_mode == "explicit":
+            raise ValidationError("explicit memory_mode must use remember(), not the session hook")
+        # Registry policy gates crystallization before any storage happens:
+        # unknown/quarantined or auto_candidate=false connectors must not
+        # auto-promote conversation content into a review candidate.
+        self._check_source_policy(env, require_auto_candidate=True)
+        # Reuse ingestion; idempotency key shared so replay returns same source.
+        stored = self.ingest_conversation(env, actor_principal)
+        if stored.get("idempotent_replay"):
+            # Same orchestration key, so the candidate is already there.
+            return {**stored, "candidate_id": self._find_candidate_for_source(stored["source_id"])}
+        # Build one crystallized candidate from the conversation's **redacted**
+        # text (conversation_messages.content_redacted), never the raw body.
+        import contextlib
+        with contextlib.closing(self.store.connect()) as connection:
+            rows = connection.execute(
+                "SELECT role, content_redacted FROM conversation_messages WHERE source_id=? ORDER BY ordinal",
+                (stored["source_id"],),
+            ).fetchall()
+        content = "\n\n".join(f"{r['role']}: {r['content_redacted']}" for r in rows).strip()
+        if len(content) > 100_000:
+            content = content[:100_000]
+        summary = (env.title or content[:200]).strip() or content[:200]
+        source_hash_result = self._source_hash(stored["source_id"])
+        candidate = self.candidates.create_candidate(
+            CreateCandidate(
+                content=content,
+                summary=summary,
+                proposed_owner_principal=env.owner_principal,
+                proposed_domain="personal",
+                proposed_fact_type="learning",
+                source_id=stored["source_id"],
+                source_hash=source_hash_result,
+                proposed_visibility="owner_only",
+                proposed_egress_policy="local_only",
+                uncertainty_reasons=("auto_captured_requires_review",),
+                idempotency_key=f"{env.idempotency_key}:hook-candidate",
+            ),
+            actor_principal,
+        )
+        return {**stored, "candidate_id": candidate["candidate_id"], "idempotent_replay": False}
+
+    def _find_candidate_for_source(self, source_id: str) -> str | None:
+        import contextlib
+        with contextlib.closing(self.store.connect()) as connection:
+            row = connection.execute(
+                "SELECT candidate_id FROM candidate_facts WHERE source_id=? ORDER BY created_at DESC LIMIT 1",
+                (source_id,),
+            ).fetchone()
+            return row["candidate_id"] if row else None
 
     def remember(self, content: str, owner_principal: str, domain: str, fact_type: str, actor_principal: str, idempotency_key: str, summary: str | None = None, retention_class: str = "standard") -> dict:
         if owner_principal not in get_registered_agents():

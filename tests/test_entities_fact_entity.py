@@ -3,7 +3,6 @@
 Tests the link/unlink and query operations between facts and entities.
 Uses 'heimdallr' as owner_principal since it's a registered agent.
 """
-import pytest
 import tempfile
 from pathlib import Path
 from mimir_v8.store import CanonicalStore

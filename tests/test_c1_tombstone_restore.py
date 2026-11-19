@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mimir_v8.schema import CreateFact, TombstoneFact
-from mimir_v8.store import CanonicalStore, utc_now
+from mimir_v8.store import CanonicalStore
 
 
 def _seed(store, content="生产库只允许经 API 写入", fact_type="iron_rule"):

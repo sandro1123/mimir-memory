@@ -933,10 +933,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             )
 
     # ---- v15.0 Bootstrap: zero-config agent onboarding -----------------
-    @app.get("/v15/bootstrap")
-    @app.get("/bootstrap")
-    def bootstrap_handshake(identity: Principal = Depends(scoped("read"))):
-        """1.5.0 新 Agent 自举握手协议：返回精简世界观，消除失忆症。"""
+    def _bootstrap_payload(identity: Principal) -> dict:
         with contextlib.closing(context.store.connect()) as conn:
             rows = conn.execute(
                 """SELECT fact_id, content, summary, domain, fact_type, status
@@ -952,6 +949,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
                 is_admin=identity.is_admin, roles=set(identity.roles),
             )
         ]
+
         iron_rules = [
             {"fact_id": row["fact_id"], "content": row["content"], "summary": row["summary"]}
             for row in visible if row["fact_type"] == "iron_rule"
@@ -970,6 +968,31 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             "iron_rules": iron_rules,
             "user_prefs": user_prefs,
             "domain_counts": domain_counts,
+        }
+
+    @app.get("/v15/bootstrap")
+    @app.get("/bootstrap")
+    def bootstrap_handshake(identity: Principal = Depends(scoped("read"))):
+        """1.5.0 新 Agent 自举握手协议：返回精简世界观，消除失忆症。"""
+        return _bootstrap_payload(identity)
+
+    @app.get("/v8/hooks/session-start")
+    def session_start_hook(identity: Principal = Depends(scoped("read"))):
+        """SessionStart hook (#34 A-tier): identity-scoped bootstrap payload."""
+        return _bootstrap_payload(identity)
+
+    @app.get("/v8/hooks/adapters")
+    def list_hook_adapters(identity: Principal = Depends(scoped("read"))):
+        """Registered agent-adapter manifests (1.8.0 spec §4.4, additive).
+
+        Read-scoped, non-sensitive: capabilities/endpoint conventions only —
+        no tokens, no secrets. Lets harness integrations discover the
+        contract without touching core code.
+        """
+        from mimir_v8.adapters.registry import list_adapters, manifest as adapter_manifest
+
+        return {
+            "adapters": [adapter_manifest(spec) for spec in list_adapters()],
         }
 
     # ---- v1.6.0 Step 2: probe & source registry ------------------------
@@ -1556,6 +1579,30 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             correlation_id=request.state.correlation_id,
         )
 
+    @app.post("/v8/hooks/session-end", status_code=201)
+    def session_end_hook(body: ConversationEnvelopeBody, identity: Principal = Depends(scoped("ingest"))):
+        """SessionEnd hook (#34 A-tier): ingest + auto-crystallize one candidate."""
+        if context.learning is None:
+            raise HTTPException(503, "learning service is not configured")
+        if not identity.can_act_as(body.owner_principal):
+            raise AuthError("cannot ingest for another principal", 403, "owner_boundary")
+        envelope = ConversationEnvelope(
+            connector_type=body.connector_type,
+            connector_id=body.connector_id,
+            session_id=body.session_id,
+            owner_principal=body.owner_principal,
+            memory_mode=body.memory_mode,
+            retention_class=body.retention_class,
+            messages=tuple(ConversationMessage(**item.model_dump()) for item in body.messages),
+            source_uri=body.source_uri,
+            title=body.title,
+            started_at=body.started_at,
+            ended_at=body.ended_at,
+            metadata=body.metadata,
+            idempotency_key=body.idempotency_key,
+        )
+        return context.learning.session_end(envelope, identity.principal_id)
+
     @app.post("/v8/ingestion/conversations", status_code=201)
     def ingest_conversation(body: ConversationEnvelopeBody, identity: Principal = Depends(scoped("ingest"))):
         if context.learning is None:
@@ -1578,6 +1625,20 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             idempotency_key=body.idempotency_key,
         )
         return context.learning.ingest_conversation(envelope, identity.principal_id)
+
+    @app.get("/v8/sources/connectors")
+    def list_source_connectors(identity: Principal = Depends(scoped("read"))):
+        """Registered memory-source connector policies (1.8.0 spec §5.3, additive).
+
+        Read-scoped, non-sensitive registry view: category/policy summaries
+        for attribution and debugging. Unknown/unregistered types are not
+        listed here — they resolve to the quarantine fallback.
+        """
+        from mimir_v8.sources.registry import list_sources, manifest as source_manifest
+
+        return {
+            "connectors": [source_manifest(spec) for spec in list_sources()],
+        }
 
     @app.post("/v8/learning/remember", status_code=201)
     def remember(body: RememberBody, identity: Principal = Depends(scoped("write"))):

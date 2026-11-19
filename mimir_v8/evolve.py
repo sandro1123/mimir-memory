@@ -76,6 +76,43 @@ class EvolveMemService:
                 ) VALUES(?,?,?,?,?,?)""",
                 (feedback_id, query_text, fact_id, signal, user_principal, now),
             )
+            # 1.8.0 heat: wire feedback into usage/spacing state (previously write-only).
+            useful_inc = 1 if signal == "useful" else 0
+            row = connection.execute(
+                "SELECT last_recalled_at FROM facts WHERE fact_id=?",
+                (fact_id,),
+            ).fetchone()
+            last_recalled = row[0] if row else None
+            spaced = 0
+            if last_recalled:
+                try:
+                    lr = datetime.fromisoformat(last_recalled)
+                    if lr.tzinfo is None:
+                        lr = lr.replace(tzinfo=timezone.utc)
+                    gap_days = (datetime.fromisoformat(now) - lr).total_seconds() / 86400.0
+                    if gap_days >= 1.0:
+                        spaced = 1
+                except Exception:
+                    spaced = 0
+            if spaced:
+                connection.execute(
+                    """UPDATE facts
+                       SET recall_count = COALESCE(recall_count, 0) + 1,
+                           useful_count = COALESCE(useful_count, 0) + ?,
+                           last_recalled_at = ?,
+                           last_spaced_at = ?
+                       WHERE fact_id = ?""",
+                    (useful_inc, now, now, fact_id),
+                )
+            else:
+                connection.execute(
+                    """UPDATE facts
+                       SET recall_count = COALESCE(recall_count, 0) + 1,
+                           useful_count = COALESCE(useful_count, 0) + ?,
+                           last_recalled_at = ?
+                       WHERE fact_id = ?""",
+                    (useful_inc, now, fact_id),
+                )
             connection.execute(
                 """INSERT INTO memory_events(
                     event_id,aggregate_type,aggregate_id,aggregate_version,event_type,

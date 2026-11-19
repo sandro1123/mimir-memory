@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import pytest
 from mimir_v8.schema import (
-    AGENT_IDS,
-    DOMAINS,
     get_registered_agents,
     get_registered_domains,
     register_agent,

@@ -18,7 +18,6 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
-from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -123,7 +122,7 @@ class TestEntitySurvivesToFact(unittest.TestCase):
         否则「修好了抽取」但「入库的还是不含 Tdarr 的摘要」。"""
         from mimir_v8.worker import resolve_fact_content
 
-        content = build_ctx = None
+        content = None
         msgs = [
             {"role": "user", "content_redacted": USER_MSG},
             {"role": "assistant", "content_redacted": ASSISTANT_MSG},

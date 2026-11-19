@@ -14,7 +14,6 @@ envelope 事件数与载荷上限。
 """
 from __future__ import annotations
 
-import json
 import sys
 import tempfile
 import unittest

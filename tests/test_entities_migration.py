@@ -3,7 +3,6 @@
 Tests that the SCHEMA_VERSION 21 → 22 migration correctly creates
 the entities, fact_entities, and entity_relations tables.
 """
-import pytest
 import tempfile
 from pathlib import Path
 from mimir_v8.store import CanonicalStore

@@ -257,10 +257,17 @@ def mex_import(store: CanonicalStore, payload: dict, *,
         # 新 fact 落库（skip/conflict 的不动）：candidate/evidence 的 FK 靶子。
         fact_columns = ", ".join(columns)
         fact_marks = ", ".join("?" * len(columns))
+        # 热度列（1.8.0 Task 4）晚于 MEX v1 格式出现：旧信封没有这些键。
+        # 它们是 NOT NULL DEFAULT 0 / NULL 的纯计数信号，导入时按列默认值
+        # 兜底（0 / NULL），不伪造使用历史。
+        defaults = {
+            "recall_count": 0, "useful_count": 0,
+            "last_recalled_at": None, "last_spaced_at": None,
+        }
         for fact in facts:
             if fact["fact_id"] not in to_import:
                 continue
-            present = {col: fact.get(col) for col in columns}
+            present = {col: fact.get(col, defaults.get(col)) for col in columns}
             if "schema_version" in present:
                 # schema_version 以目标库运行时为准（源/COGX 不代表这里）
                 present["schema_version"] = SCHEMA_VERSION

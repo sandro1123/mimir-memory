@@ -10,7 +10,6 @@ mentor cron「Mímir v8 健康巡检」每 15 分钟飞书报错 4 天（3392 �
 1. drain_once 单轮异常 → 线程存活且继续循环（不退出）
 2. 异常被记录（线程不死锁也不无声）：错误计数可观测
 """
-import threading
 import time
 
 from mimir_v8.runtime import ProjectorSupervisor

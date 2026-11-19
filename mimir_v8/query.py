@@ -511,7 +511,10 @@ class QueryKernel:
                 dropped_items.append({"fact_id": fact_id, "reason": "filtered:acl"})
                 continue
             confidence = fact["confidence_score"] if fact["confidence_score"] is not None else 0.5
-            decay = self._decay_factor(fact.get("decay_tier"), fact.get("valid_to"), fact.get("updated_at"), fact.get("valid_from"))
+            decay = self._decay_factor(
+                fact.get("decay_tier"), fact.get("valid_to"), fact.get("updated_at"), fact.get("valid_from"),
+                fact.get("recall_count"), fact.get("useful_count"), fact.get("last_recalled_at"), fact.get("last_spaced_at"),
+            )
             freshness = self._freshness(fact["updated_at"])
             not_yet_effective = self._not_yet_effective(fact.get("valid_from"))
             final = score["rrf"] * (0.70 + 0.20 * confidence + 0.10 * freshness) * (0.60 + 0.40 * decay)
@@ -950,6 +953,7 @@ class QueryKernel:
             factor = self._decay_factor(
                 fact.get("decay_tier"), fact.get("valid_to"),
                 fact.get("updated_at"), fact.get("valid_from"),
+                fact.get("recall_count"), fact.get("useful_count"), fact.get("last_recalled_at"), fact.get("last_spaced_at"),
             )
             total_decay += factor
             if factor <= 0.5 and fact.get("valid_to"):
@@ -967,6 +971,7 @@ class QueryKernel:
             decay = self._decay_factor(
                 fact.get("decay_tier"), fact.get("valid_to"),
                 fact.get("updated_at"), fact.get("valid_from"),
+                fact.get("recall_count"), fact.get("useful_count"), fact.get("last_recalled_at"), fact.get("last_spaced_at"),
             )
             freshness = self._freshness(fact["updated_at"])
             not_yet_effective = self._not_yet_effective(fact.get("valid_from"))
@@ -1218,12 +1223,24 @@ class QueryKernel:
             return False
 
     @staticmethod
-    def _decay_factor(decay_tier: str | None, valid_to: str | None, updated_at: str, valid_from: str | None = None) -> float:
+    def _decay_factor(
+        decay_tier: str | None,
+        valid_to: str | None,
+        updated_at: str,
+        valid_from: str | None = None,
+        recall_count: int | None = None,
+        useful_count: int | None = None,
+        last_recalled_at: str | None = None,
+        last_spaced_at: str | None = None,
+    ) -> float:
         """Calculate decay factor based on tier and elapsed time.
         Returns 1.0 (no decay) for L0_never, scales down to 0.0 for fully decayed.
 
         v12 Chronos double-timeline: a fact past its valid_to is deprioritized by 50%
         on top of the Ebbinghaus decay. Expired facts are deweighted, not deleted.
+
+        1.8.0 heat: bounded usage/spacing boost (max 1.8x) applied on top of the
+        base factor. Neutral when usage/spacing signals are absent.
         """
         factor = 1.0
         # Chronos: valid_to expiry deweights 50%
@@ -1236,20 +1253,39 @@ class QueryKernel:
                     factor *= 0.5
             except Exception:
                 pass
-        if decay_tier == "L0_never":
-            return factor
-        half_life = DECAY_HALF_LIFE.get(decay_tier, 30)
-        if half_life is None or half_life <= 0:
-            return factor
-        try:
-            updated = datetime.fromisoformat(updated_at)
-            if updated.tzinfo is None:
-                updated = updated.replace(tzinfo=timezone.utc)
-            elapsed_days = (datetime.now(timezone.utc) - updated).days
-        except Exception:
-            elapsed_days = 0
-        decay = 2.0 ** (-elapsed_days / half_life)
-        return max(0.01, factor * decay)
+        if decay_tier != "L0_never":
+            half_life = DECAY_HALF_LIFE.get(decay_tier, 30)
+            if half_life is not None and half_life > 0:
+                try:
+                    updated = datetime.fromisoformat(updated_at)
+                    if updated.tzinfo is None:
+                        updated = updated.replace(tzinfo=timezone.utc)
+                    elapsed_days = (datetime.now(timezone.utc) - updated).days
+                except Exception:
+                    elapsed_days = 0
+                decay = 2.0 ** (-elapsed_days / half_life)
+                factor = max(0.01, factor * decay)
+
+        # 1.8.0 heat boost (capped). Inputs may be missing on legacy rows.
+        rc = max(0, int(recall_count or 0))
+        uc = max(0, int(useful_count or 0))
+        def _days(ts: str | None):
+            if not ts:
+                return None
+            try:
+                dt = datetime.fromisoformat(ts)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0)
+            except Exception:
+                return None
+        recency = _days(last_recalled_at)
+        spacing = _days(last_spaced_at)
+        usage_term = 0.25 * (1.0 - 2.0 ** (-rc / 8.0)) + 0.20 * (1.0 - 2.0 ** (-uc / 4.0))
+        recency_term = 0.20 * (2.0 ** (-recency / 14.0)) if recency is not None else 0.0
+        spacing_term = 0.15 * min(1.0, spacing / 30.0) if spacing is not None else 0.0
+        heat = 1.0 + min(0.8, usage_term + recency_term + spacing_term)
+        return factor * heat
 
 
 def _verbatim_overlap(query: str, content: str) -> bool:

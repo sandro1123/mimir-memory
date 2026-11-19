@@ -55,7 +55,7 @@ class TKGFixture:
     def seed_supersedes(self, *, owner="mentor"):
         """old fact -> new fact (supersedes), returns (old_id, new_id, ts)."""
         old_id = _fact(self.store, "旧版备份策略：rsync 全量", owner=owner)
-        new_id = _fact(self.store, "新版备份策略：增量 + 校验", owner=owner)
+        new_id = _fact(self.store, "新版备份策略：增量 + 校验", owner=owner)  # noqa: F841 — 下方 supersede 引用其存在性
         result = self.candidates.create_candidate(
             CreateCandidate(
                 content="新版备份策略：增量 + 校验",

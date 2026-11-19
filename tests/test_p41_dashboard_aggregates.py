@@ -10,7 +10,6 @@ import asyncio
 import importlib.util
 from pathlib import Path
 
-import pytest
 
 
 def _load_main():
@@ -144,7 +143,7 @@ class TestLibraryEndpoint:
         assert any("disputed" in q for q in calls)
 
         calls.clear()
-        r2 = asyncio.run(mod.api_dashboard_library(filter="pending"))
+        asyncio.run(mod.api_dashboard_library(filter="pending"))
         # pending = 已入库但 human_status='unreviewed'（真键——2026-09-07 对表钉死）
         assert any("unreviewed" in q for q in calls)
 

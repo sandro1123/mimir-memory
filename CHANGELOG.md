@@ -6,6 +6,49 @@
 
 ---
 
+## v1.8.0 — 2026-11-19 · Auto-Capture & Heat · 会话钩子与热度
+
+> 大脑自动捕获 + 召回动力学：A-tier SessionStart/SessionEnd 钩子（STM 候选
+> 结晶，绝不自动写 facts）、adapter/source 双注册表（agent 与记忆来源按
+> 声明式契约接入）、search_feedback 热度信号接入衰减排序、retention
+> fail-closed 证明。全量加法，API 契约不变。
+
+- **SessionStart hook** (`GET /v8/hooks/session-start`) — 身份域定的
+  bootstrap 载荷（iron_rules / user_prefs / domain_counts，与其他 principal
+  的 owner-only 事实隔离；read scope）。`/v15/bootstrap` 复用同一实现。
+- **SessionEnd hook** (`POST /v8/hooks/session-end`, scope `ingest`) —
+  摄入 + 从脱敏后的对话结晶 **一个 STM 候选**（candidate_facts），**绝不
+  直写 facts**；拒绝 `memory_mode="explicit"`（显式记忆必须走 `remember()`）；
+  DLP 在候选持久化之前执行；幂等重放返回同一
+  `run_id/source_id/candidate_id`。
+- **A-tier adapter 脚手架** (`mimir_v8/adapters/hooks_a_tier.py`) —
+  `claude-code` / `codex` 的端点声明 + `build_session_end_payload(...)`
+  （ConversationEnvelope 兼容）。
+- **Adapter 注册表** (`mimir_v8/adapters/registry.py`) — AdapterSpec 契约
+  （tier/能力/端点绑定/幂等约定）+ fail-closed 校验（A-tier hook 路径
+  钉死、explicit 禁作默认模式）+ 内建 claude-code/codex；严格
+  YAML/JSON manifest 加载（`MIMIR_ADAPTERS_DIR`，未设置即 no-op）；
+  只读内省 `GET /v8/hooks/adapters`。
+- **Source 注册表** (`mimir_v8/sources/registry.py`) — SourceSpec 契约
+  （分类/摄入种类/交互模式/允许的 memory_mode/抽取策略/幂等），内建
+  10 个连接器与 `SOURCE_CATEGORY_MAP` 逐位对齐（parity 由测试钉死）；
+  未知类型 quarantine 兜底（永不自动晋升）；`classifier.py` 转为兼容
+  门面；learning 摄入/结晶按注册策略准入；只读内省
+  `GET /v8/sources/connectors`。
+- **热度（heat）信号** — `facts` 加列 `recall_count/useful_count/
+  last_recalled_at/last_spaced_at`（守卫式 ALTER，legacy 行保持 NULL/0，
+  不伪造使用历史）；`search_feedback`（useful|useless|correction）回写
+  热度；`query` 衰减排序按封顶热度加权（无证据时行为与 1.7.0 逐位
+  一致，中性不偏置）；21→22 rebuild 与 open 自愈共享同一守卫迁移。
+- **Retention fail-closed 证明** — tombstone/ledger 写失败 => 不删除/
+  不标记 executed（测试钉死）。
+- **Bootstrap 可见性修复** — session-start 重构（85fce9b）时
+  `can_read` 参数顺序颠倒，非 admin 身份的 bootstrap 恒为空；
+  本版恢复正确顺序并补正向可见性测试。
+
+**验证**：1190 passed / 1 skipped / 329 subtests（full suite, 2026-11-19
+worktree）；`ruff` 全绿；`release_scan.py` 七面闸门 clean。
+
 ## v1.7.0 — 2026-11-13 · Vault Bridge · 知识库桥
 
 > 把 1.6.0「感知与结晶」之后缺的人类知识库一侧补齐：声明式发布白名单、
