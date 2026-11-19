@@ -26,10 +26,11 @@ Mímir 从第一天起就是反着设计的——**每一条记忆都要过审�
 | **事件溯源与防篡改** | 事件账本 `memory_events` 与版本表 `fact_versions` 由数据库触发器禁止 UPDATE/DELETE，版本行带 `previous_version_hash` 哈希链，从写入起可审计 |
 | **细粒度 ACL 与联邦** | 跨 Agent 共享阅读（技术域打破孤岛、私密域物理防穿透）；支持多节点 Fernet 加密联邦同步 |
 | **诚实遥测与预算控制** | 查询带 `recall_verdict ∈ {found, not_found, degraded}`；超 Token 显式暴露丢弃项，严禁虚假成功 stub |
+| **会话钩子与热度 (1.8.0)** | SessionStart/SessionEnd 钩子自动捕获会话为 STM 候选（治理评审后才入库）、adapter/source 注册表声明式接入、search_feedback 热度信号参与召回排序 |
 | **Obsidian 知识库桥 (1.7.0)** | 经四道准入闸的实体事实可发布为库内「机器卡片」（Markdown + YAML Frontmatter），写前写后各一次 Git 快照；只写专属卡片目录，绝不改人类手写文字 |
 
-> **当前生产版本：`1.7.0 — Vault Bridge（知识库桥）`**  
-> 在 1.6.0「感知与结晶」之上，补齐人类知识库一侧：声明式发布白名单 + 四道准入闸 + 机器卡片渲染 + 防反馈环 + Git 快照；同时把「事务遇锁冲突有限重试」从未入库的生产热补丁固化为带测试的正式行为。  
+> **当前生产版本：`1.8.0 — Auto-Capture & Heat（会话钩子与热度）`**  
+> 在 1.7.0「Vault Bridge」之上，补齐 agent 一侧的自动记忆入口：A-tier SessionStart/SessionEnd 钩子（自动捕获只结晶候选、绝不直写 facts）+ adapter/source 双注册表（新 agent/新记忆来源按声明式契约注册接入）+ search_feedback 热度接入衰减排序 + retention fail-closed 证明。  
 > 完整 2.0 规格设计详见：[`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md)。
 
 ---
@@ -49,7 +50,7 @@ cd mimir-memory
 服务默认在 `http://127.0.0.1:8456` 启动。访问健康检查确认状态：
 ```bash
 curl http://127.0.0.1:8456/health
-# 返回: {"status":"ok","service":"mimir-api","version":"1.7.0","schema_version":21}
+# 返回: {"status":"ok","service":"mimir-api","version":"1.8.0","schema_version":21}
 ```
 
 ### 2. 挂载到你的 AI 智能体
