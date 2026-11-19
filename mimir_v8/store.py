@@ -1002,22 +1002,35 @@ class CanonicalStore:
             # 1.8.0 heat: additive usage/spacing signals on facts. Guarded
             # ALTER keeps legacy databases openable; defaults never fabricate
             # usage history (counters 0, timestamps NULL).
-            fact_columns = {
-                row[1] for row in connection.execute("PRAGMA table_info(facts)")
-            }
-            heat_columns = (
-                ("recall_count", "INTEGER NOT NULL DEFAULT 0"),
-                ("useful_count", "INTEGER NOT NULL DEFAULT 0"),
-                ("last_recalled_at", "TEXT"),
-                ("last_spaced_at", "TEXT"),
-            )
-            added = False
-            for name, decl in heat_columns:
-                if name not in fact_columns:
-                    connection.execute(f"ALTER TABLE facts ADD COLUMN {name} {decl}")
-                    added = True
+            added = self._add_missing_heat_columns(connection)
             if added:
                 connection.commit()
+
+    @staticmethod
+    def _add_missing_heat_columns(connection: sqlite3.Connection) -> bool:
+        """Add the 1.8.0 heat usage/spacing columns to `facts` if absent.
+
+        Guarded ALTER shared by `_ensure_additive_columns` (open-time
+        self-heal) and `migrate_schema_22_to_23` (whose 12-step rebuild
+        copies columns from the pre-migration table and would otherwise
+        drop them on a legacy database that predates Task 4). Returns
+        whether anything was added; callers own the commit.
+        """
+        fact_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(facts)")
+        }
+        heat_columns = (
+            ("recall_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("useful_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("last_recalled_at", "TEXT"),
+            ("last_spaced_at", "TEXT"),
+        )
+        added = False
+        for name, decl in heat_columns:
+            if name not in fact_columns:
+                connection.execute(f"ALTER TABLE facts ADD COLUMN {name} {decl}")
+                added = True
+        return added
 
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=5.0)
@@ -2566,6 +2579,13 @@ class CanonicalStore:
                 )
                 connection.execute("DROP TABLE facts")
                 connection.execute("ALTER TABLE facts_new RENAME TO facts")
+
+                # 1.8.0 heat columns are additive post-#44 additions. A legacy
+                # facts table predating Task 4 does not carry them, so the
+                # column copy above widens nothing — re-add them here so the
+                # rebuilt table always matches the runtime shape (same
+                # guarded-ALTER self-heal as on open).
+                self._add_missing_heat_columns(connection)
 
                 # Indexes are dropped along with the table; recreate them.
                 connection.execute(

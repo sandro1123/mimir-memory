@@ -944,7 +944,10 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         # its type is useful to a newly connected agent. Counts must use the same visible set.
         visible = [
             dict(row) for row in rows
-            if row["status"] == "active" and context.store.can_read(identity.principal_id, dict(row))
+            if row["status"] == "active" and context.store.can_read(
+                row["fact_id"], identity.principal_id,
+                is_admin=identity.is_admin, roles=set(identity.roles),
+            )
         ]
 
         iron_rules = [
@@ -977,6 +980,20 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
     def session_start_hook(identity: Principal = Depends(scoped("read"))):
         """SessionStart hook (#34 A-tier): identity-scoped bootstrap payload."""
         return _bootstrap_payload(identity)
+
+    @app.get("/v8/hooks/adapters")
+    def list_hook_adapters(identity: Principal = Depends(scoped("read"))):
+        """Registered agent-adapter manifests (1.8.0 spec §4.4, additive).
+
+        Read-scoped, non-sensitive: capabilities/endpoint conventions only —
+        no tokens, no secrets. Lets harness integrations discover the
+        contract without touching core code.
+        """
+        from mimir_v8.adapters.registry import list_adapters, manifest as adapter_manifest
+
+        return {
+            "adapters": [adapter_manifest(spec) for spec in list_adapters()],
+        }
 
     # ---- v1.6.0 Step 2: probe & source registry ------------------------
     @app.get("/v16/probe/status")
@@ -1608,6 +1625,20 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             idempotency_key=body.idempotency_key,
         )
         return context.learning.ingest_conversation(envelope, identity.principal_id)
+
+    @app.get("/v8/sources/connectors")
+    def list_source_connectors(identity: Principal = Depends(scoped("read"))):
+        """Registered memory-source connector policies (1.8.0 spec §5.3, additive).
+
+        Read-scoped, non-sensitive registry view: category/policy summaries
+        for attribution and debugging. Unknown/unregistered types are not
+        listed here — they resolve to the quarantine fallback.
+        """
+        from mimir_v8.sources.registry import list_sources, manifest as source_manifest
+
+        return {
+            "connectors": [source_manifest(spec) for spec in list_sources()],
+        }
 
     @app.post("/v8/learning/remember", status_code=201)
     def remember(body: RememberBody, identity: Principal = Depends(scoped("write"))):
