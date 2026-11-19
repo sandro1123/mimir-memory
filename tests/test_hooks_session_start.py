@@ -56,6 +56,12 @@ def test_session_start_respects_identity_visibility(tmp_path):
         fact_type="user_pref", visibility="owner_only", sensitivity="internal",
         egress_policy="local_only", human_status="confirmed",
     ), actor_principal="mentor")
+    # own fact for the caller must be visible (guards can_read arg-order regressions)
+    own = store.create_fact(CreateFact(
+        content="own-visible-pref", summary="own", owner_principal="jarvis", domain="personal",
+        fact_type="user_pref", visibility="owner_only", sensitivity="internal",
+        egress_policy="local_only", human_status="confirmed",
+    ), actor_principal="jarvis")
     client = TestClient(
         create_app(ServiceContext(store=store, token_store=TokenStore(token_path), query=QueryKernel(store))),
         raise_server_exceptions=False,
@@ -64,7 +70,9 @@ def test_session_start_respects_identity_visibility(tmp_path):
     assert resp.status_code == 200
     body = resp.json()
     texts = [f.get("content") or f.get("summary") for f in body["user_prefs"] + body["iron_rules"]]
+    fact_ids = [f.get("fact_id") for f in body["user_prefs"] + body["iron_rules"]]
     assert "secret-other" not in texts
+    assert own["fact_id"] in fact_ids and "own-visible-pref" in texts
 
 
 def test_session_start_requires_read_scope(tmp_path):
