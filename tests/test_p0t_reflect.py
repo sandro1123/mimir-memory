@@ -86,7 +86,7 @@ class TestReflectionScan(unittest.TestCase):
     def test_run_ledger_written(self):
         payload = {"insights": []}
         with mock.patch("mimir_v8.reflect._call_llm", _fake_llm(payload)):
-            r = ReflectionService(self.store).scan()
+            ReflectionService(self.store).scan()
         with contextlib.closing(self.store.connect()) as c:
             rows = c.execute("SELECT status FROM reflect_runs ORDER BY started_at").fetchall()
         self.assertTrue(rows, "账本必须有痕")
@@ -361,7 +361,7 @@ class TestReflectionLedger(unittest.TestCase):
         漏掉显式 commit() 的 UPDATE 会随连接蒸发。本测试从**另一条连接**
         读回结果，因此「读得到」即是「真提交了」。
         """
-        store = CanonicalStore(Path(self._tmp.name) / "e.db")
+        CanonicalStore(Path(self._tmp.name) / "e.db")
 
         class _OutageStore(CanonicalStore):
             def __init__(self, *a, **kw):

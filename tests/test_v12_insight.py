@@ -592,7 +592,7 @@ class TestM3bSkillCrystallization(unittest.TestCase):
     def test_scan_refreshes_existing_open_candidate(self):
         with tempfile.TemporaryDirectory() as tmp:
             store, svc, ids = self._seed(tmp, copies=3)
-            first = svc.scan()
+            svc.scan()
             cid = svc.list("candidate")[0]["candidate_id"]
             second = svc.scan()
             self.assertEqual(second["created"], 0)
@@ -629,7 +629,6 @@ class TestM3bSkillCrystallization(unittest.TestCase):
                 svc.approve(cid)
 
     def test_dismiss_leaves_facts_untouched(self):
-        import mimir_v8.crystallize as mod
         with tempfile.TemporaryDirectory() as tmp:
             store, svc, ids = self._seed(tmp, copies=3)
             svc.scan()

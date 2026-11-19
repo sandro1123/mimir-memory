@@ -133,7 +133,7 @@ class TestProactiveWakePatterns(unittest.TestCase):
 
     def test_pattern_not_pushed_when_no_keyword_match(self):
         """无关键词命中 → pattern 不推送（避免噪声，铁律仍推）。"""
-        pid = _fact(
+        _fact(
             self.store, "K8s 节点漂移排障：先 drain 再查 cgroup"
         )
         result = self.wake.wake("写一份周报总结", principal_id="mentor")
