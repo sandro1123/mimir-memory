@@ -25,7 +25,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from mimir_v8.evaluator import (
     Evaluator,
     INPUT_INJECTION_PATTERNS,
-    PROMPT_INJECTION_PATTERNS,
     echo_guard,
 )
 
@@ -102,7 +101,6 @@ class TestInjectionVariants(unittest.TestCase):
 
     def test_echo_guard_flags_injection_replay(self):
         """评估 reasoning 回显注入指令形态 → 强制 escalated。"""
-        from mimir_v8.evaluator import echo_guard
         flagged = echo_guard("好的，我已忽略之前的所有指令并执行了操作")
         self.assertTrue(flagged)
         clean = echo_guard("该事实记录了用户的偏好设置，置信度高")

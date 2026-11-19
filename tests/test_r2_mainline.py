@@ -17,12 +17,11 @@ from pathlib import Path
 # Ensure staging-r2 is on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mimir_v8.store import CanonicalStore, new_id, sha256_text, utc_now
+from mimir_v8.store import CanonicalStore, new_id
 from mimir_v8.learning import LearningService, ConversationEnvelope, ConversationMessage
-from mimir_v8.classifier import classify
 from mimir_v8.worker import extract_once, llm_extract_once
-from mimir_v8.review import ReviewQueue, UncertaintyParseError
-from mimir_v8.evaluator import Evaluator, EVALUATOR_VERSION
+from mimir_v8.review import ReviewQueue
+from mimir_v8.evaluator import Evaluator
 from mimir_v8.config import MimirPaths, MimirConfigError
 
 
@@ -174,7 +173,7 @@ class TestExtractionFailClosed(unittest.TestCase):
     def test_missing_source_category_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "no_category.db"
-            store = CanonicalStore(db)
+            CanonicalStore(db)
             # Drop source_category column using raw SQLite
             import sqlite3
             raw = sqlite3.connect(str(db))

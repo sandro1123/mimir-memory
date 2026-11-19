@@ -61,7 +61,7 @@ def test_hook_pipeline_start_then_end_crystallizes_candidate(tmp_path):
     end = client.post(
         "/v8/hooks/session-end",
         json={
-            "connector_type": "hook",
+            "connector_type": "external_agent",
             "connector_id": "session-end",
             "session_id": "sess-int-1",
             "owner_principal": "jarvis",
@@ -95,7 +95,7 @@ def test_hook_pipeline_start_then_end_crystallizes_candidate(tmp_path):
 def test_hook_pipeline_end_is_idempotent(tmp_path):
     _store, client = _app(tmp_path)
     payload = {
-        "connector_type": "hook",
+        "connector_type": "external_agent",
         "connector_id": "session-end",
         "session_id": "sess-int-2",
         "owner_principal": "jarvis",

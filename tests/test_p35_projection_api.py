@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mimir_v8.auth import TokenStore
 from mimir_v8.projection import MODEL_TIERS
-from mimir_v8.query import QueryKernel, QueryRequest
+from mimir_v8.query import QueryKernel
 from mimir_v8.schema import CreateFact
 from mimir_v8.store import CanonicalStore
 

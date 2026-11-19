@@ -13,7 +13,6 @@ Traces (L0) ──▶ Mímir Wiki (L1/L2) ──▶ Hermes Skills (L3) 三层演
 
 from __future__ import annotations
 
-import sqlite3
 import sys
 import tempfile
 import unittest
@@ -106,7 +105,7 @@ class TestAutoSkillService(unittest.TestCase):
     # ── record_success: L0 trace → topic aggregation ────────────────────
 
     def test_record_success_counts(self):
-        tids = _seed_topic(self.store, self.svc, "k8s-crashloop", count=2)
+        _seed_topic(self.store, self.svc, "k8s-crashloop", count=2)
         result = self.svc.record_success(
             trace_id=_trace(self.store, "排查 k8s CrashLoopBackOff 三"),
             topic="k8s-crashloop",
@@ -226,7 +225,6 @@ class TestAutoSkillService(unittest.TestCase):
 
     def test_skill_rides_l3_layer_sweep(self):
         """skill 入 LAYER3_FACT_TYPES —— 检索面自动装配，全量挂载。"""
-        from mimir_v8.query import QueryKernel, QueryRequest
 
         kernel = QueryKernel(self.store)
         self.assertIn("skill", kernel.LAYER3_FACT_TYPES)
@@ -255,7 +253,6 @@ class TestAutoSkillAPI(unittest.TestCase):
 
         from mimir_v8.api import ServiceContext, create_app
         from mimir_v8.auth import TokenStore
-        from mimir_v8.query import QueryKernel
 
         self._tmp = tempfile.TemporaryDirectory()
         root = Path(self._tmp.name)

@@ -1,5 +1,4 @@
 """Entity relation boundary and advanced tests for Mímir v1.6.0."""
-import pytest
 import tempfile
 from pathlib import Path
 from mimir_v8.store import CanonicalStore

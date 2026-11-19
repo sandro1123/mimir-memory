@@ -138,7 +138,6 @@ class TestLayerAssembly(unittest.TestCase):
         # 门拦截计数须在「L1 确实进过候选池」的场景下观测：挂上 FTS 通道
         # 让相似度命中把 L1 送进池，再断言 standard 档 hydration 把它们
         # 拦下并计数（deep 档同场景放行）。
-        from mimir_v8.projector import FTSProjector
 
         fts = FTSPathFixture()
         fts.drain_all(self.fx.store)
@@ -155,7 +154,6 @@ class TestLayerAssembly(unittest.TestCase):
 
     def test_standard_drops_fts_matched_L1(self):
         # 与上一测同场景：standard 结果面里 FTS 已命中的 L1 也必须消失
-        from mimir_v8.projector import FTSProjector
 
         fts = FTSPathFixture()
         fts.drain_all(self.fx.store)

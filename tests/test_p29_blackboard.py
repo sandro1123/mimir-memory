@@ -27,7 +27,6 @@ from mimir_v8.blackboard import (
     CreateBoard,
     PostEntry,
 )
-from mimir_v8.schema import CreateFact
 from mimir_v8.store import CanonicalStore
 
 

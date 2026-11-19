@@ -158,9 +158,11 @@ class TestR5AtomicRollback(unittest.TestCase):
                 source = fixture.ingest("hermes_cdc", "remember this")
                 before = fixture.snapshot()
 
-                def hook(current):
-                    if current == point:
-                        raise RuntimeError(f"injected:{point}")
+                captured = point  # bind loop var: closure would otherwise see the last iteration
+
+                def hook(current, _target=captured):
+                    if current == _target:
+                        raise RuntimeError(f"injected:{_target}")
 
                 with self.assertRaisesRegex(RuntimeError, f"injected:{point}"):
                     fixture.extract(source, key=f"r5-fault:{point}", failure_hook=hook)

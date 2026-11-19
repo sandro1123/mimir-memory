@@ -93,7 +93,7 @@ class TestTier0ExactMerge(unittest.TestCase):
         from mimir_v8.dedup import check_duplicate
         with tempfile.TemporaryDirectory() as tmp:
             store = CanonicalStore(Path(tmp) / "canon.db")
-            fid = _seed(store, "!!! ??? ...")
+            _seed(store, "!!! ??? ...")
             r = check_duplicate(store, "!!! ??? ...", "mentor", fuzzy_min_docs=5)
             self.assertTrue(r["is_duplicate"], "Tier-0 不受冷启动门限制")
             self.assertEqual(r["match_type"], "merge")

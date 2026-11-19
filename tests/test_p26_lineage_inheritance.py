@@ -194,7 +194,7 @@ class TestLineageFailClosed(unittest.TestCase):
 
     def test_idempotent_replay_still_works_with_gate(self):
         # 门不影响幂等重放：先建合法派生候选，同 key 重放拿同一 candidate
-        src = _seed(self.fx.store, "合法来源", key_owner := "mentor") if False else _seed(self.fx.store, "合法来源")
+        src = _seed(self.fx.store, "合法来源")
         cmd = _candidate(self.fx.service, "第一次", supersedes=src, key="lin-7")
         first = self.fx.create(cmd)
         second = self.fx.create(cmd)

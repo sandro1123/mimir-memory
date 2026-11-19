@@ -21,9 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mimir_v8.schema import CreateFact
 from mimir_v8.store import CanonicalStore
-from mimir_v8 import worker
 from mimir_v8.worker import llm_extract_once
 
 
@@ -63,7 +61,7 @@ class TestExtractionGate(unittest.TestCase):
                        content="请记住 我的偏好是深色主题")
             _mk_source(store, category="external_info", connector="rss",
                        content="An article about retro computing history")
-            r = llm_extract_once(store, "service:extract", limit=10)
+            llm_extract_once(store, "service:extract", limit=10)
             # 无 LLM key → evaluator 走 fallback；关键断言：rss 行未入 rows
             # （created/skipped/failed 的 run 都不含 rss run —— 通过
             #  痕迹面判：rss run 仍 stored）
@@ -77,7 +75,6 @@ class TestExtractionGate(unittest.TestCase):
 
     def test_env_gate_opens_vault(self):
         """MIMIR_EXTRACT_CATEGORIES 扩册后 vault 源入队。"""
-        import importlib
         os.environ["MIMIR_EXTRACT_CATEGORIES"] = "conversation,knowledge_doc"
         try:
             with tempfile.TemporaryDirectory() as tmp:
@@ -99,7 +96,6 @@ class TestExtractionGate(unittest.TestCase):
 
     def test_purged_content_never_enters_llm(self):
         """retention 清过的正文绝不进 LLM（防线）。"""
-        import importlib
         os.environ["MIMIR_EXTRACT_CATEGORIES"] = "conversation,knowledge_doc"
         try:
             with tempfile.TemporaryDirectory() as tmp:

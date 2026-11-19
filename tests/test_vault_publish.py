@@ -84,7 +84,6 @@ class TestPublishEntity(_Env):
         self.assertIn("正文 v2", text)
 
     def test_publish_refuses_local_only_fact(self):
-        import shutil
 
         # 独立 vault：目录里不能有其他测试写下的卡
         vault2 = self.vault.parent / "vault2"
@@ -117,7 +116,7 @@ class TestPublishEntity(_Env):
         """人先 git commit（文件未变）→ 再发布 v9：human hash 未变，应成功；
         git 里留下人编辑的快照，可回滚。"""
         self._publish()
-        path = self.vault / "90-机器收件箱/Mímir 卡片/ent_1.md"
+        path = self.vault / "90-机器收件箱/Mímir 卡片/ent_1.md"  # noqa: F841 — 记录预期产物路径
         env = _clean_git_env()
         subprocess.run(["git", "add", "-A"], cwd=self.vault, check=True, env=env)
         subprocess.run(

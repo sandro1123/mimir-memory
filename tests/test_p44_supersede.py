@@ -397,6 +397,10 @@ class TestSupersedeMigration(unittest.TestCase):
                     tombstoned_at TEXT,
                     decay_tier TEXT NOT NULL DEFAULT 'L0_never',
                     decayed_at TEXT,
+                    recall_count INTEGER NOT NULL DEFAULT 0,
+                    useful_count INTEGER NOT NULL DEFAULT 0,
+                    last_recalled_at TEXT,
+                    last_spaced_at TEXT,
                     schema_version INTEGER NOT NULL,
                     content_hash TEXT NOT NULL
                 ) STRICT""")

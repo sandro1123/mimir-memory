@@ -2,11 +2,9 @@
 
 Tests the entity create, read, update, and soft-delete operations.
 """
-import pytest
 import tempfile
 from pathlib import Path
 from mimir_v8.store import CanonicalStore
-from mimir_v8.schema import CreateFact
 
 
 def test_create_entity_basic():

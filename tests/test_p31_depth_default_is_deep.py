@@ -8,7 +8,6 @@ L1 gate 是 v12.2.0 刻意设计(spec 不动, 见 test_p28), 因此这里不测�
 from __future__ import annotations
 
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock

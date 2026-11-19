@@ -25,8 +25,6 @@ from mimir_v8.query import QueryKernel, QueryRequest
 from mimir_v8.recall_cursor import (
     CursorScopeMismatch,
     CursorSignatureInvalid,
-    mint_cursor,
-    verify_cursor,
 )
 from mimir_v8.schema import CreateFact
 from mimir_v8.store import CanonicalStore

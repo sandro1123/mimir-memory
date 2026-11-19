@@ -333,7 +333,6 @@ class TestSchemaV19VaultConnector(unittest.TestCase):
         # A freshly created canonical DB (current SCHEMA_VERSION) must
         # also accept vault connector rows — new and migrated databases
         # must not drift apart.
-        import sqlite3
 
         from mimir_v8.store import CanonicalStore as Store
 

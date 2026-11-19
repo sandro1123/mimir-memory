@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mimir_v8.store import CanonicalStore
 from mimir_v8.schema import CreateFact
-from mimir_v8.query import QueryKernel, QueryRequest
+from mimir_v8.query import QueryKernel
 
 
 class TestCrossAgentSharing(unittest.TestCase):

@@ -8,7 +8,6 @@ pyproject.toml 与 test_r8_release 断言停在 14.1.0——两处假红。
 """
 from __future__ import annotations
 
-import re
 import sys
 import unittest
 from pathlib import Path

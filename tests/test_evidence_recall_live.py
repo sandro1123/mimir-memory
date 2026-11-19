@@ -12,7 +12,6 @@ TDD：对已修的 query.py 应绿；把 query.py 回退到 C2 原样应红。
 """
 from __future__ import annotations
 
-import json
 import sys
 import tempfile
 import unittest

@@ -54,7 +54,6 @@ class TestSelfIngestGuard(unittest.TestCase):
 
     def test_quoted_marker_variant_also_skipped(self):
         """容忍 YAML 引号形态 mimir_generated: "true"。"""
-        import tempfile
 
         from mimir_v8.collectors.vault import _is_mimir_generated
 
