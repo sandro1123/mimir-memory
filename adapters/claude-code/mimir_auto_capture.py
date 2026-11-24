@@ -23,14 +23,14 @@ def _resolve_agent_id() -> str:
 
     - MIMIR_AGENT_ID wins when set.
     - The aiduCAT lark-channel bridge (LARK_CHANNEL_HOME present) is Thor.
-    - Any other Claude Code session on this host is claudecode.
+    - Any other Claude Code session on this host is thor (claudecode retired 2026-11-24).
     """
     explicit = os.environ.get("MIMIR_AGENT_ID", "").strip().lower()
     if explicit:
         return explicit
     if os.environ.get("LARK_CHANNEL_HOME") or os.environ.get("LARK_CHANNEL"):
         return "thor"
-    return "claudecode"
+    return "thor"
 
 
 AGENT_ID = _resolve_agent_id()

@@ -7,6 +7,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -58,6 +59,10 @@ def build_parser() -> argparse.ArgumentParser:
     review = sub.add_parser("review-reminder")
     review.add_argument("--owner", default=os.environ.get("MIMIR_REVIEW_OWNER", ""))
     review.add_argument("--output", choices=["json", "feishu", "obsidian"], default="json")
+    capture = sub.add_parser("capture-check")
+    capture.add_argument("--watch", default=os.environ.get("MIMIR_CAPTURE_WATCH", ""),
+                         help="connector=max_gap_hours,... (default: built-in watch list)")
+    capture.add_argument("--output", choices=["json", "feishu"], default="json")
     report = sub.add_parser("daily-report")
     report.add_argument("--output", choices=["json", "feishu", "obsidian", "all"], default="json")
     report.add_argument("--obsidian-dir", default=os.environ.get("MIMIR_REPORT_OBSIDIAN_DIR", ""))
@@ -327,6 +332,41 @@ def _extract_source_quotas() -> dict[str, int]:
     return quotas
 
 
+# 1.9.0 结晶前清洗（2026-11-24）：bridge 进程把路由元数据和系统指令原样包进
+# user 消息（<bridge_context>/<bridge_instructions>/<interactive_cards>），当天
+# 44 条候选里 7 条带着这些原文。抽取前整块剥掉；<user_input> 只保留其 text。
+# 只清抽取上下文，conversation_messages 里的存证原文不动。
+_BRIDGE_DROP_TAGS = ("bridge_context", "bridge_instructions", "interactive_cards",
+                     "tool_call", "system-reminder")
+_BRIDGE_TAG_ALT = "|".join(re.escape(t) for t in _BRIDGE_DROP_TAGS)
+_BRIDGE_DROP_RE = re.compile(r"<(%s)>.*?</\1>" % _BRIDGE_TAG_ALT, re.DOTALL)
+# 截断留下的未闭合块：从开标签剥到结尾
+_BRIDGE_OPEN_RE = re.compile(r"<(?:%s)>.*\Z" % _BRIDGE_TAG_ALT, re.DOTALL)
+_USER_INPUT_RE = re.compile(r"<user_input>(.*?)(?:</user_input>|\Z)", re.DOTALL)
+
+
+def _unwrap_user_input(match: "re.Match[str]") -> str:
+    inner = match.group(1).strip()
+    try:
+        obj = json.loads(inner)
+    except ValueError:
+        return inner
+    if isinstance(obj, dict) and isinstance(obj.get("text"), str):
+        return obj["text"]
+    return inner
+
+
+def strip_bridge_wrappers(text: str) -> str:
+    """剥掉 bridge 注入的包装块，只留人说的话。无包装时原样返回。"""
+    if not text or "<" not in text:
+        return text or ""
+    out = _BRIDGE_DROP_RE.sub("", text)
+    out = _BRIDGE_OPEN_RE.sub("", out)
+    out = _USER_INPUT_RE.sub(_unwrap_user_input, out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()
+
+
 #: 抽取上下文的字符上限（保留原 4000 护栏的同等量级）。
 _EXTRACT_CONTEXT_MAX = 4000
 _ROLE_LABEL = {"user": "[User]", "assistant": "[Assistant]"}
@@ -347,7 +387,7 @@ def build_extraction_context(messages: list[dict]) -> str:
     parts: list[str] = []
     for m in messages or []:
         role = str(m.get("role") or "").strip().lower()
-        text = str(m.get("content_redacted") or "").strip()
+        text = strip_bridge_wrappers(str(m.get("content_redacted") or "").strip())
         if not text:
             continue
         label = _ROLE_LABEL.get(role, f"[{role or 'unknown'}]")
@@ -402,6 +442,12 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
     """LLM-powered extraction with higher recall than keyword rules."""
     if limit < 1 or limit > 50:
         raise ValueError("llm extraction limit must be between 1 and 50")
+    from .schema import get_registered_agents as _registered_agents
+    registered = _registered_agents()
+    # 2026-11-24: 已上报过的停放 run（owner 未注册）不能占 LIMIT 名额——
+    # 停放数 >= limit 时新对话会永远轮不到。SQL 侧排除，另行计数。
+    reg_list = sorted(str(a).strip().lower() for a in registered) or ["\x00"]
+    reg_ph = ",".join("?" for _ in reg_list)
     with contextlib.closing(store.connect()) as connection:
         categories = _extract_categories()
         cat_placeholders = ",".join("?" for _ in categories)
@@ -420,10 +466,27 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
                    WHERE e.run_id = r.run_id
                      AND e.error_code = 'llm_unavailable'
                      AND e.started_at >= datetime('now', ?)) < ?
+              AND (lower(trim(coalesce(s.owner_principal,''))) IN ({reg_ph})
+                   OR NOT EXISTS (SELECT 1 FROM extraction_runs ep
+                                  WHERE ep.run_id = r.run_id
+                                    AND ep.error_code = 'unregistered_owner'))
             ORDER BY r.started_at LIMIT ?""",
             (*categories, f'-{LLM_BACKOFF_WINDOW_HOURS} hours',
-             LLM_BACKOFF_HITS, limit),
+             LLM_BACKOFF_HITS, *reg_list, limit),
         ).fetchall()]
+        parked_counts = {str(p[0]): int(p[1]) for p in connection.execute(
+            f"""SELECT lower(trim(coalesce(s.owner_principal,''))), COUNT(*)
+            FROM ingestion_runs r
+            JOIN conversation_sources s ON s.source_id = r.source_id
+            WHERE r.status = 'stored'
+              AND s.source_category IN ({cat_placeholders})
+              AND lower(trim(coalesce(s.owner_principal,''))) NOT IN ({reg_ph})
+              AND EXISTS (SELECT 1 FROM extraction_runs ep
+                          WHERE ep.run_id = r.run_id
+                            AND ep.error_code = 'unregistered_owner')
+            GROUP BY 1""",
+            (*categories, *reg_list),
+        ).fetchall()}
         # v14.2.1-2 RSS 日配额（Python 面，简单可测）：按 connector 计数
         # 当日（UTC）已完成抽取次数，超配额的 connector 本轮跳过——
         # vault 全量、rss 默认 100/日（用户 09-11 拍板）。
@@ -454,19 +517,50 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
         # 注意：本块是 closing(connect) 只读语义，settle 自带事务提交。
         _settle_purged_shell_runs(store)
     if not rows:
-        return {"created": [], "skipped": [], "failed": [], "count": 0, "evaluator_mode": "no_data"}
+        return {"created": [], "skipped": [], "failed": [], "count": 0, "evaluator_mode": "no_data",
+                "parked_unregistered_owner": parked_counts}
 
     evaluator = Evaluator()
     service = ExtractionService(store)
     created, skipped, failed = [], [], []
     llm_unavailable_count = 0
     seen_runs: set[str] = set()
+    # 2026-11-24 owner guard: an owner missing from the roster makes
+    # CreateFact.validated() raise for every keep-worthy conversation, so
+    # retrying is pointless until someone registers it. Check before the LLM
+    # call (saves tokens) and record ONE failed(unregistered_owner) per run so
+    # the failure stays visible (exit 1, P1-11). Later rounds exclude the run
+    # in the queue query above (so it cannot starve LIMIT) and only count it
+    # in parked_unregistered_owner. The run stays 'stored': once the owner is
+    # registered it is picked up again with no manual requeue.
+    parked_unregistered: dict[str, int] = dict(parked_counts)
 
     for row in rows:
         run_id = row["run_id"]
         if run_id in seen_runs:
             continue
         seen_runs.add(run_id)
+
+        owner = str(row.get("owner_principal") or "").strip().lower()
+        if owner not in registered:
+            with store.transaction() as connection:
+                already = connection.execute(
+                    "SELECT 1 FROM extraction_runs WHERE run_id=? AND error_code='unregistered_owner' LIMIT 1",
+                    (run_id,),
+                ).fetchone()
+                if not already:
+                    now = utc_now()
+                    connection.execute(
+                        "INSERT INTO extraction_runs(extraction_id,run_id,extractor_principal,policy_version,status,candidate_count,started_at,completed_at,error_code) VALUES(?,?,?,?,?,?,?,?,?)",
+                        (new_id(), run_id, actor_principal, "owner-guard-v1", "failed", 0, now, now, "unregistered_owner"),
+                    )
+            if not already:
+                logger.error(
+                    "extract %s: owner_principal %r is not a registered agent — "
+                    "register it (MIMIR_AGENTS or worker register-agent); run parked until then",
+                    run_id, owner)
+                failed.append({"run_id": run_id, "error": "unregistered_owner", "owner": owner})
+            continue
 
         with contextlib.closing(store.connect()) as connection:
             messages = [dict(m) for m in connection.execute(
@@ -572,9 +666,10 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
             )
             created.append({"candidate_id": result["candidate"]["candidate_id"], "salience": eval_result.salience, "risk": eval_result.risk})
         except Exception as exc:
-            failed.append({"run_id": run_id, "error": type(exc).__name__})
+            failed.append({"run_id": run_id, "error": type(exc).__name__, "detail": str(exc)[:200]})
     return {"created": created, "skipped": skipped, "failed": failed, "count": len(created),
-            "evaluator_mode": "llm", "llm_unavailable": llm_unavailable_count}
+            "evaluator_mode": "llm", "llm_unavailable": llm_unavailable_count,
+            "parked_unregistered_owner": parked_unregistered}
 
 
 def review_reminder(store: CanonicalStore, owner: str | None = None) -> dict:
@@ -608,6 +703,71 @@ def review_reminder(store: CanonicalStore, owner: str | None = None) -> dict:
             for i in summary.items[:10]
         ],
     }
+
+
+#: 1.9.0 捕获断流告警（2026-11-24）：这些 connector 超过阈值小时数没有新
+#: source 即视为断流。Odin 用量低，阈值放宽。MIMIR_CAPTURE_WATCH 可整体覆盖。
+CAPTURE_WATCH_DEFAULT = {"thor-bridge": 24.0, "odin-bridge": 72.0, "hermes-jarvis-profile": 24.0}
+
+
+def _parse_capture_watch(spec: str) -> dict[str, float]:
+    watch: dict[str, float] = {}
+    for item in (spec or "").split(","):
+        name, sep, hours = item.strip().partition("=")
+        if not name.strip():
+            continue
+        try:
+            watch[name.strip()] = float(hours) if sep else 24.0
+        except ValueError:
+            raise SystemExit(f"capture-check: bad watch entry {item!r} (want connector=hours)") from None
+    return watch
+
+
+def capture_gap_check(store: CanonicalStore, watch: dict[str, float] | None = None,
+                      now: "datetime | None" = None, output: str = "json") -> dict:
+    """Flag watched connectors whose newest conversation_source is too old.
+
+    Any stale connector -> status=error -> exit 1, so the systemd unit fails
+    and the push wrapper sends the card. A connector never seen counts as stale.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    watch = dict(watch or CAPTURE_WATCH_DEFAULT)
+    now = now or _dt.now(_tz.utc)
+    ph = ",".join("?" for _ in watch)
+    with contextlib.closing(store.connect()) as connection:
+        last = {str(r[0]): r[1] for r in connection.execute(
+            f"SELECT connector_id, max(ingested_at) FROM conversation_sources"
+            f" WHERE connector_id IN ({ph}) GROUP BY 1", tuple(watch)).fetchall()}
+    connectors, stale = [], []
+    for name, max_gap in sorted(watch.items()):
+        raw = last.get(name)
+        gap = None
+        if raw:
+            try:
+                ts = _dt.fromisoformat(str(raw).replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=_tz.utc)
+                gap = round((now - ts).total_seconds() / 3600, 1)
+            except ValueError:
+                gap = None
+        is_stale = gap is None or gap > max_gap
+        entry = {"connector_id": name, "last_ingested_at": raw, "gap_hours": gap,
+                 "max_gap_hours": max_gap, "stale": is_stale}
+        connectors.append(entry)
+        if is_stale:
+            stale.append(entry)
+    result = {"command": "capture-check", "checked_at": now.isoformat(),
+              "status": "error" if stale else "ok", "stale": stale, "connectors": connectors}
+    if output == "feishu" and stale:
+        lines = [f"- **{e['connector_id']}**：" + (
+            f"已 {e['gap_hours']} 小时没有新对话（阈值 {e['max_gap_hours']:g} 小时）"
+            if e["gap_hours"] is not None else "从未收到对话") for e in stale]
+        result["feishu_card"] = {"card": {
+            "header": {"template": "red", "title": {"tag": "plain_text", "content": "Mímir 捕获断流"}},
+            "elements": [{"tag": "markdown", "content": "\n".join(lines)
+                          + "\n\n检查对应机器的 Claude Code hook / bridge 是否在跑。"}],
+        }}
+    return result
 
 
 def daily_report(store: CanonicalStore, output: str = "json", obsidian_dir: str = "") -> dict:
@@ -1084,6 +1244,8 @@ def main(argv=None) -> int:
         result = llm_extract_once(store, args.actor, limit=args.limit, salience_threshold=args.salience_threshold)
     elif args.command == "review-reminder":
         result = review_reminder(store, owner=args.owner)
+    elif args.command == "capture-check":
+        result = capture_gap_check(store, _parse_capture_watch(args.watch) or None, output=args.output)
     elif args.command == "daily-report":
         result = daily_report(store, output=args.output, obsidian_dir=args.obsidian_dir)
     elif args.command == "decay-scan":

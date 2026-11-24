@@ -35,16 +35,39 @@
 - **Magpie 接入方案** (`docs/ops/MAGPIE_LLM.md`) — 治理与抽取改走专用 key `Mimir-Memory`
   的 drop-in、模型评测证据（16 条：JSON 16/16，一致率 0.94/0.94/0.88）与回滚步骤。
 - **`mimir` 查询客户端入仓** (`scripts/mimir`) — `--help`；身份自动识别
-  （`MIMIR_AGENT_ID` > aiduCAT 桥 => thor > claudecode），按身份取 token、缺失即报错
-  不借用；显示时间与来源；检索降级时明确提示。
+  （`MIMIR_AGENT_ID` > `-a` > 默认 thor），按身份取 token、缺失即报错不借用；显示时间与来源；
+  检索降级时明确提示。
+
+**收尾（2026-11-24，同版本）**：
+- **claudecode 退役** (`worker.py`, `auth.py`) — 其 facts 按来源拆给 thor / odin，token 吊销；
+  owner 未注册的抽取 run 首轮报错一次（exit 1），之后停放、不调 LLM，注册后自动恢复。
+- **停放 run 不再占抽取名额** (`worker.py`) — 已上报的停放 run 在 SQL 侧排除并单独计数
+  （`parked_unregistered_owner`），停放数超过 limit 时新对话不再被饿死。
+- **结晶前清洗** (`worker.py`) — 抽取上下文剥掉 `<bridge_context>` / `<bridge_instructions>` /
+  `<interactive_cards>` / `<tool_call>` / `<system-reminder>`，`<user_input>` 只取 `text`；
+  `conversation_messages` 存证原文不动。
+- **捕获断流告警** (`worker capture-check`) — 监控 thor-bridge（24h）、odin-bridge（72h）、
+  hermes-jarvis-profile（24h），超阈值或从未出现即 exit 1，可输出飞书卡片；
+  `MIMIR_CAPTURE_WATCH` 覆盖清单。
+- **热度排序追认** (`docs/adr/ADR-0001-heat-boost-in-ranking.md`, `query.py`) — 维持 1.8.0 行为
+  （最多 1.8 倍），新增 `MIMIR_HEAT_BOOST=0` 关闭开关；效果评估列入 1.9.1。
+- **文档** — `ROLES.md`、`scripts/mimir` 帮助、`install.sh` 注释同步身份现状。
+
+**部署热修（2026-11-24，同版本）**：生产实测推理型 flash 模型思考 1–2k token，`max_tokens=1024` 触发
+`finish_reason=length` 且 content 为空 → 治理 `TypeError`。治理 `MIMIR_GOVERNANCE_MAX_TOKENS`、评估
+`MIMIR_EVALUATOR_MAX_TOKENS` 默认改 2048；空 content 返回明确原因而非崩溃。
 
 **运维侧（不在仓库内，随版本登记）**：生产 token 注册表新增 `thor`/`odin`
 （仅 read+ingest）；`claudecode` 收回 review/delete；Claude Code hook
 （`~/.claude/hooks/mimir_auto_capture.py`）按身份取 token、resume 时节流注入底座、
 入库前剥离桥接上下文。
 
-**已知未完成（顺延）**：Mirasim L1/L3、Obsidian 定时投影、Odin 端 hook 安装、检索可选返回
-待审候选、热度排序与拍板对齐、捕获断流告警。
+**运维侧收尾**：Hermes `mimir-system` 两个脚本与 Odin `mimir` CLI 改用各自身份的 token
+（吊销后的 401 已归零）；Odin Claude Code 补挂 `SessionEnd` hook（此前只挂 Stop/PreCompact，
+每天只进 1 条）。
+
+**顺延 1.9.1**：Mirasim L1/L3、Obsidian 定时投影、检索可选返回待审候选（需先观察清洗效果）、
+热度开/关基准评估。
 
 ## v1.8.0 — 2026-11-19 · Auto-Capture & Heat · 会话钩子与热度
 
