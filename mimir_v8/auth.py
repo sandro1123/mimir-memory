@@ -43,6 +43,16 @@ PRINCIPAL_ALIASES: dict[str, frozenset[str]] = {
     "heimdallr": frozenset({"mentor", "heimdallr-ex", "heimdallr"}),
 }
 
+#: Read-only team sharing (1.9.0, docs/ops/ROLES.md). Members can READ facts
+#: owned by these principals but can never write/delete/review or act as them:
+#: sharing is visibility, not identity. Replaces the draft 1.9.0 alias rows
+#: that made thor/odin/claudecode fully equivalent to each other and mentor.
+TEAM_READ_SHARE: dict[str, frozenset[str]] = {
+    "thor": frozenset({"odin", "claudecode", "mentor"}),
+    "odin": frozenset({"thor", "claudecode", "mentor"}),
+    "claudecode": frozenset({"thor", "odin", "mentor"}),
+}
+
 #: Scopes the service actually checks (api.py ``scoped(...)``). Minting a
 #: principal with a scope outside this set grants nothing and hides typos, so
 #: it fails closed instead of being written into the registry.

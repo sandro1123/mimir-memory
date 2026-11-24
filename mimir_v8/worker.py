@@ -1119,6 +1119,9 @@ def main(argv=None) -> int:
                 result["fast_track_errors"] = ft["errors"]
             if ft.get("skipped_below_threshold"):
                 result["fast_track_skipped"] = ft["skipped_below_threshold"]
+            if ft.get("duplicate_blocked"):
+                # 设计内去向（已转 human_review），只留痕，不触发 exit 1。
+                result["fast_track_duplicate_blocked"] = ft["duplicate_blocked"]
     elif args.command == "conflict-detect":
         from .conflict import ConflictService
         result = ConflictService(store).detect(threshold=args.threshold, actor_principal=args.actor)

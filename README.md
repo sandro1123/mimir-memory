@@ -29,7 +29,7 @@ Mímir 从第一天起就是反着设计的——**每一条记忆都要过审�
 | **会话钩子与热度 (1.8.0)** | SessionStart/SessionEnd 钩子自动捕获会话为 STM 候选（治理评审后才入库）、adapter/source 注册表声明式接入、search_feedback 热度信号参与召回排序 |
 | **Obsidian 知识库桥 (1.7.0)** | 经四道准入闸的实体事实可发布为库内「机器卡片」（Markdown + YAML Frontmatter），写前写后各一次 Git 快照；只写专属卡片目录，绝不改人类手写文字 |
 
-> **当前生产版本：`1.8.0 — Auto-Capture & Heat（会话钩子与热度）`**  
+> **当前生产版本：`1.9.0 — Honest Connect（身份收口与可信采集）`**  
 > 在 1.7.0「Vault Bridge」之上，补齐 agent 一侧的自动记忆入口：A-tier SessionStart/SessionEnd 钩子（自动捕获只结晶候选、绝不直写 facts）+ adapter/source 双注册表（新 agent/新记忆来源按声明式契约注册接入）+ search_feedback 热度接入衰减排序 + retention fail-closed 证明。  
 > 完整 2.0 规格设计详见：[`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md)。
 

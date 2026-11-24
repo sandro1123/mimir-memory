@@ -6,6 +6,46 @@
 
 ---
 
+## v1.9.0 — 2026-11-24 · Honest Connect · 身份收口、治理修复与采集可信
+
+> 把已在跑的 Thor 自动捕获链路修到“可信”：每个 agent 一个身份、共享只靠读可见性、
+> 治理不再假失败且可走 Magpie 回退链、检索结果带时间。Mirasim 接入与 Obsidian
+> 定时投影顺延 1.9.1（见 `docs/plans/2026-11-24-mimir-1.9.0-reassessment-and-next-plan.md`）。
+> 全量加法，API 契约不变（查询结果新增 `recorded_at`/`updated_at` 字段）。
+
+- **身份不再借用** (`mimir_v8/auth.py`, `mimir_v8/store.py`, `docs/ops/ROLES.md`) —
+  撤回 1.9.0 草案中 thor/odin/claudecode 与 mentor 的**身份等价**别名；改为
+  `TEAM_READ_SHARE` **只读团队共享**：成员可读彼此及 mentor 的非 restricted 事实，
+  但不能写/删/审或 `can_act_as` 对方。`PRINCIPAL_ALIASES` 仅保留 heimdallr→mentor。
+- **治理判重拦截不再假失败** (`governance.py`, `worker.py`) — fast_track 遇
+  `DuplicateBlocked` 时把候选转 `human_review` 并写明原因，不进 errors、不 exit 1、
+  不再每 15 分钟重拦同一候选（生产 24h 曾假失败 66 次）。真异常仍 exit 1。
+- **治理模型回退链 + 可配超时** — `MIMIR_GOVERNANCE_FALLBACK_MODELS`（逗号有序清单）
+  逐个尝试；`MIMIR_GOVERNANCE_TIMEOUT_S`（默认 45s，原硬编码 30s）。兼容旧的单一
+  `MIMIR_GOVERNANCE_FALLBACK_MODEL`。
+- **治理模型评测脚本** (`scripts/governance_model_eval.py`) — 只读抽样已决候选，按真实
+  `EVALUATION_PROMPT` 对比各模型 JSON 合格率/一致率/延迟/token；restricted/confidential
+  候选不出机。
+- **查询结果带时间** (`query.py`) — 结果行新增 `recorded_at` / `updated_at`。
+- **Claude Code hook 入仓** (`adapters/claude-code/`) — 身份显式或自动识别、按身份取 token；
+  resume 节流注入底座（输出 `additionalContext`）；入库前剥离桥接上下文；附 `install.sh`。
+- **抽取/评估 token 预算与超时可配** (`evaluator.py`) — `MIMIR_EVALUATOR_MAX_TOKENS`（默认 1024，原 512
+  会截断推理型 flash 模型）、`MIMIR_EVALUATOR_TIMEOUT_S`（默认 45）。
+- **Vault 发布脚本防误写** — 目标目录缺 `.obsidian/` 即拒绝并非零退出。
+- **Magpie 接入方案** (`docs/ops/MAGPIE_LLM.md`) — 治理与抽取改走专用 key `Mimir-Memory`
+  的 drop-in、模型评测证据（16 条：JSON 16/16，一致率 0.94/0.94/0.88）与回滚步骤。
+- **`mimir` 查询客户端入仓** (`scripts/mimir`) — `--help`；身份自动识别
+  （`MIMIR_AGENT_ID` > aiduCAT 桥 => thor > claudecode），按身份取 token、缺失即报错
+  不借用；显示时间与来源；检索降级时明确提示。
+
+**运维侧（不在仓库内，随版本登记）**：生产 token 注册表新增 `thor`/`odin`
+（仅 read+ingest）；`claudecode` 收回 review/delete；Claude Code hook
+（`~/.claude/hooks/mimir_auto_capture.py`）按身份取 token、resume 时节流注入底座、
+入库前剥离桥接上下文。
+
+**已知未完成（顺延）**：Mirasim L1/L3、Obsidian 定时投影、Odin 端 hook 安装、检索可选返回
+待审候选、热度排序与拍板对齐、捕获断流告警。
+
 ## v1.8.0 — 2026-11-19 · Auto-Capture & Heat · 会话钩子与热度
 
 > 大脑自动捕获 + 召回动力学：A-tier SessionStart/SessionEnd 钩子（STM 候选
