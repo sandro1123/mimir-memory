@@ -52,6 +52,7 @@ def publish_entity(
     entity: dict,
     actor_principal: str,
     sections: dict[str, str],
+    target_scope: str = "shared",
 ) -> dict:
     """Publish one entity card into the card namespace. Never touches human text."""
     vault_root = Path(vault_root)
@@ -62,7 +63,7 @@ def publish_entity(
         return {"status": "skipped", "reason": "actor:not_vault_adapter", "path": "", "snapshot": None}
 
     body = "\n\n".join(str(v) for v in sections.values())
-    ok, reason = is_publishable_fact(fact, body, target_scope="shared")
+    ok, reason = is_publishable_fact(fact, body, target_scope=target_scope)
     if not ok:
         return {"status": "skipped", "reason": reason, "path": "", "snapshot": None}
 
