@@ -39,18 +39,35 @@ recommended once confirmed nothing else needs them.
 [Service]
 # 1.9.0: LLM via Magpie key "Mimir-Memory" (replaces 401-ing 10Router key).
 # Loaded after evaluator.env, so these values win. Remove this file to roll back.
-EnvironmentFile=%h/.hermes/mimir/secrets/magpie_mimir.env
-Environment=MIMIR_ROUTER_URL=http://<magpie-host>:3430/v1
-Environment=MIMIR_EVALUATOR_API_URL=http://<magpie-host>:3430/v1
-Environment=MIMIR_GOVERNANCE_MODEL=deepaicode/deepseek-v4.1-flash
-Environment=MIMIR_GOVERNANCE_FALLBACK_MODELS=group/auto-deepseek-v4-1-flash-free,group/glm-5.3-flash
-Environment=MIMIR_EVALUATOR_MODEL=deepaicode/deepseek-v4.1-flash
-Environment=MIMIR_GOVERNANCE_TIMEOUT_S=45
-Environment=MIMIR_EVALUATOR_TIMEOUT_S=45
-Environment=MIMIR_EVALUATOR_MAX_TOKENS=1024
+EnvironmentFile=/home/<user>/.hermes/mimir/secrets/magpie_mimir.env
+EnvironmentFile=/home/<user>/.hermes/mimir/magpie_llm.env
 ```
 
-(`%h` is not expanded in system units — write the absolute home path when applying.)
+Do **not** put the routing values in `Environment=` lines here: systemd lets
+any `EnvironmentFile=` (including the unit's own `evaluator.env`) override
+`Environment=`, so the old 10Router URL/key would silently win and extraction
+keeps getting 401. Every override must come from an `EnvironmentFile=` loaded
+after `evaluator.env`.
+
+`magpie_llm.env` (no secrets, mode 644):
+
+```ini
+MIMIR_ROUTER_URL=http://<magpie-host>:3430/v1
+MIMIR_EVALUATOR_API_URL=http://<magpie-host>:3430/v1
+MIMIR_GOVERNANCE_MODEL=deepaicode/deepseek-v4.1-flash
+MIMIR_GOVERNANCE_FALLBACK_MODELS=group/auto-deepseek-v4-1-flash-free,group/glm-5.3-flash
+MIMIR_EVALUATOR_MODEL=deepaicode/deepseek-v4.1-flash
+MIMIR_GOVERNANCE_TIMEOUT_S=45
+MIMIR_EVALUATOR_TIMEOUT_S=45
+# Reasoning models spend 1–2k tokens thinking; 1024 yields finish_reason=length
+# with empty content. 2048 is the floor (1.9.0-hotfix.1 default).
+MIMIR_GOVERNANCE_MAX_TOKENS=2048
+MIMIR_EVALUATOR_MAX_TOKENS=2048
+```
+
+`secrets/magpie_mimir.env` (mode 600) holds only `MIMIR_ROUTER_API_KEY` and
+`MIMIR_EVALUATOR_API_KEY`. (`%h` is not expanded in system units — use the
+absolute home path.)
 
 ## 4. Apply / verify / roll back
 
