@@ -7,6 +7,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -327,6 +328,41 @@ def _extract_source_quotas() -> dict[str, int]:
     return quotas
 
 
+# 1.9.0 结晶前清洗（2026-11-24）：bridge 进程把路由元数据和系统指令原样包进
+# user 消息（<bridge_context>/<bridge_instructions>/<interactive_cards>），当天
+# 44 条候选里 7 条带着这些原文。抽取前整块剥掉；<user_input> 只保留其 text。
+# 只清抽取上下文，conversation_messages 里的存证原文不动。
+_BRIDGE_DROP_TAGS = ("bridge_context", "bridge_instructions", "interactive_cards",
+                     "tool_call", "system-reminder")
+_BRIDGE_TAG_ALT = "|".join(re.escape(t) for t in _BRIDGE_DROP_TAGS)
+_BRIDGE_DROP_RE = re.compile(r"<(%s)>.*?</\1>" % _BRIDGE_TAG_ALT, re.DOTALL)
+# 截断留下的未闭合块：从开标签剥到结尾
+_BRIDGE_OPEN_RE = re.compile(r"<(?:%s)>.*\Z" % _BRIDGE_TAG_ALT, re.DOTALL)
+_USER_INPUT_RE = re.compile(r"<user_input>(.*?)(?:</user_input>|\Z)", re.DOTALL)
+
+
+def _unwrap_user_input(match: "re.Match[str]") -> str:
+    inner = match.group(1).strip()
+    try:
+        obj = json.loads(inner)
+    except ValueError:
+        return inner
+    if isinstance(obj, dict) and isinstance(obj.get("text"), str):
+        return obj["text"]
+    return inner
+
+
+def strip_bridge_wrappers(text: str) -> str:
+    """剥掉 bridge 注入的包装块，只留人说的话。无包装时原样返回。"""
+    if not text or "<" not in text:
+        return text or ""
+    out = _BRIDGE_DROP_RE.sub("", text)
+    out = _BRIDGE_OPEN_RE.sub("", out)
+    out = _USER_INPUT_RE.sub(_unwrap_user_input, out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()
+
+
 #: 抽取上下文的字符上限（保留原 4000 护栏的同等量级）。
 _EXTRACT_CONTEXT_MAX = 4000
 _ROLE_LABEL = {"user": "[User]", "assistant": "[Assistant]"}
@@ -347,7 +383,7 @@ def build_extraction_context(messages: list[dict]) -> str:
     parts: list[str] = []
     for m in messages or []:
         role = str(m.get("role") or "").strip().lower()
-        text = str(m.get("content_redacted") or "").strip()
+        text = strip_bridge_wrappers(str(m.get("content_redacted") or "").strip())
         if not text:
             continue
         label = _ROLE_LABEL.get(role, f"[{role or 'unknown'}]")
@@ -402,6 +438,12 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
     """LLM-powered extraction with higher recall than keyword rules."""
     if limit < 1 or limit > 50:
         raise ValueError("llm extraction limit must be between 1 and 50")
+    from .schema import get_registered_agents as _registered_agents
+    registered = _registered_agents()
+    # 2026-11-24: 已上报过的停放 run（owner 未注册）不能占 LIMIT 名额——
+    # 停放数 >= limit 时新对话会永远轮不到。SQL 侧排除，另行计数。
+    reg_list = sorted(str(a).strip().lower() for a in registered) or ["\x00"]
+    reg_ph = ",".join("?" for _ in reg_list)
     with contextlib.closing(store.connect()) as connection:
         categories = _extract_categories()
         cat_placeholders = ",".join("?" for _ in categories)
@@ -420,10 +462,27 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
                    WHERE e.run_id = r.run_id
                      AND e.error_code = 'llm_unavailable'
                      AND e.started_at >= datetime('now', ?)) < ?
+              AND (lower(trim(coalesce(s.owner_principal,''))) IN ({reg_ph})
+                   OR NOT EXISTS (SELECT 1 FROM extraction_runs ep
+                                  WHERE ep.run_id = r.run_id
+                                    AND ep.error_code = 'unregistered_owner'))
             ORDER BY r.started_at LIMIT ?""",
             (*categories, f'-{LLM_BACKOFF_WINDOW_HOURS} hours',
-             LLM_BACKOFF_HITS, limit),
+             LLM_BACKOFF_HITS, *reg_list, limit),
         ).fetchall()]
+        parked_counts = {str(p[0]): int(p[1]) for p in connection.execute(
+            f"""SELECT lower(trim(coalesce(s.owner_principal,''))), COUNT(*)
+            FROM ingestion_runs r
+            JOIN conversation_sources s ON s.source_id = r.source_id
+            WHERE r.status = 'stored'
+              AND s.source_category IN ({cat_placeholders})
+              AND lower(trim(coalesce(s.owner_principal,''))) NOT IN ({reg_ph})
+              AND EXISTS (SELECT 1 FROM extraction_runs ep
+                          WHERE ep.run_id = r.run_id
+                            AND ep.error_code = 'unregistered_owner')
+            GROUP BY 1""",
+            (*categories, *reg_list),
+        ).fetchall()}
         # v14.2.1-2 RSS 日配额（Python 面，简单可测）：按 connector 计数
         # 当日（UTC）已完成抽取次数，超配额的 connector 本轮跳过——
         # vault 全量、rss 默认 100/日（用户 09-11 拍板）。
@@ -454,7 +513,8 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
         # 注意：本块是 closing(connect) 只读语义，settle 自带事务提交。
         _settle_purged_shell_runs(store)
     if not rows:
-        return {"created": [], "skipped": [], "failed": [], "count": 0, "evaluator_mode": "no_data"}
+        return {"created": [], "skipped": [], "failed": [], "count": 0, "evaluator_mode": "no_data",
+                "parked_unregistered_owner": parked_counts}
 
     evaluator = Evaluator()
     service = ExtractionService(store)
@@ -468,9 +528,7 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
     # the failure stays visible (exit 1, P1-11), then park the run silently on
     # later rounds. The run stays 'stored': once the owner is registered it is
     # picked up again with no manual requeue.
-    from .schema import get_registered_agents as _registered_agents
-    registered = _registered_agents()
-    parked_unregistered: dict[str, int] = {}
+    parked_unregistered: dict[str, int] = dict(parked_counts)
 
     for row in rows:
         run_id = row["run_id"]
