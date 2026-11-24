@@ -1,7 +1,7 @@
 #!/bin/bash
 # Mímir query client (1.9.0).
 # Identity follows the caller — never borrowed (docs/ops/ROLES.md):
-#   MIMIR_AGENT_ID (explicit) > aiduCAT bridge (LARK_CHANNEL_HOME) => thor > claudecode
+#   MIMIR_AGENT_ID (explicit) > -a agent > thor (claudecode retired 2026-11-24)
 # Token: $MIMIR_TOKEN, else ~/.hermes/mimir/secrets/clients/<agent>.token
 set -u
 
@@ -11,7 +11,7 @@ usage() {
 
   -d domain   只查某个域 (quant / infrastructure / tech_support / personal / system / knowledge)
   -n limit    返回条数 (默认 6)
-  -a agent    指定身份 (thor / odin / claudecode …)，默认自动识别
+  -a agent    指定身份 (thor / odin …)，默认 thor；Odin 上请设 MIMIR_AGENT_ID=odin
   -h          显示本帮助
 
 环境变量: MIMIR_AGENT_ID  MIMIR_TOKEN  MIMIR_HOST (默认 127.0.0.1)  MIMIR_PORT (默认 8456)
@@ -42,7 +42,7 @@ QUERY="$*"
 if [ -z "$QUERY" ]; then usage >&2; exit 1; fi
 
 if [ -z "$AGENT" ]; then
-  if [ -n "${LARK_CHANNEL_HOME:-}${LARK_CHANNEL:-}" ]; then AGENT="thor"; else AGENT="claudecode"; fi
+  AGENT="thor"  # claudecode retired 2026-11-24; bridge and local sessions are both thor
 fi
 AGENT="$(echo "$AGENT" | tr '[:upper:]' '[:lower:]')"
 

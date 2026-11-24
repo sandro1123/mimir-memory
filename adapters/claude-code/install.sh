@@ -3,8 +3,8 @@
 # Copies the versioned hook into ~/.claude/hooks/ (backing up any existing copy)
 # and prints the settings.json hook block. It does NOT edit settings.json.
 #
-# Identity: set MIMIR_AGENT_ID (thor / odin / claudecode …) in the agent's
-# environment, or rely on auto-detect (aiduCAT bridge => thor, else claudecode).
+# Identity: set MIMIR_AGENT_ID (thor / odin …) in the agent's environment;
+# unset means thor (claudecode retired 2026-11-24).
 # Token:    ~/.hermes/mimir/secrets/clients/<agent>.token (mode 600).
 set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)/mimir_auto_capture.py"

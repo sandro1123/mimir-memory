@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import contextlib
 import threading
 import time
@@ -1270,6 +1271,9 @@ class QueryKernel:
                 factor = max(0.01, factor * decay)
 
         # 1.8.0 heat boost (capped). Inputs may be missing on legacy rows.
+        # ADR-0001: MIMIR_HEAT_BOOST=0 turns it off (default on, unchanged).
+        if os.environ.get("MIMIR_HEAT_BOOST", "1").strip().lower() in ("0", "false", "off", "no"):
+            return factor
         rc = max(0, int(recall_count or 0))
         uc = max(0, int(useful_count or 0))
         def _days(ts: str | None):
