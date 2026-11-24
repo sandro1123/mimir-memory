@@ -316,9 +316,9 @@ class Evaluator:
         # 1.9.0: reasoning-capable flash models spend ~300 tokens thinking
         # before the JSON; 512 truncated them. Both knobs are env-tunable.
         try:
-            max_tokens = max(128, int(os.environ.get("MIMIR_EVALUATOR_MAX_TOKENS", "1024")))
+            max_tokens = max(128, int(os.environ.get("MIMIR_EVALUATOR_MAX_TOKENS", "2048")))
         except ValueError:
-            max_tokens = 1024
+            max_tokens = 2048
         try:
             timeout_s = max(5, int(os.environ.get("MIMIR_EVALUATOR_TIMEOUT_S", "45")))
         except ValueError:
