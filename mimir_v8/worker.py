@@ -59,6 +59,10 @@ def build_parser() -> argparse.ArgumentParser:
     review = sub.add_parser("review-reminder")
     review.add_argument("--owner", default=os.environ.get("MIMIR_REVIEW_OWNER", ""))
     review.add_argument("--output", choices=["json", "feishu", "obsidian"], default="json")
+    capture = sub.add_parser("capture-check")
+    capture.add_argument("--watch", default=os.environ.get("MIMIR_CAPTURE_WATCH", ""),
+                         help="connector=max_gap_hours,... (default: built-in watch list)")
+    capture.add_argument("--output", choices=["json", "feishu"], default="json")
     report = sub.add_parser("daily-report")
     report.add_argument("--output", choices=["json", "feishu", "obsidian", "all"], default="json")
     report.add_argument("--obsidian-dir", default=os.environ.get("MIMIR_REPORT_OBSIDIAN_DIR", ""))
@@ -702,6 +706,71 @@ def review_reminder(store: CanonicalStore, owner: str | None = None) -> dict:
     }
 
 
+#: 1.9.0 捕获断流告警（2026-11-24）：这些 connector 超过阈值小时数没有新
+#: source 即视为断流。Odin 用量低，阈值放宽。MIMIR_CAPTURE_WATCH 可整体覆盖。
+CAPTURE_WATCH_DEFAULT = {"thor-bridge": 24.0, "odin-bridge": 72.0, "hermes-jarvis-profile": 24.0}
+
+
+def _parse_capture_watch(spec: str) -> dict[str, float]:
+    watch: dict[str, float] = {}
+    for item in (spec or "").split(","):
+        name, sep, hours = item.strip().partition("=")
+        if not name.strip():
+            continue
+        try:
+            watch[name.strip()] = float(hours) if sep else 24.0
+        except ValueError:
+            raise SystemExit(f"capture-check: bad watch entry {item!r} (want connector=hours)")
+    return watch
+
+
+def capture_gap_check(store: CanonicalStore, watch: dict[str, float] | None = None,
+                      now: "datetime | None" = None, output: str = "json") -> dict:
+    """Flag watched connectors whose newest conversation_source is too old.
+
+    Any stale connector -> status=error -> exit 1, so the systemd unit fails
+    and the push wrapper sends the card. A connector never seen counts as stale.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    watch = dict(watch or CAPTURE_WATCH_DEFAULT)
+    now = now or _dt.now(_tz.utc)
+    ph = ",".join("?" for _ in watch)
+    with contextlib.closing(store.connect()) as connection:
+        last = {str(r[0]): r[1] for r in connection.execute(
+            f"SELECT connector_id, max(ingested_at) FROM conversation_sources"
+            f" WHERE connector_id IN ({ph}) GROUP BY 1", tuple(watch)).fetchall()}
+    connectors, stale = [], []
+    for name, max_gap in sorted(watch.items()):
+        raw = last.get(name)
+        gap = None
+        if raw:
+            try:
+                ts = _dt.fromisoformat(str(raw).replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=_tz.utc)
+                gap = round((now - ts).total_seconds() / 3600, 1)
+            except ValueError:
+                gap = None
+        is_stale = gap is None or gap > max_gap
+        entry = {"connector_id": name, "last_ingested_at": raw, "gap_hours": gap,
+                 "max_gap_hours": max_gap, "stale": is_stale}
+        connectors.append(entry)
+        if is_stale:
+            stale.append(entry)
+    result = {"command": "capture-check", "checked_at": now.isoformat(),
+              "status": "error" if stale else "ok", "stale": stale, "connectors": connectors}
+    if output == "feishu" and stale:
+        lines = [f"- **{e['connector_id']}**：" + (
+            f"已 {e['gap_hours']} 小时没有新对话（阈值 {e['max_gap_hours']:g} 小时）"
+            if e["gap_hours"] is not None else "从未收到对话") for e in stale]
+        result["feishu_card"] = {"card": {
+            "header": {"template": "red", "title": {"tag": "plain_text", "content": "Mímir 捕获断流"}},
+            "elements": [{"tag": "markdown", "content": "\n".join(lines)
+                          + "\n\n检查对应机器的 Claude Code hook / bridge 是否在跑。"}],
+        }}
+    return result
+
+
 def daily_report(store: CanonicalStore, output: str = "json", obsidian_dir: str = "") -> dict:
     """Generate daily memory report."""
     gen = ReportGenerator(store)
@@ -1176,6 +1245,8 @@ def main(argv=None) -> int:
         result = llm_extract_once(store, args.actor, limit=args.limit, salience_threshold=args.salience_threshold)
     elif args.command == "review-reminder":
         result = review_reminder(store, owner=args.owner)
+    elif args.command == "capture-check":
+        result = capture_gap_check(store, _parse_capture_watch(args.watch) or None, output=args.output)
     elif args.command == "daily-report":
         result = daily_report(store, output=args.output, obsidian_dir=args.obsidian_dir)
     elif args.command == "decay-scan":
