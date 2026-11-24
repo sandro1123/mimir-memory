@@ -47,10 +47,11 @@ PRINCIPAL_ALIASES: dict[str, frozenset[str]] = {
 #: owned by these principals but can never write/delete/review or act as them:
 #: sharing is visibility, not identity. Replaces the draft 1.9.0 alias rows
 #: that made thor/odin/claudecode fully equivalent to each other and mentor.
+#: 2026-11-24: claudecode retired — its facts were split between thor and odin
+#: and its token revoked, so it is no longer a team member or share target.
 TEAM_READ_SHARE: dict[str, frozenset[str]] = {
-    "thor": frozenset({"odin", "claudecode", "mentor"}),
-    "odin": frozenset({"thor", "claudecode", "mentor"}),
-    "claudecode": frozenset({"thor", "odin", "mentor"}),
+    "thor": frozenset({"odin", "mentor"}),
+    "odin": frozenset({"thor", "mentor"}),
 }
 
 #: Scopes the service actually checks (api.py ``scoped(...)``). Minting a

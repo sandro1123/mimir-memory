@@ -45,10 +45,11 @@ class TestIdentity(unittest.TestCase):
         self.assertEqual(m.AGENT_ID, "thor")
         self.assertEqual(m.MIMIR_TOKEN_FILE.name, "thor.token")
 
-    def test_plain_session_is_claudecode(self):
+    def test_plain_session_is_thor(self):
+        # claudecode retired 2026-11-24: every Claude Code session on n100 is Thor.
         m = load_hook({}, self.home)
-        self.assertEqual(m.AGENT_ID, "claudecode")
-        self.assertEqual(m.MIMIR_TOKEN_FILE.name, "claudecode.token")
+        self.assertEqual(m.AGENT_ID, "thor")
+        self.assertEqual(m.MIMIR_TOKEN_FILE.name, "thor.token")
 
     def test_explicit_wins(self):
         m = load_hook({"MIMIR_AGENT_ID": "Odin", "LARK_CHANNEL_HOME": "/x"}, self.home)

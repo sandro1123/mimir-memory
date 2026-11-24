@@ -165,7 +165,7 @@ def _call_llm(prompt: str, model: str) -> tuple[dict | None, str | None]:
         logger.warning("governance LLM skipped: %s", cause)
         return None, cause
     headers = {"Authorization": f"Bearer {cfg['api_key']}", "Content-Type": "application/json"}
-    payload = {"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 1024}
+    payload = {"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": max(256, int(os.environ.get("MIMIR_GOVERNANCE_MAX_TOKENS", "2048") or 2048))}
     try:
         req = urllib.request.Request(f"{cfg['url']}/chat/completions", data=json.dumps(payload).encode(), headers=headers, method="POST")
         with urllib.request.urlopen(req, timeout=cfg.get("timeout_s", 45)) as resp:

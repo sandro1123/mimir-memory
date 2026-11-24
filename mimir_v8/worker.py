@@ -461,12 +461,45 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
     created, skipped, failed = [], [], []
     llm_unavailable_count = 0
     seen_runs: set[str] = set()
+    # 2026-11-24 owner guard: an owner missing from the roster makes
+    # CreateFact.validated() raise for every keep-worthy conversation, so
+    # retrying is pointless until someone registers it. Check before the LLM
+    # call (saves tokens), record ONE failed(unregistered_owner) per run so
+    # the failure stays visible (exit 1, P1-11), then park the run silently on
+    # later rounds. The run stays 'stored': once the owner is registered it is
+    # picked up again with no manual requeue.
+    from .schema import get_registered_agents as _registered_agents
+    registered = _registered_agents()
+    parked_unregistered: dict[str, int] = {}
 
     for row in rows:
         run_id = row["run_id"]
         if run_id in seen_runs:
             continue
         seen_runs.add(run_id)
+
+        owner = str(row.get("owner_principal") or "").strip().lower()
+        if owner not in registered:
+            with store.transaction() as connection:
+                already = connection.execute(
+                    "SELECT 1 FROM extraction_runs WHERE run_id=? AND error_code='unregistered_owner' LIMIT 1",
+                    (run_id,),
+                ).fetchone()
+                if not already:
+                    now = utc_now()
+                    connection.execute(
+                        "INSERT INTO extraction_runs(extraction_id,run_id,extractor_principal,policy_version,status,candidate_count,started_at,completed_at,error_code) VALUES(?,?,?,?,?,?,?,?,?)",
+                        (new_id(), run_id, actor_principal, "owner-guard-v1", "failed", 0, now, now, "unregistered_owner"),
+                    )
+            if already:
+                parked_unregistered[owner] = parked_unregistered.get(owner, 0) + 1
+            else:
+                logger.error(
+                    "extract %s: owner_principal %r is not a registered agent — "
+                    "register it (MIMIR_AGENTS or worker register-agent); run parked until then",
+                    run_id, owner)
+                failed.append({"run_id": run_id, "error": "unregistered_owner", "owner": owner})
+            continue
 
         with contextlib.closing(store.connect()) as connection:
             messages = [dict(m) for m in connection.execute(
@@ -572,9 +605,10 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
             )
             created.append({"candidate_id": result["candidate"]["candidate_id"], "salience": eval_result.salience, "risk": eval_result.risk})
         except Exception as exc:
-            failed.append({"run_id": run_id, "error": type(exc).__name__})
+            failed.append({"run_id": run_id, "error": type(exc).__name__, "detail": str(exc)[:200]})
     return {"created": created, "skipped": skipped, "failed": failed, "count": len(created),
-            "evaluator_mode": "llm", "llm_unavailable": llm_unavailable_count}
+            "evaluator_mode": "llm", "llm_unavailable": llm_unavailable_count,
+            "parked_unregistered_owner": parked_unregistered}
 
 
 def review_reminder(store: CanonicalStore, owner: str | None = None) -> dict:

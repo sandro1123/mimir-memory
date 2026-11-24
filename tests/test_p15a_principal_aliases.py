@@ -3,7 +3,7 @@
 
 - PRINCIPAL_ALIASES = identity equivalence (can_act_as). Only the legacy
   heimdallr -> mentor row remains.
-- TEAM_READ_SHARE = visibility only. thor / odin / claudecode can READ each
+- TEAM_READ_SHARE = visibility only. thor / odin can READ each
   other's and mentor's non-restricted facts, but can never write, delete,
   review or act as one another.
 """
@@ -34,7 +34,7 @@ class TestPrincipalAliases(unittest.TestCase):
     def setUpClass(cls):
         # Production learns these ids at mint / first request; tests start
         # from the built-in roster, so register them explicitly.
-        for agent in ("thor", "odin", "claudecode"):
+        for agent in ("thor", "odin"):
             register_agent(agent)
 
     @classmethod
@@ -43,7 +43,8 @@ class TestPrincipalAliases(unittest.TestCase):
 
     def test_alias_mapping_defined(self):
         self.assertIn("mentor", PRINCIPAL_ALIASES["heimdallr"])
-        for agent in ("thor", "odin", "claudecode"):
+        self.assertNotIn("claudecode", TEAM_READ_SHARE, "claudecode 已退役")
+        for agent in ("thor", "odin"):
             self.assertNotIn(agent, PRINCIPAL_ALIASES, f"{agent} 不得拥有身份等价别名")
             self.assertIn(agent, TEAM_READ_SHARE)
             self.assertIn("mentor", TEAM_READ_SHARE[agent])
@@ -54,7 +55,7 @@ class TestPrincipalAliases(unittest.TestCase):
         self.assertFalse(p.can_act_as("jarvis"), "未授权的别名不能代表")
         thor = Principal(principal_id="thor", scopes=frozenset({"read", "ingest"}))
         self.assertTrue(thor.can_act_as("thor"))
-        for other in ("claudecode", "odin", "mentor"):
+        for other in ("odin", "mentor"):
             self.assertFalse(thor.can_act_as(other), f"thor 不得冒充 {other}")
         odin = Principal(principal_id="odin", scopes=frozenset({"read", "ingest"}))
         self.assertFalse(odin.can_act_as("thor"))
@@ -64,10 +65,10 @@ class TestPrincipalAliases(unittest.TestCase):
             store = CanonicalStore(Path(tmp) / "canon.db")
             mentor_fid = _fact(store, "mentor")
             thor_fid = _fact(store, "thor")
-            for reader in ("thor", "odin", "claudecode"):
+            for reader in ("thor", "odin"):
                 self.assertTrue(store.can_read(mentor_fid, reader), f"{reader} 必须能读 mentor")
             self.assertTrue(store.can_read(thor_fid, "odin"))
-            self.assertTrue(store.can_read(thor_fid, "claudecode"))
+            self.assertFalse(store.can_read(thor_fid, "claudecode"), "退役身份不再共享")
             self.assertFalse(store.can_read(thor_fid, "quantmaster"), "团队外不可读")
 
     def test_team_share_is_read_only(self):
@@ -76,7 +77,6 @@ class TestPrincipalAliases(unittest.TestCase):
             thor_fid = _fact(store, "thor")
             for perm in ("write", "delete", "review"):
                 self.assertFalse(store.can_access(thor_fid, "odin", perm), f"odin 不得 {perm} thor 的事实")
-                self.assertFalse(store.can_access(thor_fid, "claudecode", perm))
             self.assertTrue(store.can_access(thor_fid, "thor", "write"), "owner 自己仍可写")
 
     def test_restricted_not_team_shared(self):
