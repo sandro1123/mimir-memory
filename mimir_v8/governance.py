@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from .store import CanonicalStore
-from .candidates import CandidateService, ReviewCandidate
+from .candidates import CandidateService, DuplicateBlocked, ReviewCandidate
 from contextlib import closing
 
 
@@ -45,13 +45,23 @@ def router_config() -> dict:
     evaluator variables so one env file serves both workers.
     """
     primary = _env_first("MIMIR_GOVERNANCE_MODEL", "MIMIR_EVALUATOR_MODEL", default="default-model")
+    fallback = _env_first("MIMIR_GOVERNANCE_FALLBACK_MODEL", default=primary)
+    # 1.9.0: ordered fallback chain (comma list) so free-tier rate limits
+    # (Magpie 429) degrade to the next model instead of failing the round.
+    chain = [m.strip() for m in _env_first("MIMIR_GOVERNANCE_FALLBACK_MODELS", default=fallback).split(",") if m.strip()]
+    try:
+        timeout_s = max(5, int(_env_first("MIMIR_GOVERNANCE_TIMEOUT_S", default="45")))
+    except ValueError:
+        timeout_s = 45
     return {
         "url": _env_first(
             "MIMIR_ROUTER_URL", "MIMIR_EVALUATOR_API_URL", default="http://127.0.0.1:20128/v1"
         ).rstrip("/"),
         "api_key": _env_first("MIMIR_ROUTER_API_KEY", "MIMIR_EVALUATOR_API_KEY"),
         "primary_model": primary,
-        "fallback_model": _env_first("MIMIR_GOVERNANCE_FALLBACK_MODEL", default=primary),
+        "fallback_model": chain[0] if chain else primary,
+        "fallback_models": [m for m in chain if m != primary],
+        "timeout_s": timeout_s,
     }
 
 
@@ -158,7 +168,7 @@ def _call_llm(prompt: str, model: str) -> tuple[dict | None, str | None]:
     payload = {"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 1024}
     try:
         req = urllib.request.Request(f"{cfg['url']}/chat/completions", data=json.dumps(payload).encode(), headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=cfg.get("timeout_s", 45)) as resp:
             content = json.loads(resp.read())["choices"][0]["message"]["content"]
         match = re.search(r"\{.*\}", content, re.DOTALL)
         if not match:
@@ -204,11 +214,13 @@ def assess_candidate(content: str, candidate_id: str) -> AssessmentResult:
     cfg = router_config()
     llm_result, cause = _call_llm(prompt, cfg["primary_model"])
     model_used = cfg["primary_model"]
-    if llm_result is None and cfg["fallback_model"] != cfg["primary_model"]:
-        llm_result, fallback_cause = _call_llm(prompt, cfg["fallback_model"])
-        model_used = cfg["fallback_model"]
+    for fb_model in cfg.get("fallback_models") or []:
+        if llm_result is not None:
+            break
+        llm_result, fallback_cause = _call_llm(prompt, fb_model)
+        model_used = fb_model
         if fallback_cause:
-            cause = f"{cause}; fallback: {fallback_cause}"
+            cause = f"{cause}; {fb_model}: {fallback_cause}"
     if llm_result is None:
         result.error = f"LLM 不可用: {cause}"[:240]
         result.risk = "medium"
@@ -347,6 +359,11 @@ def fast_track_commit_all(store: CanonicalStore, candidate_service: CandidateSer
     committed = 0
     errors = []
     skipped_below_threshold = []
+    # 判重闸拦截是设计内去向，不是故障（2026-11-24：此前进 errors →
+    # exit 1，治理 timer 24h 假失败 66 次，同一候选每 15 分钟被重拦）。
+    # 被拦候选转 human_review（人可见、可处理，符合 DuplicateBlocked
+    # “不静默吞掉”的约定），并写明原因；不再留在 provisional 被反复重试。
+    duplicate_blocked = []
     for row in rows:
         cid = row["candidate_id"]
         if (row["confidence_score"] or 0) < GOVERNANCE_FAST_TRACK_THRESHOLD:
@@ -364,10 +381,23 @@ def fast_track_commit_all(store: CanonicalStore, candidate_service: CandidateSer
             )
             candidate_service.commit_approved(cid, idempotency_key=f"gov-commit-{cid}-{utc_now()}", actor_principal=actor)
             committed += 1
+        except DuplicateBlocked as e:
+            reason = f"[v10治理] 判重闸拦截，转人工: {e}"
+            try:
+                with store.transaction() as conn:
+                    conn.execute(
+                        "UPDATE candidate_facts SET status='human_review', review_reason=?, updated_at=? "
+                        "WHERE candidate_id=? AND status IN ('provisional','approved')",
+                        (reason[:500], utc_now(), cid),
+                    )
+                duplicate_blocked.append({"candidate_id": cid, "gate": getattr(e, "gate", None)})
+            except Exception as move_err:  # 转态失败才是真故障
+                errors.append({"candidate_id": cid, "error": f"duplicate requeue failed: {move_err}"})
         except Exception as e:
             errors.append({"candidate_id": cid, "error": str(e)})
     return {"status": "ok", "committed": committed, "errors": errors,
-            "skipped_below_threshold": skipped_below_threshold}
+            "skipped_below_threshold": skipped_below_threshold,
+            "duplicate_blocked": duplicate_blocked}
 
 
 def utc_now() -> str:
