@@ -62,5 +62,31 @@ class TestFallbackChain(unittest.TestCase):
         self.assertIn("m-fb2", res.error)
 
 
+class TestEmptyContent(unittest.TestCase):
+    def test_empty_content_is_reported_not_crash(self):
+        import io, json as _j
+        body = _j.dumps({"choices": [{"finish_reason": "length", "message": {"content": None}}]}).encode()
+        class R(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        with mock.patch.dict("os.environ", ENV, clear=False), \
+                mock.patch("urllib.request.urlopen", return_value=R(body)):
+            parsed, cause = gov._call_llm("p", "m-primary")
+        self.assertIsNone(parsed)
+        self.assertIn("finish_reason=length", cause)
+
+    def test_max_tokens_default_2048(self):
+        seen = {}
+        import io, json as _j
+        class R(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        def fake(req, timeout=None):
+            seen.update(_j.loads(req.data)); return R(_j.dumps({"choices": [{"message": {"content": "{}"}}]}).encode())
+        with mock.patch.dict("os.environ", ENV, clear=False), mock.patch("urllib.request.urlopen", side_effect=fake):
+            gov._call_llm("p", "m-primary")
+        self.assertEqual(seen["max_tokens"], 2048)
+
+
 if __name__ == "__main__":
     unittest.main()

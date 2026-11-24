@@ -38,6 +38,10 @@
   （`MIMIR_AGENT_ID` > aiduCAT 桥 => thor > claudecode），按身份取 token、缺失即报错
   不借用；显示时间与来源；检索降级时明确提示。
 
+**部署热修（2026-11-24，同版本）**：生产实测推理型 flash 模型思考 1–2k token，`max_tokens=1024` 触发
+`finish_reason=length` 且 content 为空 → 治理 `TypeError`。治理 `MIMIR_GOVERNANCE_MAX_TOKENS`、评估
+`MIMIR_EVALUATOR_MAX_TOKENS` 默认改 2048；空 content 返回明确原因而非崩溃。
+
 **运维侧（不在仓库内，随版本登记）**：生产 token 注册表新增 `thor`/`odin`
 （仅 read+ingest）；`claudecode` 收回 review/delete；Claude Code hook
 （`~/.claude/hooks/mimir_auto_capture.py`）按身份取 token、resume 时节流注入底座、
