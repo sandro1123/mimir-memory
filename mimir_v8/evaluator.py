@@ -313,11 +313,21 @@ class Evaluator:
         ]
 
     def _call_llm(self, messages: list[dict]) -> str | None:
+        # 1.9.0: reasoning-capable flash models spend ~300 tokens thinking
+        # before the JSON; 512 truncated them. Both knobs are env-tunable.
+        try:
+            max_tokens = max(128, int(os.environ.get("MIMIR_EVALUATOR_MAX_TOKENS", "1024")))
+        except ValueError:
+            max_tokens = 1024
+        try:
+            timeout_s = max(5, int(os.environ.get("MIMIR_EVALUATOR_TIMEOUT_S", "45")))
+        except ValueError:
+            timeout_s = 45
         body = json.dumps({
             "model": self.model,
             "messages": messages,
             "temperature": 0.1,
-            "max_tokens": 512,
+            "max_tokens": max_tokens,
         }).encode("utf-8")
         req = urllib.request.Request(
             f"{self.api_url}/chat/completions",
@@ -329,7 +339,7 @@ class Evaluator:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=timeout_s) as resp:
                 result = json.loads(resp.read().decode())
             choices = result.get("choices", [])
             if not choices:

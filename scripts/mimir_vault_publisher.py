@@ -41,6 +41,11 @@ def run_publish_cycle(
     if not vault_root.is_dir():
         logger.error(f"Obsidian Vault 目录不存在: {vault_root}")
         return {"published": 0, "skipped": 0, "errors": 1}
+    # 1.9.0 guard: a directory that is not an Obsidian vault (e.g. the default
+    # path because MIMIR_VAULT_ROOT was not set) must never receive cards.
+    if not (vault_root / ".obsidian").is_dir():
+        logger.error(f"不是 Obsidian Vault（缺少 .obsidian/）: {vault_root} —— 请设置 MIMIR_VAULT_ROOT 或 --vault")
+        return {"published": 0, "skipped": 0, "errors": 1}
 
     if not db_path.is_file():
         logger.error(f"Mímir 主库不存在: {db_path}")
@@ -157,7 +162,9 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="演练模式，不写文件")
     args = parser.parse_args()
 
-    run_publish_cycle(vault_root=args.vault, db_path=args.db, limit=args.limit, dry_run=args.dry_run)
+    result = run_publish_cycle(vault_root=args.vault, db_path=args.db, limit=args.limit, dry_run=args.dry_run)
+    # Non-zero on any error so a systemd timer turns red instead of silently skipping.
+    sys.exit(1 if result.get("errors") else 0)
 
 
 if __name__ == "__main__":
