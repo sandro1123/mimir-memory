@@ -719,7 +719,7 @@ def _parse_capture_watch(spec: str) -> dict[str, float]:
         try:
             watch[name.strip()] = float(hours) if sep else 24.0
         except ValueError:
-            raise SystemExit(f"capture-check: bad watch entry {item!r} (want connector=hours)")
+            raise SystemExit(f"capture-check: bad watch entry {item!r} (want connector=hours)") from None
     return watch
 
 
