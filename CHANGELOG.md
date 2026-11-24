@@ -27,6 +27,13 @@
   `EVALUATION_PROMPT` 对比各模型 JSON 合格率/一致率/延迟/token；restricted/confidential
   候选不出机。
 - **查询结果带时间** (`query.py`) — 结果行新增 `recorded_at` / `updated_at`。
+- **Claude Code hook 入仓** (`adapters/claude-code/`) — 身份显式或自动识别、按身份取 token；
+  resume 节流注入底座（输出 `additionalContext`）；入库前剥离桥接上下文；附 `install.sh`。
+- **抽取/评估 token 预算与超时可配** (`evaluator.py`) — `MIMIR_EVALUATOR_MAX_TOKENS`（默认 1024，原 512
+  会截断推理型 flash 模型）、`MIMIR_EVALUATOR_TIMEOUT_S`（默认 45）。
+- **Vault 发布脚本防误写** — 目标目录缺 `.obsidian/` 即拒绝并非零退出。
+- **Magpie 接入方案** (`docs/ops/MAGPIE_LLM.md`) — 治理与抽取改走专用 key `Mimir-Memory`
+  的 drop-in、模型评测证据（16 条：JSON 16/16，一致率 0.94/0.94/0.88）与回滚步骤。
 - **`mimir` 查询客户端入仓** (`scripts/mimir`) — `--help`；身份自动识别
   （`MIMIR_AGENT_ID` > aiduCAT 桥 => thor > claudecode），按身份取 token、缺失即报错
   不借用；显示时间与来源；检索降级时明确提示。
@@ -36,7 +43,7 @@
 （`~/.claude/hooks/mimir_auto_capture.py`）按身份取 token、resume 时节流注入底座、
 入库前剥离桥接上下文。
 
-**已知未完成（顺延）**：Mirasim L1/L3、Obsidian 定时投影、Odin 端 hook、检索可选返回
+**已知未完成（顺延）**：Mirasim L1/L3、Obsidian 定时投影、Odin 端 hook 安装、检索可选返回
 待审候选、热度排序与拍板对齐、捕获断流告警。
 
 ## v1.8.0 — 2026-11-19 · Auto-Capture & Heat · 会话钩子与热度
