@@ -527,6 +527,9 @@ class QueryKernel:
                 "fact_type": fact["fact_type"],
                 "version": fact["current_version"],
                 "status": fact["status"],
+                # 1.9.0: additive — lets clients show how old a memory is.
+                "recorded_at": fact.get("recorded_at"),
+                "updated_at": fact.get("updated_at"),
                 # issue #44: a superseded/retracted row only reaches this point
                 # when the caller asked for the audit view. Carry the edge so
                 # the reader knows which record replaced it instead of having

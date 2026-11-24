@@ -1,0 +1,101 @@
+#!/bin/bash
+# Mímir query client (1.9.0).
+# Identity follows the caller — never borrowed (docs/ops/ROLES.md):
+#   MIMIR_AGENT_ID (explicit) > aiduCAT bridge (LARK_CHANNEL_HOME) => thor > claudecode
+# Token: $MIMIR_TOKEN, else ~/.hermes/mimir/secrets/clients/<agent>.token
+set -u
+
+usage() {
+  cat <<'EOF'
+用法: mimir [-d domain] [-n limit] [-a agent] <search terms>
+
+  -d domain   只查某个域 (quant / infrastructure / tech_support / personal / system / knowledge)
+  -n limit    返回条数 (默认 6)
+  -a agent    指定身份 (thor / odin / claudecode …)，默认自动识别
+  -h          显示本帮助
+
+环境变量: MIMIR_AGENT_ID  MIMIR_TOKEN  MIMIR_HOST (默认 127.0.0.1)  MIMIR_PORT (默认 8456)
+EOF
+}
+
+DOMAIN=""
+LIMIT=6
+AGENT="${MIMIR_AGENT_ID:-}"
+
+for arg in "$@"; do
+  case "$arg" in --help|-help) usage; exit 0 ;; esac
+done
+
+while getopts ":d:n:a:h" opt; do
+  case $opt in
+    d) DOMAIN="$OPTARG" ;;
+    n) LIMIT="$OPTARG" ;;
+    a) AGENT="$OPTARG" ;;
+    h) usage; exit 0 ;;
+    \?) echo "未知参数: -$OPTARG" >&2; usage >&2; exit 2 ;;
+    :) echo "参数 -$OPTARG 需要一个值" >&2; exit 2 ;;
+  esac
+done
+shift $((OPTIND-1))
+
+QUERY="$*"
+if [ -z "$QUERY" ]; then usage >&2; exit 1; fi
+
+if [ -z "$AGENT" ]; then
+  if [ -n "${LARK_CHANNEL_HOME:-}${LARK_CHANNEL:-}" ]; then AGENT="thor"; else AGENT="claudecode"; fi
+fi
+AGENT="$(echo "$AGENT" | tr '[:upper:]' '[:lower:]')"
+
+TOKEN_FILE="$HOME/.hermes/mimir/secrets/clients/${AGENT}.token"
+TOKEN="${MIMIR_TOKEN:-$(cat "$TOKEN_FILE" 2>/dev/null)}"
+if [ -z "$TOKEN" ]; then
+  echo "错误: 找不到身份 ${AGENT} 的 token（$TOKEN_FILE）。不会借用其他身份。" >&2
+  exit 1
+fi
+
+MIMIR_HOST="${MIMIR_HOST:-127.0.0.1}"
+MIMIR_PORT="${MIMIR_PORT:-8456}"
+
+python3 - "$MIMIR_HOST" "$MIMIR_PORT" "$TOKEN" "$QUERY" "$LIMIT" "$DOMAIN" "$AGENT" <<'PY'
+import json, sys, urllib.request, urllib.error
+
+host, port, token, query, limit, domain, agent = sys.argv[1:8]
+payload = {"text": query, "limit": int(limit), "depth": "deep"}
+if domain:
+    payload["domain"] = domain
+req = urllib.request.Request(
+    f"http://{host}:{port}/v8/query",
+    data=json.dumps(payload).encode(),
+    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    method="POST",
+)
+try:
+    with urllib.request.urlopen(req, timeout=45) as r:
+        d = json.loads(r.read().decode())
+except urllib.error.HTTPError as e:
+    print(f"✗ Mímir 查询失败 HTTP {e.code}: {e.read().decode()[:200]}", file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    print(f"✗ 连接 Mímir 失败: {e}", file=sys.stderr)
+    sys.exit(1)
+
+verdict = d.get("recall_verdict")
+results = d.get("results", [])
+if verdict == "degraded":
+    print("⚠ Mímir 检索通道降级：结果可能不完整（不是“没有记忆”）", file=sys.stderr)
+if not results:
+    print("Mímir: 未找到匹配记忆" + ("（通道降级）" if verdict == "degraded" else ""))
+    sys.exit(0)
+
+for i, r in enumerate(results, 1):
+    fact = r.get("fact") if isinstance(r.get("fact"), dict) else r
+    content = (fact.get("summary") or fact.get("content") or "").strip()
+    domain_ = fact.get("domain", "?")
+    ftype = fact.get("fact_type", "?")
+    owner = fact.get("owner_principal", "?")
+    when = (fact.get("recorded_at") or fact.get("updated_at") or "")[:10] or "日期未知"
+    print(f"[{i}] ({domain_}/{ftype} @ {owner} · {when})")
+    print(content)
+    print()
+print(f"— 身份: {agent} · 共 {len(results)} 条")
+PY
