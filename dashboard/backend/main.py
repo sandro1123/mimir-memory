@@ -60,6 +60,7 @@ CODENAMES = {
     "1.6.0": "Perception & Crystallization · 感知与结晶",
     "1.7.0": "Vault Bridge · 知识库桥",
     "1.8.0": "Auto-Capture & Heat · 会话钩子与热度",
+    "1.9.0": "Honest Connect · 身份收口与可信采集",
 }
 CODENAME_FALLBACK = "未登记（版本代号表缺此号）"
 

@@ -27,7 +27,7 @@ Mímir is designed the other way around — **every memory is reviewed, audited,
 | **Honest Telemetry & Budget Honesty** | Queries carry `recall_verdict ∈ {found, not_found, degraded}`; Token overages explicitly enumerate dropped items (no fake stubs). |
 | **Obsidian Vault Bridge (1.7.0)** | Facts that pass a four-gate admission check can be published as machine-owned cards (Markdown + YAML frontmatter) with a Git snapshot before and after each write; only a dedicated card folder is written, human-authored text is never touched. |
 
-> **Current Production Release: `1.8.0 — Auto-Capture & Heat`**  
+> **Current Production Release: `1.9.0 — Honest Connect`**  
 > Builds on 1.6.0 (Perception & Crystallization) by completing the human-knowledge side: a declarative publication allowlist, four admission gates, machine card rendering, a self-ingest guard and Git snapshots. It also turns the transaction lock-retry from an unrecorded production hot-patch into a tested behaviour.  
 > Full 2.0 design specification: [`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md).
 
