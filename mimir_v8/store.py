@@ -2280,9 +2280,15 @@ class CanonicalStore:
             ).fetchone()
             if not fact:
                 return False
-            from .auth import PRINCIPAL_ALIASES
+            from .auth import PRINCIPAL_ALIASES, TEAM_READ_SHARE
             aliases = PRINCIPAL_ALIASES.get(principal_id, frozenset({principal_id}))
             owner_matches = (fact["owner_principal"] == principal_id) or (fact["owner_principal"] in aliases)
+            # Read-only team share: visibility only, never write/delete/review.
+            team_readable = (
+                permission == "read"
+                and fact["owner_principal"] in TEAM_READ_SHARE.get(principal_id, frozenset())
+                and fact["sensitivity"] != "restricted"
+            )
             if fact["status"] == "tombstoned":
                 # Issue #32: restoring a tombstone is the inverse of the delete,
                 # so the owner must still be able to act on it — otherwise the
@@ -2315,7 +2321,7 @@ class CanonicalStore:
         if "deny" in matched:
             return False
         owner_default = owner_matches and permission in {"read", "write", "delete"}
-        return owner_default or domain_sharable or ("allow" in matched)
+        return owner_default or team_readable or domain_sharable or ("allow" in matched)
 
     def can_read(
         self,
