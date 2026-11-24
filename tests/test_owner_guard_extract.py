@@ -108,6 +108,24 @@ class TestUnregisteredOwnerGuard(unittest.TestCase):
         self.assertEqual(result["parked_unregistered_owner"], {})
         self.assertFalse(any(r["error_code"] == "unregistered_owner" for r in map(dict, self._rows())))
 
+    def test_parked_run_does_not_starve_queue(self):
+        # Oldest-first queue + LIMIT: a parked run must not hold the only slot.
+        with mock.patch.object(Evaluator, "evaluate", side_effect=AssertionError("no LLM")):
+            llm_extract_once(self.store, "system:test", limit=1)
+        env = ConversationEnvelope(
+            connector_type="hermes_cdc", connector_id="test",
+            session_id=None, owner_principal="mentor",
+            memory_mode="observe", retention_class="standard",
+            messages=(ConversationMessage(role="user", content="我偏好用 systemd 管理常驻服务"),),
+            source_uri="https://example.com/2", title="owner-guard-newer",
+            idempotency_key="owner-guard:newer",
+        )
+        LearningService(self.store).ingest_conversation(env, "service:test")
+        with mock.patch.object(Evaluator, "evaluate", side_effect=RuntimeError("reached evaluator")) as ev:
+            result = llm_extract_once(self.store, "system:test", limit=1)
+        ev.assert_called_once()
+        self.assertEqual(result["parked_unregistered_owner"], {GHOST: 1})
+
 
 if __name__ == "__main__":
     unittest.main()

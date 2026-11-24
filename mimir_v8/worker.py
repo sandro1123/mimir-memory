@@ -528,10 +528,11 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
     # 2026-11-24 owner guard: an owner missing from the roster makes
     # CreateFact.validated() raise for every keep-worthy conversation, so
     # retrying is pointless until someone registers it. Check before the LLM
-    # call (saves tokens), record ONE failed(unregistered_owner) per run so
-    # the failure stays visible (exit 1, P1-11), then park the run silently on
-    # later rounds. The run stays 'stored': once the owner is registered it is
-    # picked up again with no manual requeue.
+    # call (saves tokens) and record ONE failed(unregistered_owner) per run so
+    # the failure stays visible (exit 1, P1-11). Later rounds exclude the run
+    # in the queue query above (so it cannot starve LIMIT) and only count it
+    # in parked_unregistered_owner. The run stays 'stored': once the owner is
+    # registered it is picked up again with no manual requeue.
     parked_unregistered: dict[str, int] = dict(parked_counts)
 
     for row in rows:
@@ -553,9 +554,7 @@ def llm_extract_once(store: CanonicalStore, actor_principal: str, *, limit: int 
                         "INSERT INTO extraction_runs(extraction_id,run_id,extractor_principal,policy_version,status,candidate_count,started_at,completed_at,error_code) VALUES(?,?,?,?,?,?,?,?,?)",
                         (new_id(), run_id, actor_principal, "owner-guard-v1", "failed", 0, now, now, "unregistered_owner"),
                     )
-            if already:
-                parked_unregistered[owner] = parked_unregistered.get(owner, 0) + 1
-            else:
+            if not already:
                 logger.error(
                     "extract %s: owner_principal %r is not a registered agent — "
                     "register it (MIMIR_AGENTS or worker register-agent); run parked until then",
