@@ -21,7 +21,7 @@ Mímir 从第一天起就是反着设计的——**每一条记忆都要过审�
 
 | 硬核特性 | 说明 |
 |---|---|
-| **双池一桥架构 (2.0)** | 主观会话偏好（Memory 池）与客观技术实体（Knowledge 池）物理分离，通过事实-实体桥精准多跳召回 |
+| **双池一桥架构 (1.6.0 起)** | 主观会话偏好（Memory 池）与客观技术实体（Knowledge 池）物理分离，通过事实-实体桥精准多跳召回 |
 | **治理管线与物理闸** | 新记忆先进候选队列，带 Tier-0/1/2 三档判重；`block_strong` 物理拦截完全重复；带 72h 待审老化告警 |
 | **事件溯源与防篡改** | 事件账本 `memory_events` 与版本表 `fact_versions` 由数据库触发器禁止 UPDATE/DELETE，版本行带 `previous_version_hash` 哈希链，从写入起可审计 |
 | **细粒度 ACL 与联邦** | 跨 Agent 共享阅读（技术域打破孤岛、私密域物理防穿透）；支持多节点 Fernet 加密联邦同步 |
@@ -30,8 +30,10 @@ Mímir 从第一天起就是反着设计的——**每一条记忆都要过审�
 | **Obsidian 知识库桥 (1.7.0)** | 经四道准入闸的实体事实可发布为库内「机器卡片」（Markdown + YAML Frontmatter），写前写后各一次 Git 快照；只写专属卡片目录，绝不改人类手写文字 |
 
 > **当前生产版本：`1.9.2 — Tighten（安全收口与规则收窄）`**  
-> 在 1.7.0「Vault Bridge」之上，补齐 agent 一侧的自动记忆入口：A-tier SessionStart/SessionEnd 钩子（自动捕获只结晶候选、绝不直写 facts）+ adapter/source 双注册表（新 agent/新记忆来源按声明式契约注册接入）+ search_feedback 热度接入衰减排序 + retention fail-closed 证明。  
-> 完整 2.0 规格设计详见：[`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md)。
+> 在 1.9.x 身份收口之上补齐安全面：审核决定的身份取自 token（`--actor` 不再可信）、hook 目标地址固定、scope/ACL 缺口（v7 delete、feedback 读权限、forget/correct 别名）、Vault 符号链接防逃逸、MEX 列名白名单，以及交易类敏感规则收窄。  
+> **2.0 的范围与验收判据**：[`docs/superpowers/specs/2026-11-16-mimir-2.0-scope-and-acceptance.md`](docs/superpowers/specs/2026-11-16-mimir-2.0-scope-and-acceptance.md)；
+> **执行计划**：[`docs/superpowers/plans/2026-11-16-mimir-1.8-to-2.0-execution-plan.md`](docs/superpowers/plans/2026-11-16-mimir-1.8-to-2.0-execution-plan.md)。
+> `2026-10-26` 的设计稿仅保留架构叙事，其里程碑与「`ObsidianProjector` / 52 张表」表述已作废。
 
 ---
 
@@ -206,8 +208,12 @@ python scripts/run_benchmarks.py --golden --out report.json
 | **v1.4.1** | Extraction Fix | 抽取流水线双向打通，修复助手回复与工具实体遗漏 | ✅ 已发布 |
 | **v1.5.0** | Federation & Sharing | 突破 84% 孤岛、退役 mentor、零配置动态 Agent 自举 | ✅ 已发布 |
 | **v1.6.0** | Perception & Crystallization · 感知与结晶 | 实体知识库、声明式探针与信源调度、双层结晶早报 | ✅ 已发布 |
-| **v1.7.0** | Vault Bridge · 知识库桥 | 发布白名单、四道准入闸、机器卡片、防反馈环、Git 快照、事务锁重试固化 | ✅ 已发布 · **当前生产运行** |
-| **v2.0.0** | The Unified Brain | 统一 MCP/CLI 一键分发、Command Center 大盘、开源正式发布 | 🎯 终极目标 (Milestone #6) |
+| **v1.7.0** | Vault Bridge · 知识库桥 | 发布白名单、四道准入闸、机器卡片、防反馈环、Git 快照、事务锁重试固化 | ✅ 已发布 |
+| **v1.8.0** | Auto-Capture & Heat · 会话钩子与热度 | SessionStart/SessionEnd 钩子只产候选、adapter/source 双注册表、热度接入衰减排序 | ✅ 已发布 |
+| **v1.9.0** | Honest Connect · 身份收口与可信采集 | 一 agent 一身份、只读团队共享、治理回退链、查询带时间 | ✅ 已发布 |
+| **v1.9.1** | Bridge & Publish · 审核积压与规则收窄 | review-backlog 工具、hook 身份必须显式、敏感规则收窄 | ✅ 已发布 |
+| **v1.9.2** | Tighten · 安全收口 | 审核身份取自 token、hook 地址固定、scope/ACL 缺口、Vault 符号链接防逃逸 | ✅ 已发布 · **当前生产运行** |
+| **v2.0.0** | The Unified Brain | 双时态语义（`as_of` 查询）、谱系归一、开源安全门、可分发性 | 🎯 终极目标（四项 gate，见范围裁决） |
 
 ---
 
