@@ -6,7 +6,7 @@
 
 ---
 
-## v1.9.1 (unreleased) · Bridge & Publish
+## v1.9.1 — 2026-11-25 · Bridge & Publish
 
 - **人工审核积压工具** (`mimir_v8/review_backlog.py`, `worker review-backlog`) —
   `list` 只读：按 owner / 来源 / 待审时长（`--older-than 3d`）/ 风险 / 原因码筛选，
@@ -21,6 +21,11 @@
   会被误认），也不再默认 thor。未设置时记错误、不发请求、exit 0。`install.sh` 未设
   该变量即拒绝安装，并打印带前缀的 settings 片段；`docs/ops/ROLES.md` 同步。
   **升级前**须在 n100 的 `~/.claude/settings.json` 三个 hook 命令前加 `MIMIR_AGENT_ID=thor `。
+- **治理敏感规则收窄** (`mimir_v8/governance.py`) — 裸 `ssh|pem|rsa` 命中「SSH 登录 N100」
+  和 "conversation" 里的 rsa，生产 49 次规则短路中 47 次为误判（转人工、跳过 LLM）。
+  现只拦真密钥形态：`private key`、`BEGIN … PRIVATE KEY`、`ssh-rsa/ed25519 AAAA…`、
+  `id_rsa/id_ed25519`、`.pem`。规则短路的评估记录 `model` 写 `rule:sensitive` /
+  `rule:noise`，不再是空串 + 置信度 0 的「假成功」外观。
 
 ## v1.9.0 — 2026-11-24 · Honest Connect · 身份收口、治理修复与采集可信
 

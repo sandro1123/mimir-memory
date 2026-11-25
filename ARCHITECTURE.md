@@ -1,6 +1,6 @@
 # Mímir Architecture · 架构设计
 
-> 同步版本 · Synced version：**1.9.0** · Schema 21 · 代号 Codename Honest Connect · 2026-11-24  
+> 同步版本 · Synced version：**1.9.1** · Schema 21 · 代号 Codename Bridge & Publish · 2026-11-25  
 > 演进蓝图 · Evolution Spec：**Mímir 2.0 (The Unified Brain)** 详见 [`docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md`](docs/superpowers/specs/2026-10-26-mimir-2.0-unified-brain-design.md)  
 > 版本纪元表见 [docs/VERSIONING.md](docs/VERSIONING.md)（0.x 史前纪元 → 1.x 承诺纪元）。  
 > English · 中文双语
