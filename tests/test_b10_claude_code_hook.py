@@ -40,16 +40,15 @@ class TestIdentity(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_bridge_is_thor(self):
-        m = load_hook({"LARK_CHANNEL_HOME": "/x"}, self.home)
-        self.assertEqual(m.AGENT_ID, "thor")
-        self.assertEqual(m.MIMIR_TOKEN_FILE.name, "thor.token")
+    def test_bridge_without_explicit_id_has_no_identity(self):
+        # 1.9.1: LARK_CHANNEL says nothing about which agent this is (Odin runs
+        # under the same bridge), so it must not resolve to thor.
+        m = load_hook({"LARK_CHANNEL_HOME": "/x", "LARK_CHANNEL": "1"}, self.home)
+        self.assertEqual(m.AGENT_ID, "")
 
-    def test_plain_session_is_thor(self):
-        # claudecode retired 2026-11-24: every Claude Code session on n100 is Thor.
+    def test_plain_session_has_no_identity(self):
         m = load_hook({}, self.home)
-        self.assertEqual(m.AGENT_ID, "thor")
-        self.assertEqual(m.MIMIR_TOKEN_FILE.name, "thor.token")
+        self.assertEqual(m.AGENT_ID, "")
 
     def test_explicit_wins(self):
         m = load_hook({"MIMIR_AGENT_ID": "Odin", "LARK_CHANNEL_HOME": "/x"}, self.home)
@@ -57,8 +56,21 @@ class TestIdentity(unittest.TestCase):
         self.assertEqual(m.MIMIR_TOKEN_FILE.name, "odin.token")
 
     def test_missing_token_does_not_borrow(self):
-        m = load_hook({"LARK_CHANNEL_HOME": "/x"}, self.home)
+        m = load_hook({"MIMIR_AGENT_ID": "thor"}, self.home)
         self.assertEqual(m._token(), "")  # no thor.token under fake HOME -> nothing
+
+    def test_no_identity_makes_no_network_calls(self):
+        m = load_hook({"LARK_CHANNEL_HOME": "/x"}, self.home)
+        m.LOG_FILE = Path(self.home) / "hook.log"
+        payload = json.dumps({"hook_event_name": "SessionStart", "source": "startup",
+                              "session_id": "s1", "cwd": self.home})
+        with mock.patch.object(m.urllib.request, "urlopen") as urlopen, \
+                mock.patch("sys.stdin", io.StringIO(payload)), \
+                redirect_stdout(io.StringIO()) as out:
+            m.main()
+        urlopen.assert_not_called()
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn("MIMIR_AGENT_ID is not set", m.LOG_FILE.read_text(encoding="utf-8"))
 
 
 class TestCleaner(unittest.TestCase):
@@ -87,7 +99,7 @@ class TestCleaner(unittest.TestCase):
 class TestResumeInjection(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.m = load_hook({"LARK_CHANNEL_HOME": "/x"}, self.tmp.name)
+        self.m = load_hook({"MIMIR_AGENT_ID": "thor", "LARK_CHANNEL_HOME": "/x"}, self.tmp.name)
         self.m.SEEN_FILE = Path(self.tmp.name) / "seen.json"
         self.m.LOG_FILE = Path(self.tmp.name) / "hook.log"
         self.boot = {"iron_rules": [{"content": "PIT 宪法"}], "user_prefs": [{"content": "不要进度提示"}]}

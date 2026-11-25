@@ -24,6 +24,7 @@ from .retention import RetentionService
 from .trust import TrustManager
 from .store import CanonicalStore, new_id, sha256_text, utc_now
 from .evolve import EvolveMemService
+from .review_backlog import add_review_backlog_parser
 
 logger = logging.getLogger("mimir_v8.worker")
 
@@ -134,6 +135,9 @@ def build_parser() -> argparse.ArgumentParser:
     requeue = sub.add_parser("review-requeue")
     requeue.add_argument("--actor", default=os.environ.get("MIMIR_REQUEUE_ACTOR", "service:maintenance"))
     requeue.add_argument("--dry-run", action="store_true")
+
+    # 1.9.1 review backlog triage: list is read-only; apply is a dry run unless --execute
+    add_review_backlog_parser(sub)
 
     # ── loop closure: scheduled conflict detection ─────────────────────
     conflict = sub.add_parser("conflict-detect")
@@ -1352,6 +1356,9 @@ def main(argv=None) -> int:
         )
     elif args.command == "review-requeue":
         result = review_requeue(store, args.actor, dry_run=args.dry_run)
+    elif args.command == "review-backlog":
+        from .review_backlog import run_review_backlog
+        return run_review_backlog(store, args)
     elif args.command == "reflect":
         # ③-5 默认关闭：未显式设 MIMIR_REFLECT_ENABLED=1 时直接空转，
         # 绝不因为「装了定时器」就开始烧 LLM 调用。
