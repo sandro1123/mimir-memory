@@ -57,7 +57,12 @@ TEAM_READ_SHARE: dict[str, frozenset[str]] = {
 #: Scopes the service actually checks (api.py ``scoped(...)``). Minting a
 #: principal with a scope outside this set grants nothing and hides typos, so
 #: it fails closed instead of being written into the registry.
-KNOWN_SCOPES = frozenset({"read", "write", "delete", "ingest", "review", "manage", "admin"})
+#: ``core_memory`` is checked by /v8/core-memory/promotions and .../retire;
+#: leaving it out made those two routes admin-only by accident (issue #73).
+KNOWN_SCOPES = frozenset({
+    "read", "write", "delete", "ingest", "review", "manage", "admin",
+    "core_memory",
+})
 
 #: Client-chosen principal ids follow the same class as the X-Mimir-Agent
 #: header, so a name learned from the header can be minted without renaming.
