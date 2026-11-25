@@ -26,6 +26,13 @@
   现只拦真密钥形态：`private key`、`BEGIN … PRIVATE KEY`、`ssh-rsa/ed25519 AAAA…`、
   `id_rsa/id_ed25519`、`.pem`。规则短路的评估记录 `model` 写 `rule:sensitive` /
   `rule:noise`，不再是空串 + 置信度 0 的「假成功」外观。
+- **运维侧（不在仓库内，随版本登记，2026-11-25 部署）** —
+  `mimir.service.d/20-nproc.conf`：`LimitNPROC=16384`。原 1024 按用户统计全部线程，
+  sandro1123 约 2.4k（某桌面容器反复拉起 xfce4-session/dbus-launch 约 123 组），
+  重启时 `ExecStartPre` 被 EAGAIN 阻断（status=203/EXEC）。n100 `~/.claude/settings.json`
+  三个 hook 命令已加 `MIMIR_AGENT_ID=thor ` 前缀并装上新 hook；Odin 主机升级 hook 前须加
+  `MIMIR_AGENT_ID=odin `。回滚：`current` 指回 `1.9.0-20261124_1139`，hook/settings 备份在
+  `/tmp/*.pre191`。
 
 ## v1.9.0 — 2026-11-24 · Honest Connect · 身份收口、治理修复与采集可信
 
