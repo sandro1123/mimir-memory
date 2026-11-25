@@ -29,10 +29,13 @@ RUN python3 -m venv /opt/mimir && \
 
 # Env (override at runtime)
 # P0-K (dudu RED-4): nonloopback OFF in image default; compose grants it explicitly.
+# MIMIR_V8_COLLECTION must satisfy vector_projector.validate_vector_collection_name
+# (namespaced "mimir_v8|v9|v10_(shadow|prod)_*"); the old "mimir_v12_prod" was
+# rejected at startup, so `docker run` with image defaults could not boot.
 ENV MIMIR_ALLOW_NONLOOPBACK=0 \
     MIMIR_V8_DATA_DIR=/data/canonical.db \
     MIMIR_V8_TOKEN_FILE=/data/api_tokens.json \
-    MIMIR_V8_COLLECTION=mimir_v12_prod \
+    MIMIR_V8_COLLECTION=mimir_v8_prod_facts \
     MIMIR_V8_MODEL=BAAI/bge-m3 \
     MIMIR_V9_KNOWLEDGE_LAYERS=memory,learning,wiki \
     HF_HUB_OFFLINE=1 \

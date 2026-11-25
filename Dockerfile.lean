@@ -22,7 +22,7 @@ RUN python3 -m venv /opt/mimir && \
 ENV MIMIR_ALLOW_NONLOOPBACK=1 \
     MIMIR_V8_DATA_DIR=/data/canonical.db \
     MIMIR_V8_TOKEN_FILE=/data/api_tokens.json \
-    MIMIR_V8_COLLECTION=mimir_v12_prod \
+    MIMIR_V8_COLLECTION=mimir_v8_prod_facts \
     MIMIR_V9_KNOWLEDGE_LAYERS=memory,learning,wiki \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1 \
