@@ -19,18 +19,13 @@ import urllib.request
 from pathlib import Path
 
 def _resolve_agent_id() -> str:
-    """Identity is explicit or detected — never borrowed (2026-11-24 ROLES.md).
+    """Identity must be explicit: MIMIR_AGENT_ID, or "" when it is unset.
 
-    - MIMIR_AGENT_ID wins when set.
-    - The aiduCAT lark-channel bridge (LARK_CHANNEL_HOME present) is Thor.
-    - Any other Claude Code session on this host is thor (claudecode retired 2026-11-24).
+    There is no detection and no default. LARK_CHANNEL / LARK_CHANNEL_HOME say
+    nothing about which agent this is (Odin runs under the same bridge), so they
+    are ignored. An empty result makes main() log an error and do nothing.
     """
-    explicit = os.environ.get("MIMIR_AGENT_ID", "").strip().lower()
-    if explicit:
-        return explicit
-    if os.environ.get("LARK_CHANNEL_HOME") or os.environ.get("LARK_CHANNEL"):
-        return "thor"
-    return "thor"
+    return os.environ.get("MIMIR_AGENT_ID", "").strip().lower()
 
 
 AGENT_ID = _resolve_agent_id()
@@ -319,6 +314,9 @@ def handle_session_end(payload: dict, event: str) -> None:
 
 
 def main() -> None:
+    if not AGENT_ID:
+        log("error: MIMIR_AGENT_ID is not set; hook is inactive (no identity, no network calls)")
+        return
     raw_input = ""
     try:
         raw_input = sys.stdin.read().strip()

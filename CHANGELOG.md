@@ -6,6 +6,22 @@
 
 ---
 
+## v1.9.1 (unreleased) · Bridge & Publish
+
+- **人工审核积压工具** (`mimir_v8/review_backlog.py`, `worker review-backlog`) —
+  `list` 只读：按 owner / 来源 / 待审时长（`--older-than 3d`）/ 风险 / 原因码筛选，
+  按来源与原因汇总，`--bridge-noise` 筛出原始桥接元数据候选（只筛不动），`--json`；
+  `apply` 批量 approve / reject：必填 `--reason` 与审阅人（`--actor` / `MIMIR_REVIEW_ACTOR`），
+  **默认演练**，`--execute` 才写；每条走 `CandidateService.review_candidate`（approve 再
+  `commit_approved`），审计与事件一致；单条失败不中断、有失败即 exit 1；不带 `--ids`
+  且无筛选时拒绝处理整个积压。confidential / restricted 预览一律遮蔽。
+  见 `docs/ops/REVIEW_BACKLOG.md`。
+- **hook 身份必须显式** (`adapters/claude-code/mimir_auto_capture.py`) — 只认
+  `MIMIR_AGENT_ID`；不再按 `LARK_CHANNEL` 判定为 thor（Odin 同样跑在 lark bridge 下，
+  会被误认），也不再默认 thor。未设置时记错误、不发请求、exit 0。`install.sh` 未设
+  该变量即拒绝安装，并打印带前缀的 settings 片段；`docs/ops/ROLES.md` 同步。
+  **升级前**须在 n100 的 `~/.claude/settings.json` 三个 hook 命令前加 `MIMIR_AGENT_ID=thor `。
+
 ## v1.9.0 — 2026-11-24 · Honest Connect · 身份收口、治理修复与采集可信
 
 > 把已在跑的 Thor 自动捕获链路修到“可信”：每个 agent 一个身份、共享只靠读可见性、

@@ -16,7 +16,11 @@
 | 治理服务 | service:governance | — | 系统内审 | — |
 | admin（您本人） | admin | — | 全部，唯一的人工审核身份 | — |
 
-`claudecode` 已于 2026-11-24 退役：facts 按来源拆给 thor / odin，token 已吊销。CLI 与 hook 不再回落到它，缺身份时默认 `thor`，Odin 上显式用 `odin`。
+`claudecode` 已于 2026-11-24 退役：facts 按来源拆给 thor / odin，token 已吊销。CLI 与 hook 不再回落到它。
+
+**身份必须显式（1.9.1）**：Claude Code hook 只认 `MIMIR_AGENT_ID`，不再按 `LARK_CHANNEL` 猜（Odin 也跑在 lark bridge 下，旧逻辑会把它认成 thor），也不再默认 `thor`。未设置时 hook 记一条错误、不发任何请求、exit 0。
+- n100（Thor）：`~/.claude/settings.json` 里三个 hook 命令前加 `MIMIR_AGENT_ID=thor `，**必须先改再装新 hook**，否则 Thor 停止沉淀。
+- sanjose（Odin）：`MIMIR_AGENT_ID=odin`，token `~/.mimir_odin.token`（`MIMIR_TOKEN_FILE`）、`MIMIR_HOST=<n100-tailscale-ip>`。11-25 起由本地包装 `mimir_auto_hook.py` 固定这三项；新 hook 装好后可改为 settings 前缀并去掉包装。
 
 ## 2. 与原目标的差异
 - thor / odin 目前有 `write`：`mimir-remember` 走 `POST /v8/facts` 需要它。原目标是只留 read + ingest，是否收回待定（收回后 remember 要改走 ingest 通道）。
