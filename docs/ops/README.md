@@ -11,5 +11,5 @@
 ## 当前关键点（2026-11-19）
 - SSOT（开发）：`~/work/mimir`（GitHub `sandro1123/mimir-memory` `master`，`v1.7.0` 基线；注意本地 EOL 伪修改待清理）
 - 1.8.0 候选：`feat/1.8.0@6cacd56`（`~/mimir-1.8.0-dev` / GitHub）
-- 生产运行/部署：`~/.hermes/mimir`，`releases/current -> 1.7.0-20261113_124335`；`mimir.service`/`mimir-dashboard.service` 及多 timer/worker 运行中
+- 生产运行/部署：`~/.hermes/mimir`，`releases/current` 与 `venvs/current` 均指向 `1.9.2-20261125_1215`（两者同名、一起切换，见 RELEASE.md）；`mimir.service`/`mimir-dashboard.service` 及多 timer/worker 运行中
 - 待处置（需方案+确认）：systemd unit/drop-in 变更未 reload；生产根仓脏改/无 remote 的治理与分流
