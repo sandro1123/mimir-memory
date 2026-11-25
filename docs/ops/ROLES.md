@@ -11,10 +11,10 @@
 | Jarvis | jarvis | Hermes profile CDC | read / write / delete | — |
 | QuantMaster | quantmaster | Hermes profile CDC | read / write / delete | — |
 | Mentor | mentor | 历史 CDC；RSS 与 Vault 采集也记在它名下 | read / write / delete / ingest / review | 采集器仍借用人格身份，待拆 `service:collector` |
-| Thor（飞书 aiduCAT 桥 + n100 本机 Claude Code） | `thor` | `~/.claude/hooks/mimir_auto_capture.py`（SessionStart / Stop / SessionEnd） | ingest / read / write | token：`secrets/clients/thor.token` |
+| Thor（飞书 aiduCAT 桥 + n100 本机 Claude Code） | `thor` | `~/.claude/hooks/mimir_auto_capture.py`（SessionStart / Stop / SessionEnd） | ingest / read / write / review | token：`secrets/clients/thor.token`；review 仅用于执行用户已批准的审核（1.9.2） |
 | Odin（sanjose） | `odin` | `~/.claude/hooks/mimir_auto_hook.py`（SessionStart / Stop / SessionEnd / PreCompact） | ingest / read / write | token：`~/.mimir_odin.token` |
 | 治理服务 | service:governance | — | 系统内审 | — |
-| admin（您本人） | admin | — | 全部，唯一的人工审核身份 | — |
+| admin（您本人） | admin | — | 全部 | 审核决定由您批准；Thor 以自己的身份执行并在 reason 中记录批准 |
 
 `claudecode` 已于 2026-11-24 退役：facts 按来源拆给 thor / odin，token 已吊销。CLI 与 hook 不再回落到它。
 

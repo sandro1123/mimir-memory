@@ -8,6 +8,16 @@
 
 ## v1.9.2 — 2026-11-25 · Tighten · 安全收口与规则收窄
 
+- **审核决定的身份取自 token** (`mimir_v8/review_backlog.py`) — 1.9.1 的 `review-backlog apply`
+  直接信任 `--actor`，本机任何进程都能以任意身份写审核决定；2026-11-25 的积压清理（用户已批准，
+  通过 15 / 拒绝 112）由 thor 执行，却记在 `mentor` 名下。现在必须出示 token（`--registry` +
+  `--token-file` / `MIMIR_REVIEW_TOKEN`），审阅人即 token 的 principal，须有 `review` scope；
+  `--actor` 只作断言，不符即拒绝。生产给 `thor` 增加 `review` scope（见 `docs/ops/ROLES.md`）。
+  历史记录不改写，另追加一条审计更正（`audit_log` action `review.attribution_correction`）。
+- **core_memory 可签发** (#75 / #73, `mimir_v8/auth.py`) — 加入 `KNOWN_SCOPES`，此前
+  `/v8/core-memory/*` 实际只有 admin 能调。v1.9.1 tag 之后合入，随本版发布。
+- **镜像默认集合名可用** (#65) — 默认 `mimir_v12_prod` 过不了服务自身的集合名校验，默认
+  `docker run` 起不来；改为可接受的默认值。v1.9.1 tag 之后合入，随本版发布。
 - **hook 目标地址固定** (#72, `adapters/claude-code/mimir_auto_capture.py`) — 请求携带 agent token
   与会话正文，`MIMIR_HOST` 只允许回环地址，或列在 `~/.hermes/mimir/secrets/clients/trusted_hosts`
   中的主机；仅靠环境变量无法放宽。不受信时记错误、不发请求。
@@ -49,7 +59,7 @@
   重启时 `ExecStartPre` 被 EAGAIN 阻断（status=203/EXEC）。n100 `~/.claude/settings.json`
   三个 hook 命令已加 `MIMIR_AGENT_ID=thor ` 前缀并装上新 hook；Odin 主机升级 hook 前须加
   `MIMIR_AGENT_ID=odin `。回滚：`current` 指回 `1.9.0-20261124_1139`，hook/settings 备份在
-  `/tmp/*.pre191`。
+  `~/.hermes/mimir/backups/1.9.1-deploy/`（原在 `/tmp`，2026-11-25 移出）。
 
 ## v1.9.0 — 2026-11-24 · Honest Connect · 身份收口、治理修复与采集可信
 
