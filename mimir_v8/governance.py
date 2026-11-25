@@ -105,7 +105,10 @@ SENSITIVE_PATTERNS = (
         r"|\bid_(?:rsa|ed25519|ecdsa)\b|\.pem\b",
         re.IGNORECASE,
     ),
-    re.compile(r"交易|下单|仓位|资金|股票|金额", re.IGNORECASE),
+    # 1.9.2: bare 交易|股票|金额 matched every price or market chat (17 of the
+    # 43 rule hits left in the backlog). Only account credentials and concrete
+    # account records are intercepted now.
+    re.compile(r"资金账号|资金密码|交易密码|证券账户|股东账户|银行卡号|持仓明细|委托单号", re.IGNORECASE),
 )
 
 EVALUATION_PROMPT = """你是一个记忆质量评估器。判断以下候选内容是否适合写入 Mímir 联邦记忆系统。

@@ -29,9 +29,32 @@ def _resolve_agent_id() -> str:
 
 
 AGENT_ID = _resolve_agent_id()
-MIMIR_HOST = os.environ.get("MIMIR_HOST", "127.0.0.1")
-MIMIR_PORT = os.environ.get("MIMIR_PORT", "8456")
+MIMIR_HOST = os.environ.get("MIMIR_HOST", "127.0.0.1").strip()
+MIMIR_PORT = os.environ.get("MIMIR_PORT", "8456").strip()
 MIMIR_BASE = f"http://{MIMIR_HOST}:{MIMIR_PORT}"
+# Issue #72: requests carry the agent token and session text, so the target is
+# pinned. Loopback is always allowed; any other host must be listed in a file
+# next to the tokens — an environment variable alone cannot widen the set.
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+TRUSTED_HOSTS_FILE = Path.home() / ".hermes" / "mimir" / "secrets" / "clients" / "trusted_hosts"
+
+
+def _trusted_hosts() -> frozenset[str]:
+    hosts = set(_LOOPBACK_HOSTS)
+    try:
+        for line in TRUSTED_HOSTS_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.split("#", 1)[0].strip().lower()
+            if line:
+                hosts.add(line)
+    except OSError:
+        pass
+    return frozenset(hosts)
+
+
+def host_is_trusted(host: str | None = None, port: str | None = None) -> bool:
+    host = (MIMIR_HOST if host is None else host).strip().lower()
+    port = MIMIR_PORT if port is None else port
+    return port.isdigit() and host in _trusted_hosts()
 # Token follows identity: secrets/clients/<agent>.token. No fallback to another
 # agent's token — a missing token logs an error and the hook does nothing.
 MIMIR_TOKEN_FILE = Path(os.environ.get(
@@ -68,6 +91,9 @@ def _token() -> str:
 
 
 def mimir_get(path: str, timeout: int = 10) -> dict | None:
+    if not host_is_trusted():
+        log(f"error: MIMIR_HOST {MIMIR_HOST!r} is not trusted (see {TRUSTED_HOSTS_FILE}); no request sent")
+        return None
     tok = _token()
     if not tok:
         log("err: token file not found")
@@ -85,6 +111,9 @@ def mimir_get(path: str, timeout: int = 10) -> dict | None:
 
 
 def mimir_post(path: str, body: dict, timeout: int = 15) -> dict | None:
+    if not host_is_trusted():
+        log(f"error: MIMIR_HOST {MIMIR_HOST!r} is not trusted (see {TRUSTED_HOSTS_FILE}); no request sent")
+        return None
     tok = _token()
     if not tok:
         log("err: token file not found")
@@ -316,6 +345,9 @@ def handle_session_end(payload: dict, event: str) -> None:
 def main() -> None:
     if not AGENT_ID:
         log("error: MIMIR_AGENT_ID is not set; hook is inactive (no identity, no network calls)")
+        return
+    if not host_is_trusted():
+        log(f"error: MIMIR_HOST {MIMIR_HOST!r} is not loopback or listed in {TRUSTED_HOSTS_FILE}; hook is inactive")
         return
     raw_input = ""
     try:

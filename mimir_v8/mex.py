@@ -251,7 +251,7 @@ def mex_import(store: CanonicalStore, payload: dict, *,
             for row in rows:
                 connection.execute(
                     f"INSERT OR IGNORE INTO {table} "
-                    f"({', '.join(row.keys())}) "
+                    f"({', '.join(_safe_keys(connection, table, row))}) "
                     f"VALUES ({', '.join('?' * len(row))})",
                     tuple(row.values()))
         # 新 fact 落库（skip/conflict 的不动）：candidate/evidence 的 FK 靶子。
@@ -281,7 +281,7 @@ def mex_import(store: CanonicalStore, payload: dict, *,
                 continue
             connection.execute(
                 "INSERT OR IGNORE INTO candidate_facts "
-                f"({', '.join(cand.keys())}) "
+                f"({', '.join(_safe_keys(connection, 'candidate_facts', cand))}) "
                 f"VALUES ({', '.join('?' * len(cand))})",
                 tuple(cand.values()))
 
@@ -391,3 +391,16 @@ def cogx_to_mex(cogx: dict, *, source_node: str) -> dict:
     }
     envelope["integrity"] = {s: _sha(envelope[s]) for s in _DATA_SECTIONS}
     return envelope
+
+
+def _safe_keys(connection, table: str, row: dict) -> list[str]:
+    """Only real columns of ``table`` may reach the SQL text (issue #70).
+
+    Envelope keys used to be spliced into INSERT statements verbatim; an
+    unknown key now fails the import instead of becoming SQL.
+    """
+    columns = {r[1] for r in connection.execute(f"PRAGMA table_info({table})")}
+    unknown = [key for key in row if key not in columns]
+    if unknown:
+        raise ValueError(f"MEX import: {table} has no column(s) {unknown!r}")
+    return list(row.keys())

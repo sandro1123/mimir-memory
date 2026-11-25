@@ -303,8 +303,7 @@ class LearningService:
 
     def forget(self, fact_id: str, expected_version: int, reason: str, actor_principal: str, idempotency_key: str) -> dict:
         fact = self.store.get_fact(fact_id)
-        if fact["owner_principal"] != actor_principal:
-            raise PermissionError("only the fact owner can forget a fact")
+        _require_owner(fact, actor_principal, "forget")
         from .schema import TombstoneFact
         return self.store.tombstone_fact(
             TombstoneFact(fact_id=fact_id, expected_version=expected_version, reason=reason, idempotency_key=idempotency_key),
@@ -313,8 +312,7 @@ class LearningService:
 
     def correct(self, fact_id: str, expected_version: int, corrected_content: str, summary: str | None, reason: str, actor_principal: str, idempotency_key: str) -> dict:
         fact = self.store.get_fact(fact_id)
-        if fact["owner_principal"] != actor_principal:
-            raise PermissionError("only the fact owner can correct a fact")
+        _require_owner(fact, actor_principal, "correct")
         if int(fact["current_version"]) != int(expected_version):
             raise ConflictError(
                 f"fact version conflict: expected {expected_version}, current {fact['current_version']}"
@@ -455,3 +453,12 @@ class LearningService:
         payload_json = canonical_json(payload)
         cursor = connection.execute("INSERT INTO memory_events(event_id,aggregate_type,aggregate_id,aggregate_version,event_type,actor_principal,request_id,correlation_id,occurred_at,payload_json,payload_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)", (event_id, aggregate_type, aggregate_id, 1, event_type, actor, event_id, event_id, now, payload_json, sha256_text(payload_json)))
         return int(cursor.lastrowid)
+
+
+def _require_owner(fact: dict, actor_principal: str, action: str) -> None:
+    """Alias-aware owner check that surfaces as 403, not 500 (issue #68)."""
+    from .auth import PRINCIPAL_ALIASES, AuthError
+    owner = fact["owner_principal"]
+    if owner == actor_principal or owner in PRINCIPAL_ALIASES.get(actor_principal, frozenset()):
+        return
+    raise AuthError(f"only the fact owner can {action} a fact", 403, "owner_boundary")

@@ -27,16 +27,22 @@ review-backlog list --reason-code duplicate_gate --json
 ## 批量处理
 
 ```bash
+# 审阅人取自 token，不取自命令行（1.9.2）
+AUTH="--registry ~/.hermes/mimir/secrets/api_tokens-v8.1-prod.json --token-file ~/.hermes/mimir/secrets/clients/thor.token"
 # 先演练（不写库），确认清单
-review-backlog apply --bridge-noise --action reject --reason "原始桥接元数据，非用户内容" --actor admin
+review-backlog apply $AUTH --bridge-noise --action reject --reason "原始桥接元数据，非用户内容"
 # 确认无误后加 --execute
-review-backlog apply --bridge-noise --action reject --reason "原始桥接元数据，非用户内容" --actor admin --execute
+review-backlog apply $AUTH --bridge-noise --action reject --reason "原始桥接元数据，非用户内容" --execute
 # 按 id
-review-backlog apply --ids <id1>,<id2> --action approve --reason "人工确认" --actor admin --execute
+review-backlog apply $AUTH --ids <id1>,<id2> --action approve --reason "用户 2026-11-25 批准：…" --execute
 ```
 
-- 必须给 `--reason` 和审阅人（`--actor` 或 `MIMIR_REVIEW_ACTOR`）。审阅人应是人，
-  `service:*` 批准不会把事实标为 confirmed。
+- 必须给 `--reason`，并出示审阅人 token：`--registry`（或 `MIMIR_V8_TOKEN_FILE`）指向 API 用的
+  哈希注册表，`--token-file`（或 `MIMIR_REVIEW_TOKEN`）给 token。**审阅人就是 token 的 principal**，
+  且必须有 `review` scope；`--actor` 只是可选断言，与 token 不符即拒绝。这样本机进程无法再冒用
+  别的身份写审核决定（1.9.1 曾把 thor 执行的清理记在 mentor 名下）。
+- 当前有 `review` 的身份：`thor`（执行用户批准的审核）、`mentor`、`admin`。`--reason` 应写明
+  用户批准的时间和原话，审计据此区分「谁批准」与「谁执行」。`service:*` 批准不会把事实标为 confirmed。
 - 不带 `--ids` 又没有任何筛选时拒绝执行，防止误清整个积压。
 - approve 会立即 commit 成事实；reject 只改候选状态。都写 `memory_events` 与审计。
 - 单条失败不影响其余；有任何失败 exit 1。重复执行同一批：已处理的不在积压里，会报失败而不是重复写入。

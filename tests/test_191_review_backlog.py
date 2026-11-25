@@ -127,15 +127,36 @@ class TestList(Base):
         self.assertEqual(_status(self.store, "plain"), "human_review")
 
 
+def _registry(dirpath):
+    """Token registry with a reviewer (thor + review) and a non-reviewer (odin)."""
+    from mimir_v8.auth import mint_principal
+    reg = Path(dirpath) / "api_tokens.json"
+    reg.write_text(json.dumps({"version": 1, "principals": []}), encoding="utf-8")
+    tokens = {}
+    for pid, scopes in (("thor", ["ingest", "read", "write", "review"]),
+                        ("odin", ["ingest", "read", "write"])):
+        tok, _ = mint_principal(reg, principal_id=pid, scopes=scopes)
+        tf = Path(dirpath) / f"{pid}.token"
+        tf.write_text(tok, encoding="utf-8")
+        tokens[pid] = tf
+    return reg, tokens
+
+
 class TestApply(Base):
     def setUp(self):
         super().setUp()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.registry, self.tokens = _registry(tmp.name)
         _insert(self.store, "a")
         _insert(self.store, "b")
         _insert(self.store, "noise", content=BRIDGE)
 
-    def _apply(self, *extra):
-        code, out = _run(self.store, ["review-backlog", "apply", "--actor", "admin", *extra])
+    def _apply(self, *extra, who="thor"):
+        argv = ["review-backlog", "apply", "--registry", str(self.registry)]
+        if who:
+            argv += ["--token-file", str(self.tokens[who])]
+        code, out = _run(self.store, [*argv, *extra])
         return code, json.loads(out) if out.strip() else {}
 
     def test_dry_run_writes_nothing(self):
@@ -184,12 +205,32 @@ class TestApply(Base):
         self.assertEqual(code, 2)
         self.assertEqual(_status(self.store, "a"), "human_review")
 
-    def test_requires_actor(self):
-        args = build_parser().parse_args(["review-backlog", "apply", "--action", "reject",
-                                          "--reason", "x", "--ids", "a"])
-        args.actor = ""
-        with redirect_stdout(io.StringIO()):
-            self.assertEqual(rb.run_review_backlog(self.store, args), 2)
+    def test_requires_reviewer_token(self):
+        # 1.9.2: a typed --actor is no longer enough to file a decision.
+        code, _ = self._apply("--actor", "thor", "--action", "reject", "--reason", "x",
+                              "--ids", "a", "--execute", who=None)
+        self.assertEqual(code, 2)
+        self.assertEqual(_status(self.store, "a"), "human_review")
+
+    def test_token_without_review_scope_is_rejected(self):
+        code, _ = self._apply("--action", "reject", "--reason", "x", "--ids", "a",
+                              "--execute", who="odin")
+        self.assertEqual(code, 2)
+        self.assertEqual(_status(self.store, "a"), "human_review")
+
+    def test_actor_must_match_token_principal(self):
+        code, _ = self._apply("--actor", "mentor", "--action", "reject", "--reason", "x",
+                              "--ids", "a", "--execute")
+        self.assertEqual(code, 2)
+        self.assertEqual(_status(self.store, "a"), "human_review")
+
+    def test_decision_is_recorded_under_token_principal(self):
+        code, _ = self._apply("--action", "reject", "--reason", "x", "--ids", "a", "--execute")
+        self.assertEqual(code, 0)
+        with self.store.transaction() as c:
+            who = c.execute("SELECT reviewer_principal FROM review_actions WHERE candidate_id='a'"
+                            ).fetchone()["reviewer_principal"]
+        self.assertEqual(who, "thor")
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 import re
 import sys
 from collections import Counter
@@ -295,15 +296,47 @@ def _run_list(store: CanonicalStore, args) -> int:
     return 0
 
 
+def resolve_reviewer(args) -> tuple[str, str]:
+    """Return ``(actor, error)``; the actor comes from a token, never from a flag.
+
+    1.9.2: ``--actor`` used to be trusted as typed, so any local process could
+    file review decisions under any principal (2026-11-25: Thor's approved
+    backlog cleanup was recorded as ``mentor``). The reviewer is now whoever
+    owns the presented token, and that principal must hold the ``review`` scope.
+    ``--actor`` may still be passed, but only as an assertion that must match.
+    """
+    from .auth import AuthError, TokenStore
+
+    registry = (getattr(args, "registry", "") or "").strip()
+    token_file = (getattr(args, "token_file", "") or "").strip()
+    token = os.environ.get("MIMIR_REVIEW_TOKEN", "").strip()
+    if not token and token_file:
+        try:
+            token = Path(token_file).expanduser().read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            return "", f"cannot read --token-file: {exc}"
+    if not registry or not token:
+        return "", ("a reviewer token is required: pass --registry (or MIMIR_V8_TOKEN_FILE) and "
+                     "--token-file (or MIMIR_REVIEW_TOKEN); the reviewer is the token's principal")
+    try:
+        principal = TokenStore(registry).authenticate(f"Bearer {token}")
+        principal.require("review")
+    except AuthError as exc:
+        return "", f"reviewer token rejected: {exc}"
+    claimed = (getattr(args, "actor", "") or "").strip()
+    if claimed and claimed != principal.principal_id:
+        return "", f"--actor {claimed!r} does not match the token's principal {principal.principal_id!r}"
+    return principal.principal_id, ""
+
+
 def _run_apply(store: CanonicalStore, args) -> int:
     reason = (args.reason or "").strip()
     if not reason:
         print("error: --reason must not be empty", file=sys.stderr)
         return 2
-    actor = (args.actor or "").strip()
-    if not actor:
-        print("error: --actor (or MIMIR_REVIEW_ACTOR) is required: decisions must name a human reviewer",
-              file=sys.stderr)
+    actor, err = resolve_reviewer(args)
+    if err:
+        print(f"error: {err}", file=sys.stderr)
         return 2
     explicit_ids = list(dict.fromkeys(x.strip() for x in args.ids.split(",") if x.strip()))
     filters = _filters_from(args)
@@ -392,6 +425,10 @@ def add_review_backlog_parser(sub) -> None:
     apply.add_argument("--action", required=True, choices=REVIEW_ACTIONS)
     apply.add_argument("--reason", required=True, help="recorded on every review decision")
     apply.add_argument("--actor", default=os.environ.get("MIMIR_REVIEW_ACTOR", ""),
-                       help="reviewer principal (default: MIMIR_REVIEW_ACTOR)")
+                       help="optional assertion; must equal the token's principal")
+    apply.add_argument("--registry", default=os.environ.get("MIMIR_V8_TOKEN_FILE", ""),
+                       help="hash-only token registry the API uses (default: MIMIR_V8_TOKEN_FILE)")
+    apply.add_argument("--token-file", default=os.environ.get("MIMIR_REVIEW_TOKEN_FILE", ""),
+                       help="reviewer token file; or set MIMIR_REVIEW_TOKEN")
     apply.add_argument("--execute", action="store_true",
                        help="actually write decisions; without this nothing is changed")
