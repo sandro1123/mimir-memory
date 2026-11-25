@@ -11,7 +11,6 @@ from contextlib import closing
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from pathlib import Path
 
 from .schema import MIMIR_VERSION, SCHEMA_VERSION
 from .store import CanonicalStore
@@ -246,7 +245,8 @@ class DeepReader:
     def __init__(self, store: CanonicalStore, evaluator: Evaluator | None = None):
         self.store = store
         self.evaluator = evaluator or Evaluator()
-        self.vault_path = Path.home() / "obsidian-vault" / "Sandro's Vault"
+        from .config import MimirPaths  # issue #74: honour MIMIR_VAULT_ROOT
+        self.vault_path = MimirPaths.from_env().vault_root
         self.learn_dir = self.vault_path / "10-项目" / "Mímir 联邦记忆系统" / "学习日志"
 
     def read(self, content: str, source: str, title: str = "") -> ReadingResult:

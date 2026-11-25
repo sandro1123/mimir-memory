@@ -94,7 +94,11 @@ class EvolveMemService:
                         spaced = 1
                 except Exception:
                     spaced = 0
-            if spaced:
+            if signal == "useless":
+                # Issue #66: "not useful" is not a recall. Counting it raised
+                # heat, so bad results ranked higher. Logged only.
+                pass
+            elif spaced:
                 connection.execute(
                     """UPDATE facts
                        SET recall_count = COALESCE(recall_count, 0) + 1,

@@ -6,6 +6,23 @@
 
 ---
 
+## v1.9.2 — 2026-11-25 · Tighten · 安全收口与规则收窄
+
+- **hook 目标地址固定** (#72, `adapters/claude-code/mimir_auto_capture.py`) — 请求携带 agent token
+  与会话正文，`MIMIR_HOST` 只允许回环地址，或列在 `~/.hermes/mimir/secrets/clients/trusted_hosts`
+  中的主机；仅靠环境变量无法放宽。不受信时记错误、不发请求。
+- **v7 `/delete` 需要 delete scope** (#71) — 与 `/v8/facts/{id}` 删除路径一致。
+- **反馈接口校验读权限** (#67) — `/v12/evolve/feedback` 对不可读事实返回 404（与不存在同形，不泄露存在性）。
+- **「没用」不再计为召回** (#66) — `useless` 只记反馈，不加 `recall_count`，差评不再抬升热度。
+- **forget / correct 识别别名并返回 403** (#68) — 原裸 owner 比较 + `PermissionError` 导致 500。
+- **Vault 发布拒绝符号链接逃逸** (#69) — 目标为符号链接或解析后不在库内时跳过（`path:escapes_vault`）。
+- **MEX 导入列名白名单** (#70) — 信封键必须是目标表真实列，否则导入失败，不再拼进 SQL。
+  （MEX 绕过候选评审是设计上的迁移通道，仅 `migrate_cli` 本地调用，未暴露 API；保持不变并在此登记。）
+- **治理规则收窄** — 裸 `交易|下单|仓位|资金|股票|金额` 命中所有价格/行情闲聊（积压中 43 条规则命中有 17 条
+  属此类），现只拦 `资金账号|资金密码|交易密码|证券账户|股东账户|银行卡号|持仓明细|委托单号`。
+- **Vault 默认路径不再写死** (#74) — 出厂默认改为 `~/.hermes/mimir/vault`；`reporting.py` 改走
+  `MimirPaths`，尊重 `MIMIR_VAULT_ROOT`。生产单元已设置该变量，不受影响。
+
 ## v1.9.1 — 2026-11-25 · Bridge & Publish
 
 - **人工审核积压工具** (`mimir_v8/review_backlog.py`, `worker review-backlog`) —

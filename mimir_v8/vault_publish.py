@@ -69,6 +69,10 @@ def publish_entity(
 
     rel_path = f"{_CARD_ROOT}/{card_filename(entity_id, str(entity.get('name') or ''))}"
     target = vault_root / rel_path
+    # Issue #69: _validate_path only checks the string; a symlinked folder or
+    # card inside the vault could still redirect the write outside it.
+    if target.is_symlink() or not target.resolve().is_relative_to(vault_root.resolve()):
+        return {"status": "skipped", "reason": "path:escapes_vault", "path": rel_path, "snapshot": None}
     snapshot = _snapshot_before_write(vault_root, target)
 
     text = render_card(mimir_id=entity_id, title=str(entity.get("name") or entity_id), sections=sections)

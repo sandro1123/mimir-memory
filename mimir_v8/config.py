@@ -66,7 +66,7 @@ class MimirPaths:
             cache_dir=Path(cache_dir) if cache_dir else Path.home() / ".hermes" / "mimir" / "collect",
             secrets_dir=Path(secrets_dir) if secrets_dir else Path.home() / ".hermes" / "mimir" / "secrets",
             log_dir=Path(log_dir) if log_dir else Path.home() / ".hermes" / "mimir" / "logs",
-            vault_root=Path(vault_root) if vault_root else Path.home() / "obsidian-vault" / "Sandro's Vault",
+            vault_root=Path(vault_root) if vault_root else Path.home() / ".hermes" / "mimir" / "vault",  # issue #74
             connector_hermes_state_db=Path(hermes_db) if hermes_db else None,
         )
 

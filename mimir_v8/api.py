@@ -2225,6 +2225,12 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         signal = (body or {}).get("signal", "")
         if not query_text or not fact_id or not signal:
             raise HTTPException(422, "query_text, fact_id and signal are required")
+        # Issue #67: feedback moves ranking, so it needs read access to the
+        # fact. Unreadable and missing answer the same (no existence oracle).
+        if not context.store.can_read(fact_id, identity.principal_id,
+                                      is_admin=identity.is_admin,
+                                      roles=set(identity.roles)):
+            raise HTTPException(404, "fact not found")
         return svc.submit_feedback(query_text, fact_id, signal,
                                    user_principal=identity.principal_id,
                                    actor_principal=identity.principal_id)
@@ -2588,7 +2594,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
 
     @app.post("/delete")
     def delete_v7(body: dict, request: Request,
-                  identity: Principal = Depends(scoped("write"))):
+                  identity: Principal = Depends(scoped("delete"))):  # issue #71
         fact_id = str(body.get("fact_id", "")).strip()
         if not fact_id:
             raise ValidationError("fact_id is required")

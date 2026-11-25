@@ -42,12 +42,13 @@ def test_useful_feedback_increments_usage(tmp_path):
     assert last_recalled is not None
 
 
-def test_useless_feedback_counts_recall_not_useful(tmp_path):
+def test_useless_feedback_does_not_count_as_recall(tmp_path):
+    # Issue #66: a "useless" verdict must not raise heat.
     store = _store(tmp_path)
     fid = _fact(store)
     EvolveMemService(store).submit_feedback("q", fid, "useless", user_principal="mentor")
     recall, useful, _, _ = _heat(store, fid)
-    assert recall == 1
+    assert recall == 0
     assert useful == 0
 
 
