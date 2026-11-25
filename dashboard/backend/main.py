@@ -61,6 +61,7 @@ CODENAMES = {
     "1.7.0": "Vault Bridge · 知识库桥",
     "1.8.0": "Auto-Capture & Heat · 会话钩子与热度",
     "1.9.0": "Honest Connect · 身份收口与可信采集",
+    "1.9.1": "Bridge & Publish · 审核积压与规则收窄",
 }
 CODENAME_FALLBACK = "未登记（版本代号表缺此号）"
 

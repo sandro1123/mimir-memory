@@ -97,7 +97,14 @@ SENSITIVE_PATTERNS = (
         r"|password\s*[:=]|secret\s*[:=]",
         re.IGNORECASE,
     ),
-    re.compile(r"ssh|private.?key|pem|rsa", re.IGNORECASE),
+    # 1.9.1: bare ssh|pem|rsa matched "SSH 登录 N100" and the "rsa" inside
+    # "conversation" — 49 rule short-circuits, 47 of them benign. Only real
+    # key material / key-file forms are intercepted now.
+    re.compile(
+        r"private.?key|BEGIN [A-Z ]*PRIVATE KEY|\bssh-(?:rsa|ed25519|dss) AAAA"
+        r"|\bid_(?:rsa|ed25519|ecdsa)\b|\.pem\b",
+        re.IGNORECASE,
+    ),
     re.compile(r"交易|下单|仓位|资金|股票|金额", re.IGNORECASE),
 )
 
@@ -212,11 +219,13 @@ def assess_candidate(content: str, candidate_id: str) -> AssessmentResult:
         result.is_noise = True
         result.risk = "low"
         result.reasoning = f"确定性规则命中噪声: {rule['matched_patterns']}"
+        result.model_used = "rule:noise"
         result.success = True
         return result
     if rule["is_sensitive"]:
         result.risk = "high"
         result.reasoning = f"确定性规则命中敏感内容: {rule['matched_patterns']}"
+        result.model_used = "rule:sensitive"
         result.success = True
         return result
     prompt = EVALUATION_PROMPT.format(content=content[:2000])
