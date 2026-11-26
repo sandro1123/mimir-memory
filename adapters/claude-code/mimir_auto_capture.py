@@ -155,7 +155,9 @@ def save_seen(seen: dict) -> None:
 # ----------------------------------------------------------------- SessionStart
 def handle_session_start(payload: dict) -> None:
     source = str(payload.get("source") or "")
-    if source in ("resume", "compact"):
+    # compact drops prior context, so always re-inject (2026-11-26 Odin amnesia fix);
+    # only resume is throttled.
+    if source == "resume":
         # The bridge resumes the same session every turn, so skipping resume
         # meant Thor *never* got its bootstrap (2026-11-24 audit). Inject on
         # resume too, throttled per session so it isn't repeated every turn.
