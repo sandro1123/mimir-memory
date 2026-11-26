@@ -1,0 +1,26 @@
+# Template: replace @MIMIR_HOME@, @MIMIR_DATA_DIR@ and @USER@ before installing to
+# /etc/systemd/system/. Fails (exit 1) when a watched connector is stale, after the
+# wrapper has pushed the Feishu card.
+[Unit]
+Description=Mímir capture-gap check - alert on Feishu when a bridge stops reporting
+After=mimir.service
+
+[Service]
+Type=oneshot
+User=@USER@
+Group=@USER@
+UMask=0077
+WorkingDirectory=@MIMIR_HOME@/releases/current
+Environment=PYTHONPATH=@MIMIR_HOME@/releases/current
+Environment=MIMIR_HOME=@MIMIR_HOME@
+Environment=MIMIR_DATA_DIR=@MIMIR_DATA_DIR@
+Environment=MIMIR_CONFIG_FILE=@MIMIR_HOME@/mimir_config.yaml
+Environment=MIMIR_SECRETS_DIR=@MIMIR_HOME@/secrets
+Environment=MIMIR_LOG_DIR=@MIMIR_HOME@/logs
+# Watch list: connector=max_gap_hours. Empty = built-in default in worker.py.
+Environment=MIMIR_CAPTURE_WATCH=
+ExecStart=@MIMIR_HOME@/ops/capture_check_feishu.sh
+NoNewPrivileges=true
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mimir-capture-check

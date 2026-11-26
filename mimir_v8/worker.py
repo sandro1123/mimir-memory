@@ -711,7 +711,8 @@ def review_reminder(store: CanonicalStore, owner: str | None = None) -> dict:
 
 #: 1.9.0 捕获断流告警（2026-11-24）：这些 connector 超过阈值小时数没有新
 #: source 即视为断流。Odin 用量低，阈值放宽。MIMIR_CAPTURE_WATCH 可整体覆盖。
-CAPTURE_WATCH_DEFAULT = {"thor-bridge": 24.0, "odin-bridge": 72.0, "hermes-jarvis-profile": 24.0}
+CAPTURE_WATCH_DEFAULT = {"thor-bridge": 24.0, "odin-bridge": 72.0, "hermes-jarvis-profile": 24.0,
+                         "brokkr-bridge": 72.0}
 
 
 def _parse_capture_watch(spec: str) -> dict[str, float]:

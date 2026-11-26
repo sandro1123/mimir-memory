@@ -13,3 +13,15 @@
 - 1.8.0 候选：`feat/1.8.0@6cacd56`（`~/mimir-1.8.0-dev` / GitHub）
 - 生产运行/部署：`~/.hermes/mimir`，`releases/current` 与 `venvs/current` 均指向 `1.9.2-20261125_1215`（两者同名、一起切换，见 RELEASE.md）；`mimir.service`/`mimir-dashboard.service` 及多 timer/worker 运行中
 - 待处置（需方案+确认）：systemd unit/drop-in 变更未 reload；生产根仓脏改/无 remote 的治理与分流
+
+## Capture-gap alerting (`mimir-capture-check`)
+
+Every 6 h, `scripts/capture_check_feishu.sh` runs `worker capture-check --output feishu`. If any watched connector has gone quiet longer than its threshold, it pushes a red Feishu card and the unit exits 1.
+
+- **Default watch list** (`CAPTURE_WATCH_DEFAULT` in `mimir_v8/worker.py`): `thor-bridge=24h`, `odin-bridge=72h`, `brokkr-bridge=72h`, `hermes-jarvis-profile=24h`. To override, set `MIMIR_CAPTURE_WATCH=connector=hours,...` in the unit.
+- **New agent:** add its `<agent>-bridge` to the default list (see `ROLES.md` step 3).
+- **Install:**
+  1. Copy the wrapper to `$MIMIR_HOME/ops/`.
+  2. Fill in the `@...@` placeholders in `scripts/systemd/mimir-capture-check.{service,timer}` and copy both to `/etc/systemd/system/`.
+  3. Run `sudo systemctl daemon-reload && sudo systemctl enable --now mimir-capture-check.timer`.
+- **Verify:** run `sudo systemctl start mimir-capture-check.service`. The journal should show `capture-check ok`.

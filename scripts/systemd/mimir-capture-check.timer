@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Mímir capture-gap check every 6 hours
+
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=6h
+RandomizedDelaySec=5min
+Persistent=true
+Unit=mimir-capture-check.service
+
+[Install]
+WantedBy=timers.target

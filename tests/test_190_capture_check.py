@@ -65,6 +65,11 @@ class TestCaptureGapCheck(unittest.TestCase):
         self.assertIsNone(r["stale"][0]["gap_hours"])
         self.assertIn("从未收到对话", r["feishu_card"]["card"]["elements"][0]["content"])
 
+    def test_default_watch_covers_every_bridge(self):
+        from mimir_v8.worker import CAPTURE_WATCH_DEFAULT
+        for name in ("thor-bridge", "odin-bridge", "brokkr-bridge", "hermes-jarvis-profile"):
+            self.assertIn(name, CAPTURE_WATCH_DEFAULT)
+
     def test_parse_watch(self):
         self.assertEqual(_parse_capture_watch("a=12, b=48.5,c"), {"a": 12.0, "b": 48.5, "c": 24.0})
         self.assertEqual(_parse_capture_watch(""), {})
