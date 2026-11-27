@@ -13,6 +13,8 @@
 | Mentor | mentor | 历史 CDC；RSS 与 Vault 采集也记在它名下 | read / write / delete / ingest / review | 采集器仍借用人格身份，待拆 `service:collector` |
 | Thor（飞书 aiduCAT 桥 + n100 本机 Claude Code） | `thor` | `~/.claude/hooks/mimir_auto_capture.py`（SessionStart / Stop / SessionEnd） | ingest / read / write / review | token：`secrets/clients/thor.token`；review 仅用于执行用户已批准的审核（1.9.2） |
 | Odin（sanjose） | `odin` | `~/.claude/hooks/mimir_auto_hook.py`（SessionStart / Stop / SessionEnd / PreCompact） | ingest / read / write | token：`~/.mimir_odin.token` |
+| Brokkr（Gungnir，pi） | `brokkr` | `adapters/pi/mimir.ts`（session_start / compact / agent_settled） | ingest / read / write | `MIMIR_AGENT_ID=brokkr` 必须显式；token `~/.mimir_brokkr.token`（1.9.3） |
+| Mirasim 采集器（n100 定时拉取 X1E） | `mirasim` | `adapters/mirasim/collector.py`（`mimir-mirasim-capture.timer`，10 分钟） | ingest | token `secrets/clients/mirasim.token`；不读不写（1.9.3） |
 | 治理服务 | service:governance | — | 系统内审 | — |
 | admin（您本人） | admin | — | 全部 | 审核决定由您批准；Thor 以自己的身份执行并在 reason 中记录批准 |
 

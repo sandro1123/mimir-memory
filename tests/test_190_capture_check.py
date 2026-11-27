@@ -67,7 +67,7 @@ class TestCaptureGapCheck(unittest.TestCase):
 
     def test_default_watch_covers_every_bridge(self):
         from mimir_v8.worker import CAPTURE_WATCH_DEFAULT
-        for name in ("thor-bridge", "odin-bridge", "brokkr-bridge", "hermes-jarvis-profile"):
+        for name in ("thor-bridge", "odin-bridge", "brokkr-bridge", "hermes-jarvis-profile", "mirasim-x1e"):
             self.assertIn(name, CAPTURE_WATCH_DEFAULT)
 
     def test_parse_watch(self):

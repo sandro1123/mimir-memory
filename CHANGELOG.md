@@ -6,6 +6,23 @@
 
 ---
 
+## v1.9.3 — 2026-11-27 · Connect More · 多源采集与断流告警
+
+- **Mirasim 聊天记录采集** (#79, `adapters/mirasim/collector.py`) — n100 定时通过局域网 SSH 只读拉取 X1E 上
+  Mirasim 的房间日志，只取新增 `message`，送 `POST /v8/ingestion/conversations`（`connector_id=mirasim-x1e`）。
+  X1E 上不装任何东西、token 不出 n100；游标只在 API 接受后前进。默认补录 7 天，采助手私聊、`dm-mx-*` 与
+  `general`，不采 `items`。身份 `mirasim` 只需 `ingest`。设计见 `docs/plans/2026-11-25-mirasim-capture-design.md`。
+- **pi 扩展** (#83, `adapters/pi/`) — Claude Code hook 的 pi 移植（Brokkr）：会话开始/压缩后注入记忆，每轮结束上报。
+  `MIMIR_AGENT_ID` 必填、无默认值，缺省即停用；`MIMIR_HOST` 默认回环地址。
+- **断流告警上线** (#84, 1.9.1 A4) — `scripts/capture_check_feishu.sh` + `scripts/systemd/mimir-capture-check.{service,timer}`，
+  每 6 小时检查，断流推飞书红卡、单元 exit 1。默认监控名单增加 `brokkr-bridge=72h`、`mirasim-x1e=24h`。
+- **按来源清理** (`mimir_v8/source_purge.py`, `worker source-purge`) — 列出某个 connector 产生的来源、消息、未结候选和
+  已提交事实；`--execute` 才动手：未结候选走 `review_candidate` 审计路径驳回，来源排入立即到期的 retention 任务
+  （被已提交事实引用的原文仍由 retention 保留）。已提交事实只列出、不自动撤销。可重复执行。
+- **联邦入库原子化** (#53) — 信封要么全部写入、要么全部不写，中途失败不留半截数据。
+- **压缩后总是重新注入** (#80, `adapters/claude-code/mimir_auto_capture.py`) — 只对 resume 节流，compact 后必注入。
+- **开发流程文档** (#82) — `AGENTS.md` 入口、`docs/DEV-PROCESS.md`、`scripts/test-gate.sh`。
+
 ## v1.9.2 — 2026-11-25 · Tighten · 安全收口与规则收窄
 
 - **审核决定的身份取自 token** (`mimir_v8/review_backlog.py`) — 1.9.1 的 `review-backlog apply`
