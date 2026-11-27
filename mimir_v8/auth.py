@@ -54,6 +54,15 @@ TEAM_READ_SHARE: dict[str, frozenset[str]] = {
     "odin": frozenset({"thor", "mentor"}),
 }
 
+#: Isolated tenants (2026-11-27, Jarvis isolation). A principal listed here is
+#: walled off from the fleet in BOTH directions: none of the implicit read
+#: paths (technical-domain share, TEAM_READ_SHARE, role grants such as
+#: ``authenticated``) cross the boundary. Only the owner itself, its aliases,
+#: an explicit per-principal ``allow`` grant, or an admin can read across it.
+#: Jarvis serves people outside the fleet, so fleet memory must not reach it
+#: and memory from its users must not reach the fleet.
+ISOLATED_PRINCIPALS: frozenset[str] = frozenset({"jarvis"})
+
 #: Scopes the service actually checks (api.py ``scoped(...)``). Minting a
 #: principal with a scope outside this set grants nothing and hides typos, so
 #: it fails closed instead of being written into the registry.

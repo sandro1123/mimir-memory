@@ -8,7 +8,7 @@
 | 角色 | principal | 采集方式 | scopes | 备注 |
 |---|---|---|---|---|
 | Heimdallr | heimdallr | Hermes 全局 CDC | read / write / delete | — |
-| Jarvis | jarvis | Hermes profile CDC | read / write / delete | — |
+| Jarvis | jarvis | Hermes profile CDC + 插件召回（profile `jarvis`） | read / write / delete | **隔离租户（1.9.4）**：与机群双向不共享 |
 | QuantMaster | quantmaster | Hermes profile CDC | read / write / delete | — |
 | Mentor | mentor | 历史 CDC；RSS 与 Vault 采集也记在它名下 | read / write / delete / ingest / review | 采集器仍借用人格身份，待拆 `service:collector` |
 | Thor（飞书 aiduCAT 桥 + n100 本机 Claude Code） | `thor` | `~/.claude/hooks/mimir_auto_capture.py`（SessionStart / Stop / SessionEnd） | ingest / read / write / review | token：`secrets/clients/thor.token`；review 仅用于执行用户已批准的审核（1.9.2） |
@@ -23,6 +23,11 @@
 **身份必须显式（1.9.1）**：Claude Code hook 只认 `MIMIR_AGENT_ID`，不再按 `LARK_CHANNEL` 猜（Odin 也跑在 lark bridge 下，旧逻辑会把它认成 thor），也不再默认 `thor`。未设置时 hook 记一条错误、不发任何请求、exit 0。
 - n100（Thor）：`~/.claude/settings.json` 里三个 hook 命令前加 `MIMIR_AGENT_ID=thor `，**必须先改再装新 hook**，否则 Thor 停止沉淀。
 - sanjose（Odin）：`MIMIR_AGENT_ID=odin`，token `~/.mimir_odin.token`（`MIMIR_TOKEN_FILE`）、`MIMIR_HOST=<n100-tailscale-ip>`。11-25 起由本地包装 `mimir_auto_hook.py` 固定这三项；新 hook 装好后可改为 settings 前缀并去掉包装。
+
+**隔离租户（1.9.4）**：Jarvis 服务机群以外的人。"不进团队共享名单"并不等于隔离——技术域共享对所有已认证身份
+开放，所以 1.9.4 起由 `ISOLATED_PRINCIPALS` 在服务端双向封住：技术域共享、团队共享、role 授权都不跨越边界，
+只有显式 principal 授权或 admin 可以。Hermes 插件按 profile 取身份（`default→mentor`、`jarvis→jarvis`、
+`quantmaster→quantmaster`），缺身份或 token 不发请求，不再兜底 mentor / admin。
 
 ## 2. 与原目标的差异
 - thor / odin 目前有 `write`：`mimir-remember` 走 `POST /v8/facts` 需要它。原目标是只留 read + ingest，是否收回待定（收回后 remember 要改走 ingest 通道）。

@@ -10,6 +10,16 @@ return an empty result (reads) or an explicit ``{"ok": False, "error": ...}``
 - ``mimir_remember`` used to return ``{}`` on failure (agent believed it was
   stored) and keyed idempotency on Python ``hash()`` (randomised per process).
 - ``mimir_reflect`` posted ``{"query": ...}`` while the API requires ``text``.
+
+2026-11-27 identity fix (Jarvis isolation):
+- The identity used to live in a module-global ``_STATE`` that nothing ever
+  filled, so every profile resolved to the ``mentor`` fallback; a missing
+  ``<owner>.token`` then fell back to ``admin.token``. The gateway multiplexes
+  several profiles in ONE process, so any process-wide identity (module state
+  or env var) is wrong by construction.
+- Now every call carries an explicit ``owner`` resolved per provider instance
+  from the Hermes profile. Unknown profile, missing token -> fail closed
+  (no request is sent). There is no mentor or admin fallback any more.
 """
 
 from __future__ import annotations
@@ -27,59 +37,54 @@ logger = logging.getLogger("mimir_memory_provider")
 
 MIMIR_API = os.environ.get("MIMIR_PLUGIN_API", "http://127.0.0.1:8456")
 TOKEN_DIR_DEFAULT = Path.home() / ".hermes/mimir/secrets/clients"
-ADMIN_TOKEN_FILE = Path(os.environ.get(
-    "MIMIR_PLUGIN_TOKEN_FILE", str(TOKEN_DIR_DEFAULT / "admin.token")
-))
 
-# Mutable per-process state populated by the provider's initialize() hook.
-_STATE: dict[str, Any] = {}
+#: Hermes profile name -> Mímir principal. Explicit allow-list: a profile that
+#: is not listed gets NO identity and the plugin refuses to talk to Mímir.
+#: ``default`` is the main Hermes profile, which has always written as mentor.
+PROFILE_PRINCIPALS: dict[str, str] = {
+    "default": "mentor",
+    "jarvis": "jarvis",
+    "quantmaster": "quantmaster",
+}
+
+#: Principals the plugin must never authenticate as, whatever the mapping says.
+FORBIDDEN_PRINCIPALS = frozenset({"admin"})
 
 
-def _owner() -> str:
-    """Resolve the calling agent's principal for ACL scoping.
+def token_dir() -> Path:
+    return Path(os.environ.get("MIMIR_PLUGIN_TOKEN_DIR", str(TOKEN_DIR_DEFAULT)))
 
-    Priority: MIMIR_PLUGIN_OWNER env (set per gateway systemd unit) >
-    agent_identity passed by Hermes at provider init > legacy default.
+
+def resolve_owner(agent_identity: str = "") -> str | None:
+    """Map a Hermes profile name to a Mímir principal, or ``None`` (fail closed).
+
+    ``MIMIR_PLUGIN_OWNER`` is honoured only when Hermes passed no profile at
+    all (standalone / CLI use). It is process-wide, so it must never override
+    a real profile identity inside the multiplexing gateway.
     """
-    env = os.environ.get("MIMIR_PLUGIN_OWNER", "").strip()
-    if env:
-        return env
-    ident = str(_STATE.get("agent_identity") or "").strip()
-    if ident and ident not in ("default", "custom"):
-        return ident
-    return "mentor"
+    ident = str(agent_identity or "").strip()
+    if ident:
+        owner = PROFILE_PRINCIPALS.get(ident)
+    else:
+        owner = os.environ.get("MIMIR_PLUGIN_OWNER", "").strip() or None
+    if not owner or owner in FORBIDDEN_PRINCIPALS:
+        return None
+    return owner
 
 
-def _token() -> str | None:
-    """Bearer token for the calling agent.
+def _token(owner: str | None) -> str | None:
+    """Bearer token for exactly this principal: ``<token dir>/<owner>.token``.
 
-    Priority: explicit MIMIR_PLUGIN_TOKEN_FILE > <token dir>/<owner>.token >
-    <token dir>/admin.token. Using the agent's own token makes Mímir's ACL
-    apply to reads (prefetch/search), not just to writes.
+    No fallback to any other principal's token. A missing file means no
+    request is sent at all.
     """
-    explicit = os.environ.get("MIMIR_PLUGIN_TOKEN_FILE", "").strip()
-    if explicit:
-        path = Path(explicit)
-        if path.exists():
-            return path.read_text().strip()
-    token_dir = Path(os.environ.get("MIMIR_PLUGIN_TOKEN_DIR", str(TOKEN_DIR_DEFAULT)))
-    agent_file = token_dir / f"{_owner()}.token"
-    if agent_file.exists():
-        return agent_file.read_text().strip()
-    admin = token_dir / "admin.token"
-    if admin.exists():
-        return admin.read_text().strip()
-    if ADMIN_TOKEN_FILE.exists():
-        return ADMIN_TOKEN_FILE.read_text().strip()
-    return None
-
-
-def _headers() -> dict[str, str]:
-    headers = {"Content-Type": "application/json"}
-    token = _token()
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
+    if not owner or owner in FORBIDDEN_PRINCIPALS:
+        return None
+    path = token_dir() / f"{owner}.token"
+    if not path.is_file():
+        return None
+    token = path.read_text().strip()
+    return token or None
 
 
 def _error(kind: str, **detail) -> dict:
@@ -91,11 +96,21 @@ def _ok(result) -> bool:
     return isinstance(result, dict) and "error" not in result
 
 
-def _post(path: str, data: dict) -> dict | None:
+def _headers(owner: str | None) -> dict[str, str] | None:
+    token = _token(owner)
+    if not token:
+        return None
+    return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+
+
+def _post(path: str, data: dict, *, owner: str | None) -> dict:
+    headers = _headers(owner)
+    if headers is None:
+        return _error("no_identity", path=path, owner=owner)
     try:
         request = urllib.request.Request(
             f"{MIMIR_API}{path}", data=json.dumps(data).encode(),
-            headers=_headers(), method="POST",
+            headers=headers, method="POST",
         )
         with urllib.request.urlopen(request, timeout=10) as response:
             return json.loads(response.read())
@@ -110,9 +125,12 @@ def _post(path: str, data: dict) -> dict | None:
         return _error("unreachable", path=path, detail=str(exc)[:200])
 
 
-def _get(path: str) -> dict | None:
+def _get(path: str, *, owner: str | None) -> dict:
+    headers = _headers(owner)
+    if headers is None:
+        return _error("no_identity", path=path, owner=owner)
     try:
-        request = urllib.request.Request(f"{MIMIR_API}{path}", headers=_headers())
+        request = urllib.request.Request(f"{MIMIR_API}{path}", headers=headers)
         with urllib.request.urlopen(request, timeout=10) as response:
             return json.loads(response.read())
     except urllib.error.HTTPError as exc:
@@ -127,27 +145,31 @@ def _idempotency_key(owner: str, content: str) -> str:
     return f"plugin-remember:{digest}"
 
 
-def mimir_search(query: str, limit: int = 5, **kwargs) -> list[dict]:
-    """Search Mímir memory for facts relevant to a query (ACL-scoped to the agent)."""
-    result = _post("/v8/query", {"text": query, "limit": limit})
+def mimir_search(query: str, limit: int = 5, *, owner: str | None = None, **kwargs) -> list[dict]:
+    """Search Mímir memory for facts relevant to a query (ACL-scoped to ``owner``)."""
+    # depth=deep: 插件是 agent 的主召回入口, 须能命中 L1 原子事实
+    # (event/project_config/reference/...)。standard 档的 L1 gate 会把这些
+    # 整条丢弃, 而它们占生产库 67%(485/721)。spec 不动, 由调用方表达意图。
+    result = _post("/v8/query", {"text": query, "limit": limit, "depth": "deep"}, owner=owner)
     return result.get("results", []) if _ok(result) else []
 
 
-def mimir_remember(content: str, owner: str = "", domain: str = "personal",
+def mimir_remember(content: str, owner: str | None = None, domain: str = "personal",
                    fact_type: str = "user_pref", **kwargs) -> dict:
-    """Persist a memory fact into Mímir (owner defaults to the active agent).
+    """Persist a memory fact into Mímir as ``owner``.
 
     Returns ``{"ok": True, ...api response}`` or ``{"ok": False, "error": str}``
     so the agent never mistakes a failed write for a stored memory.
     """
-    principal = owner or _owner()
+    if not owner:
+        return {"ok": False, "error": "no_identity"}
     result = _post("/v8/learning/remember", {
         "content": content,
-        "owner_principal": principal,
+        "owner_principal": owner,
         "domain": domain,
         "fact_type": fact_type,
-        "idempotency_key": _idempotency_key(principal, content),
-    })
+        "idempotency_key": _idempotency_key(owner, content),
+    }, owner=owner)
     if _ok(result):
         return {"ok": True, **result}
     err = (result or {}).get("error", {}) if isinstance(result, dict) else {}
@@ -156,24 +178,25 @@ def mimir_remember(content: str, owner: str = "", domain: str = "personal",
     return {"ok": False, "error": " ".join(p for p in parts if p).strip()}
 
 
-def mimir_recent(limit: int = 10, **kwargs) -> list[dict]:
-    """Return the most recently recorded memories."""
-    result = _get(f"/v8/memories/recent?limit={int(limit)}")
+def mimir_recent(limit: int = 10, *, owner: str | None = None, **kwargs) -> list[dict]:
+    """Return the most recently recorded memories visible to ``owner``."""
+    result = _get(f"/v8/memories/recent?limit={int(limit)}", owner=owner)
     if _ok(result):
         return result.get("results", result.get("memories", []))
     return []
 
 
-def mimir_reflect(topic: str = "", **kwargs) -> dict | None:
+def mimir_reflect(topic: str = "", *, owner: str | None = None, **kwargs) -> dict | None:
     """Reflect on stored knowledge for a topic (quality dashboard)."""
     if topic:
-        result = _post("/v8/query", {"text": topic, "limit": 10})
+        result = _post("/v8/query", {"text": topic, "limit": 10, "depth": "deep"}, owner=owner)
         return {"topic": topic, "results": result.get("results", []) if _ok(result) else []}
-    result = _get("/v12/evolve/report")
+    result = _get("/v12/evolve/report", owner=owner)
     return result if _ok(result) else None
 
 
-def mimir_feedback(query: str, fact_id: str, signal: str, **kwargs) -> dict | None:
+def mimir_feedback(query: str, fact_id: str, signal: str, *, owner: str | None = None,
+                   **kwargs) -> dict | None:
     """Submit a retrieval-quality signal so Mímir retrieval can self-evolve.
 
     signal: "useful" (result answered the query), "useless" (irrelevant/wrong),
@@ -187,10 +210,10 @@ def mimir_feedback(query: str, fact_id: str, signal: str, **kwargs) -> dict | No
         "query_text": query,
         "fact_id": fact_id,
         "signal": signal,
-    })
+    }, owner=owner)
 
 
 __all__ = [
     "mimir_search", "mimir_remember", "mimir_recent", "mimir_reflect",
-    "mimir_feedback", "_post", "_get",
+    "mimir_feedback", "resolve_owner", "PROFILE_PRINCIPALS", "_post", "_get",
 ]

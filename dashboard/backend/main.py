@@ -64,6 +64,7 @@ CODENAMES = {
     "1.9.1": "Bridge & Publish · 审核积压与规则收窄",
     "1.9.2": "Tighten · 安全收口与规则收窄",
     "1.9.3": "Connect More · 多源采集与断流告警",
+    "1.9.4": "Tenant Wall · 隔离租户",
 }
 CODENAME_FALLBACK = "未登记（版本代号表缺此号）"
 
