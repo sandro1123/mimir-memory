@@ -763,12 +763,18 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             return False
 
     def health_payload() -> dict:
+        # Liveness must not depend on the database: a locked or briefly
+        # unreadable canonical.db reports null here instead of failing /health.
+        try:
+            widened: bool | None = context.store.fact_status_widened()
+        except Exception:
+            widened = None
         return {
             "status": "ok",
             "service": "mimir-api",
             "version": MIMIR_VERSION,
             "schema_version": SCHEMA_VERSION,
-            "fact_status_widened": context.store.fact_status_widened(),
+            "fact_status_widened": widened,
         }
 
     def projector_status() -> list[dict]:

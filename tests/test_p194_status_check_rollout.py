@@ -133,6 +133,19 @@ class TestHealthReportsWidening(unittest.TestCase):
             self.assertEqual(body["status"], "ok")
             self.assertIs(body["fact_status_widened"], False)
 
+    def test_health_stays_up_when_the_probe_fails(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            fx = SupersedeFixture(Path(tmp))
+
+            def broken():
+                raise sqlite3.OperationalError("database is locked")
+
+            fx.store.fact_status_widened = broken
+            response = fx.client.get("/health")
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["status"], "ok")
+            self.assertIsNone(response.json()["fact_status_widened"])
+
 
 class TestWidenCli(unittest.TestCase):
     def _run(self, *args):
