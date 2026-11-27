@@ -6,6 +6,25 @@
 
 ---
 
+## v1.9.5 — 2026-11-27 · Tenant Wall · 隔离租户
+
+- **隔离租户** (`mimir_v8/auth.py` `ISOLATED_PRINCIPALS = {"jarvis"}`) — Jarvis 服务机群以外的人，与机群双向隔离。
+  读者或事实所有者有一方是隔离租户、且两者不是同一身份时，技术域共享（infrastructure / knowledge / tech_support
+  的 reference / learning）、`TEAM_READ_SHARE` 和 role 授权（含 `authenticated`）都不放行；只有本人、别名、
+  显式 principal 授权或 admin 可读。事实（`store.can_access`）和知识条目（`knowledge.can_read`）同一规则。
+  机群内部的共享规则不变。测试：`tests/test_p48_isolated_tenant.py`。
+- **Hermes 插件按 profile 取身份** (`hermes-plugin/mimir_memory_provider/`) — 旧代码的身份变量从未被赋值，
+  所有 profile 都落到 `mentor`；缺 `<owner>.token` 时再落到 `admin.token`。网关在一个进程里同时服务多个
+  profile，进程级身份（模块状态或环境变量）不可靠。现在每个 provider 实例在 `initialize()` 里按 profile
+  映射身份（`default→mentor`、`jarvis→jarvis`、`quantmaster→quantmaster`），每次请求显式带上；只读
+  `<owner>.token`，没有任何兜底；未登记的 profile、缺 token、`admin` 一律不发请求。
+  `MIMIR_PLUGIN_OWNER` 只在 Hermes 没传 profile 时生效。顺带把仓库与线上漂移的 `depth: deep` 收回仓库。
+- **查询审计命中数** (`api.py`) — `search()` 返回里没有 `total`，审计 `hits` 一直记 0。改为实际返回条数，
+  另记 `candidates`。
+
+**运维侧**：插件目录 `~/.hermes/plugins/mimir_memory_provider` 换成本版仓库文件（四个 profile 目录都是
+指向它的符号链接），之后重启 `hermes-gateway`。不要删除 `mentor.token` 来"止血"——旧插件找不到它会改用 admin。
+
 ## v1.9.4 — 2026-11-27 · Unblock · 替换状态迁移上线
 
 - **替换、撤回旧事实不再报 500** — issue #44 放宽 `facts.status` 约束（`superseded` / `retracted`）的整表重建

@@ -227,6 +227,11 @@ class KnowledgeService:
                 return False
             if row["owner_principal"] == principal_id:
                 return True
+            from .auth import ISOLATED_PRINCIPALS
+            crosses_isolation = (
+                principal_id in ISOLATED_PRINCIPALS
+                or row["owner_principal"] in ISOLATED_PRINCIPALS
+            )
             grants = connection.execute(
                 """SELECT subject_type,subject_id,effect FROM resource_grants
                    WHERE resource_type='knowledge_item' AND resource_id=?
@@ -240,6 +245,8 @@ class KnowledgeService:
             if grant["subject_type"] == "principal" and grant["subject_id"] == principal_id:
                 effects.append(grant["effect"])
             elif grant["subject_type"] == "role" and grant["subject_id"] in role_set:
+                if crosses_isolation and grant["effect"] == "allow":
+                    continue  # role allows never cross the isolation boundary
                 effects.append(grant["effect"])
         return "deny" not in effects and "allow" in effects
 
