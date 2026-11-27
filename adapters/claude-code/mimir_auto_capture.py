@@ -245,50 +245,97 @@ def clean_turn_text(text: str) -> str:
     text = re.sub(r"</?user_(message|input)>", "", text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
+#: Bounded reverse scan of the transcript (#81). A single large trailing
+#: tool_result used to fill the old fixed 300 KB tail window and hide the turn.
+_TAIL_CHUNK_BYTES = 256 * 1024
+_TAIL_MAX_SCAN_BYTES = 32 * 1024 * 1024
+_TAIL_MAX_RECORD_BYTES = 2 * 1024 * 1024
+#: Harness-injected "user" records that are not something the human typed.
+_NON_HUMAN_PREFIXES = ("{", "<task-notification")
+
+
+def _iter_lines_reversed(path: Path):
+    """Yield complete JSONL lines newest first, reading backwards in chunks.
+
+    Stops after ``_TAIL_MAX_SCAN_BYTES``; a line longer than
+    ``_TAIL_MAX_RECORD_BYTES`` is skipped instead of buffered.
+    """
+    pos = path.stat().st_size
+    scanned = 0
+    buf = b""
+    skipping = False
+    with path.open("rb") as f:
+        while pos > 0:
+            if scanned >= _TAIL_MAX_SCAN_BYTES:
+                log(f"transcript scan limit reached ({scanned} bytes) before a user turn")
+                return
+            n = min(_TAIL_CHUNK_BYTES, pos, _TAIL_MAX_SCAN_BYTES - scanned)
+            pos -= n
+            f.seek(pos)
+            parts = (f.read(n) + buf).split(b"\n")
+            scanned += n
+            if skipping:
+                if len(parts) == 1:  # still inside the oversized record
+                    buf = b""
+                    continue
+                parts = parts[:-1]  # drop its first fragment
+                skipping = False
+            buf = parts[0]
+            for line in reversed(parts[1:]):
+                yield line.decode("utf-8", errors="ignore")
+            if len(buf) > _TAIL_MAX_RECORD_BYTES:
+                log(f"transcript record oversized (>{_TAIL_MAX_RECORD_BYTES} bytes), skipped")
+                buf = b""
+                skipping = True
+    if buf and not skipping:
+        yield buf.decode("utf-8", errors="ignore")
+
+
+def _record_text(rec: dict) -> str:
+    content = (rec.get("message") or {}).get("content")
+    if isinstance(content, list):
+        content = "\n".join(c.get("text", "") for c in content
+                            if isinstance(c, dict) and c.get("type") == "text")
+    return content.strip() if isinstance(content, str) else ""
+
+
 def extract_latest_turn(transcript_path: str, fallback_msg: str = "") -> tuple[str, str]:
-    user_text, asst_text = "", fallback_msg or ""
+    """Return the newest human user message and the reply to it.
+
+    Assistant text written before that user message belongs to an earlier
+    turn and is never paired with it. ``fallback_msg`` (the hook's
+    ``last_assistant_message``) wins over the transcript when given.
+    """
+    user_text, asst_text = "", ""
     try:
         p = Path(transcript_path).expanduser()
         if not p.is_file():
-            return "", asst_text
-        size = p.stat().st_size
-        with p.open("rb") as f:
-            f.seek(max(0, size - 300_000))
-            tail = f.read().decode("utf-8", errors="ignore")
-        lines = tail.splitlines()
+            return "", fallback_msg or ""
+        for line in _iter_lines_reversed(p):
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(rec, dict) or rec.get("isMeta"):
+                continue
+            text = _record_text(rec)
+            if not text:
+                continue
+            rtype = rec.get("type")
+            if rtype == "assistant" and not asst_text:
+                asst_text = text
+            elif rtype == "user":
+                if text.startswith(_NON_HUMAN_PREFIXES) or "<local-command" in text:
+                    continue
+                user_text = text
+                break
     except Exception as e:
         log(f"transcript read fail: {e}")
-        return "", asst_text
-
-    for line in reversed(lines):
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
-        try:
-            rec = json.loads(line)
-        except Exception:
-            continue
-        rtype = rec.get("type")
-        msg = rec.get("message") or {}
-        content = msg.get("content")
-        if isinstance(content, list):
-            parts = []
-            for c in content:
-                if isinstance(c, dict) and c.get("type") == "text":
-                    parts.append(c.get("text", ""))
-            content = "\n".join(parts)
-        if not isinstance(content, str) or not content.strip():
-            continue
-        if rtype == "assistant" and not asst_text:
-            asst_text = content.strip()
-        elif rtype == "user":
-            c_str = content.strip()
-            if c_str.startswith("{") or "<local-command" in c_str:
-                continue
-            user_text = c_str
-            if asst_text:
-                break
-    return user_text, asst_text
+        return "", fallback_msg or ""
+    return user_text, fallback_msg or asst_text
 
 
 def handle_session_end(payload: dict, event: str) -> None:
