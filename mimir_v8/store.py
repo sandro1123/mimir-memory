@@ -1853,6 +1853,22 @@ class CanonicalStore:
             raise ValidationError("older_fact_ids must not be empty")
         if newer_fact_id in older_fact_ids:
             raise ValidationError("a fact cannot supersede itself")
+        # 1.9.4: a database that never ran migrate_schema_22_to_23 still has
+        # the pre-#44 status CHECK, so the flip below would die as a bare
+        # IntegrityError (a 500). Refuse up front with an actionable error.
+        # `amend` flips no status and keeps working on such a database.
+        if SUPERSESSION_TARGET_STATUS[relation] is not None:
+            if connection is None:
+                with contextlib.closing(self.connect()) as probe:
+                    widened = self._fact_status_check_widened(probe)
+            else:
+                widened = self._fact_status_check_widened(connection)
+            if not widened:
+                raise SchemaVersionError(
+                    "facts.status CHECK predates issue #44; run "
+                    "`python -m mimir_v8.migrate_cli widen-fact-status` "
+                    "before superseding or retracting facts"
+                )
 
         request_id = request_id or new_id()
         correlation_id = correlation_id or request_id
@@ -2522,6 +2538,23 @@ class CanonicalStore:
                 )
             """)
             connection.execute("CREATE INDEX IF NOT EXISTS idx_probe_tasks_due ON probe_tasks(due_at, status)")
+
+    @staticmethod
+    def _fact_status_check_widened(connection: sqlite3.Connection) -> bool:
+        """1.9.4: whether `facts.status` already accepts superseded/retracted.
+
+        Reads the stored DDL, the same evidence `migrate_schema_22_to_23`
+        uses to decide whether a rebuild is needed.
+        """
+        row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='facts'"
+        ).fetchone()
+        return bool(row and row[0] and _FACT_STATUS_CHECK_NEW in row[0])
+
+    def fact_status_widened(self) -> bool:
+        """Public probe for `/health` and the widen CLI."""
+        with contextlib.closing(self.connect()) as connection:
+            return self._fact_status_check_widened(connection)
 
     def migrate_schema_22_to_23(self) -> None:
         """issue #44:为既有库加 `superseded` / `retracted` 两个状态。

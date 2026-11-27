@@ -18,6 +18,13 @@ def build_parser() -> argparse.ArgumentParser:
     migrate.add_argument("--backup", required=True)
     migrate.add_argument("--to-version", type=int, default=None,
                          help="target schema version (auto-detect: 12->13, legacy 9/10->11)")
+    # 1.9.4: issue #44 widened facts.status (superseded/retracted), but the
+    # rebuild was never reachable from the CLI, so existing databases kept
+    # the old CHECK. Same mandatory-backup contract as `migrate`.
+    widen = sub.add_parser("widen-fact-status",
+                           help="widen facts.status for supersede/retract (issue #44), with mandatory backup")
+    widen.add_argument("--database", required=True)
+    widen.add_argument("--backup", required=True)
     restore = sub.add_parser("restore-isolated", help="restore a backup to a new isolated path")
     restore.add_argument("--backup", required=True)
     restore.add_argument("--destination", required=True)
@@ -43,6 +50,43 @@ def build_parser() -> argparse.ArgumentParser:
     imp.add_argument("--actor", default="admin", help="导入操作者 principal（写审计）")
     imp.add_argument("--dry-run", action="store_true", help="只出报告不落库")
     return parser
+
+
+def _widen_fact_status(args) -> int:
+    """Back up, then run the issue #44 rebuild. Already widened = no-op."""
+    import sys
+
+    from .migration import MigrationError, _online_backup
+    from .store import CanonicalStore
+
+    database = Path(args.database)
+    # CanonicalStore silently initialises a fresh schema at a missing path;
+    # a typo must not create an empty production-looking database.
+    if not database.is_file():
+        print(f"widen-fact-status: database does not exist: {database}", file=sys.stderr)
+        return 2
+    store = CanonicalStore(database)
+    widened_before = store.fact_status_widened()
+    report = {"database": str(database), "widened_before": widened_before}
+    if not widened_before:
+        try:
+            report["backup"] = str(args.backup)
+            report["backup_sha256"] = _online_backup(database, Path(args.backup))
+        except MigrationError as exc:
+            print(f"widen-fact-status: {exc}", file=sys.stderr)
+            return 2
+        before = store.counts()
+        store.migrate_schema_22_to_23()
+        after = store.counts()
+        changed = {k: (before[k], after[k]) for k in before if before[k] != after.get(k)}
+        if changed:
+            print(f"widen-fact-status: row counts changed {changed}; restore from {args.backup}",
+                  file=sys.stderr)
+            return 1
+        report["counts"] = after
+    report["widened_after"] = store.fact_status_widened()
+    print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+    return 0 if report["widened_after"] else 1
 
 
 def _no_embed(_text: str):
@@ -90,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
             result = migrate_schema_v13(args.database, args.backup).as_dict()
         else:
             result = migrate_schema(args.database, args.backup).as_dict()
+    elif args.command == "widen-fact-status":
+        return _widen_fact_status(args)
     elif args.command == "reproject":
         result, code = _reproject(args)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
