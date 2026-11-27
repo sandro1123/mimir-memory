@@ -29,8 +29,8 @@ Mímir 从第一天起就是反着设计的——**每一条记忆都要过审�
 | **会话钩子与热度 (1.8.0)** | SessionStart/SessionEnd 钩子自动捕获会话为 STM 候选（治理评审后才入库）、adapter/source 注册表声明式接入、search_feedback 热度信号参与召回排序 |
 | **Obsidian 知识库桥 (1.7.0)** | 经四道准入闸的实体事实可发布为库内「机器卡片」（Markdown + YAML Frontmatter），写前写后各一次 Git 快照；只写专属卡片目录，绝不改人类手写文字 |
 
-> **当前生产版本：`1.9.3 — Connect More（多源采集与断流告警）`**  
-> 新增两个采集来源：Mirasim 聊天记录（n100 定时只读拉取 X1E）和 pi 扩展（Brokkr，身份必须显式）。断流告警接上定时器和飞书推送；新增按来源清理工具 `worker source-purge`；联邦入库改为原子写入；hook 压缩后总是重新注入记忆。  
+> **当前生产版本：`1.9.4 — Unblock（替换状态迁移上线）`**  
+> 修复替换、撤回旧事实时报 500：放宽 `facts.status` 约束的迁移自 1.7.0 起就在代码里，但一直没有入口。新增 `migrate_cli widen-fact-status`（强制在线备份）；未迁移的库改为返回 503 `migration_required`；`/health` 增报 `fact_status_widened`。  
 > **2.0 的范围与验收判据**：[`docs/superpowers/specs/2026-11-16-mimir-2.0-scope-and-acceptance.md`](docs/superpowers/specs/2026-11-16-mimir-2.0-scope-and-acceptance.md)；
 > **执行计划**：[`docs/superpowers/plans/2026-11-16-mimir-1.8-to-2.0-execution-plan.md`](docs/superpowers/plans/2026-11-16-mimir-1.8-to-2.0-execution-plan.md)。
 > `2026-10-26` 的设计稿仅保留架构叙事，其里程碑与「`ObsidianProjector` / 52 张表」表述已作废。
@@ -212,7 +212,8 @@ python scripts/run_benchmarks.py --golden --out report.json
 | **v1.8.0** | Auto-Capture & Heat · 会话钩子与热度 | SessionStart/SessionEnd 钩子只产候选、adapter/source 双注册表、热度接入衰减排序 | ✅ 已发布 |
 | **v1.9.0** | Honest Connect · 身份收口与可信采集 | 一 agent 一身份、只读团队共享、治理回退链、查询带时间 | ✅ 已发布 |
 | **v1.9.1** | Bridge & Publish · 审核积压与规则收窄 | review-backlog 工具、hook 身份必须显式、敏感规则收窄 | ✅ 已发布 |
-| **v1.9.3** | Connect More · 多源采集 | Mirasim 采集器、pi 扩展、断流告警定时器 + 飞书推送、`source-purge` 按来源清理、联邦原子入库 | ✅ 已发布 · **当前生产运行** |
+| **v1.9.4** | Unblock · 替换修复 | `widen-fact-status` 迁移入口、未迁移库返回 503、`/health` 报约束状态 | ✅ 已发布 · **当前生产运行** |
+| **v1.9.3** | Connect More · 多源采集 | Mirasim 采集器、pi 扩展、断流告警定时器 + 飞书推送、`source-purge` 按来源清理、联邦原子入库 | ✅ 已发布 |
 | **v1.9.2** | Tighten · 安全收口 | 审核身份取自 token、hook 地址固定、scope/ACL 缺口、Vault 符号链接防逃逸 | ✅ 已发布 |
 | **v2.0.0** | The Unified Brain | 双时态语义（`as_of` 查询）、谱系归一、开源安全门、可分发性 | 🎯 终极目标（四项 gate，见范围裁决） |
 

@@ -6,6 +6,20 @@
 
 ---
 
+## v1.9.4 — 2026-11-27 · Unblock · 替换状态迁移上线
+
+- **替换、撤回旧事实不再报 500** — issue #44 放宽 `facts.status` 约束（`superseded` / `retracted`）的整表重建
+  `migrate_schema_22_to_23` 自 1.7.0 起就在代码里，但迁移命令行没有入口、运行时也不检查，既有库一直停在旧约束，
+  每次替换都在状态翻转时撞 IntegrityError。
+- **`python -m mimir_v8.migrate_cli widen-fact-status --database … --backup …`** — 先做在线备份并 `quick_check`，
+  再重建；前后比对行数，不一致即退出并提示用备份恢复。已放宽的库再跑是空操作。
+- **未迁移的库给出明确错误** — `supersede` / `retract` 预检约束，抛 `SchemaVersionError`，API 返回 503
+  `migration_required`，新事实不会留下半截；`amend` 不翻状态，照常可用。
+- **`/health` 增报 `fact_status_widened`**，部署后可直接确认。
+- 测试：`tests/test_p194_status_check_rollout.py`（8 项）。不改 schema 版本号（仍为 21），属加法语义。
+
+---
+
 ## v1.9.3 — 2026-11-27 · Connect More · 多源采集与断流告警
 
 - **Mirasim 聊天记录采集** (#79, `adapters/mirasim/collector.py`) — n100 定时通过局域网 SSH 只读拉取 X1E 上
