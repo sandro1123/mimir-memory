@@ -12,6 +12,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -71,6 +73,7 @@ SEEN_FILE = STATE_DIR / "mimir_seen.json"
 MIN_TURN_CHARS = 40
 MAX_TURN_CHARS = 10000
 INJECT_MAX_CHARS = 1600
+FLEET_INFO_TIMEOUT_S = 3
 
 
 def log(msg: str) -> None:
@@ -153,6 +156,32 @@ def save_seen(seen: dict) -> None:
 
 
 # ----------------------------------------------------------------- SessionStart
+_FLEET_COMMIT_RE = re.compile(r"commit\s+([0-9a-f]{7,40})\s*[（(]([^）)]+)[）)]")
+
+
+def fleet_registry_line() -> str:
+    """One-line fleet registry version pointer (fleet ROLES.md, L3 bootstrap).
+
+    Read from the local `fleet info`; returns "" when fleet is missing or its
+    output can't be parsed, so the injection never carries a made-up version.
+    """
+    exe = shutil.which("fleet")
+    if not exe:
+        return ""
+    try:
+        out = subprocess.run([exe, "info"], capture_output=True, text=True,
+                             timeout=FLEET_INFO_TIMEOUT_S, check=False).stdout
+    except (OSError, subprocess.SubprocessError) as e:
+        log(f"[SessionStart] fleet info failed: {e}")
+        return ""
+    m = _FLEET_COMMIT_RE.search(out or "")
+    if not m:
+        log("[SessionStart] fleet info: no commit line")
+        return ""
+    pointer = f"fleet pointer {AGENT_ID}" if AGENT_ID else "fleet pointer"
+    return f"■ 舰队注册表：commit {m.group(1)}（{m.group(2)}），角色与服务以 {pointer} 为准"
+
+
 def handle_session_start(payload: dict) -> None:
     source = str(payload.get("source") or "")
     # compact drops prior context, so always re-inject (2026-11-26 Odin amnesia fix);
@@ -199,6 +228,10 @@ def handle_session_start(payload: dict) -> None:
     prompt = "\n".join(lines)
     if len(prompt) > INJECT_MAX_CHARS:
         prompt = prompt[:INJECT_MAX_CHARS] + "…"
+    # Appended after truncation so the version pointer is never cut off.
+    registry = fleet_registry_line()
+    if registry:
+        prompt += "\n" + registry
 
     log(f"[SessionStart] injected {len(prompt)} chars (rules={len(iron_rules)}, prefs={len(user_prefs)})")
     output = {
