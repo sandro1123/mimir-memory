@@ -133,5 +133,54 @@ class TestResumeInjection(unittest.TestCase):
         self.assertEqual(calls, 1)
 
 
+class TestFleetRegistryLine(unittest.TestCase):
+    INFO = ("fleet 0.1.0 · registry /r · repo /r\n"
+            "commit 5046d2f（2026-11-27T09:42:54+00:00） · 同步于 0.6 小时前\n")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.m = load_hook({"MIMIR_AGENT_ID": "thor", "LARK_CHANNEL_HOME": "/x"}, self.tmp.name)
+        self.m.SEEN_FILE = Path(self.tmp.name) / "seen.json"
+        self.m.LOG_FILE = Path(self.tmp.name) / "hook.log"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _line(self, which="/usr/bin/fleet", stdout="", exc=None):
+        run = mock.Mock(side_effect=exc) if exc else mock.Mock(return_value=mock.Mock(stdout=stdout))
+        with mock.patch.object(self.m.shutil, "which", return_value=which), \
+                mock.patch.object(self.m.subprocess, "run", run):
+            return self.m.fleet_registry_line()
+
+    def test_parses_commit_and_time(self):
+        line = self._line(stdout=self.INFO)
+        self.assertIn("commit 5046d2f（2026-11-27T09:42:54+00:00）", line)
+        self.assertIn("fleet pointer thor", line)
+
+    def test_empty_agent_id_no_dangling_space(self):
+        with mock.patch.object(self.m, "AGENT_ID", ""):
+            line = self._line(stdout=self.INFO)
+        self.assertIn("以 fleet pointer 为准", line)
+
+    def test_no_fleet_no_line(self):
+        self.assertEqual(self._line(which=None), "")
+
+    def test_timeout_no_line(self):
+        self.assertEqual(self._line(exc=self.m.subprocess.TimeoutExpired("fleet", 3)), "")
+
+    def test_unparsable_no_line(self):
+        self.assertEqual(self._line(stdout="something else"), "")
+
+    def test_line_survives_truncation(self):
+        boot = {"iron_rules": [{"content": "x" * 140}] * 6, "user_prefs": [{"content": "y" * 130}] * 5}
+        buf = io.StringIO()
+        with mock.patch.object(self.m, "mimir_get", return_value=boot), \
+                mock.patch.object(self.m, "fleet_registry_line", return_value="■ 舰队注册表：commit abc1234"), \
+                mock.patch.object(self.m, "INJECT_MAX_CHARS", 200), redirect_stdout(buf):
+            self.m.handle_session_start({"source": "startup", "session_id": "s"})
+        ctx = json.loads(buf.getvalue())["hookSpecificOutput"]["additionalContext"]
+        self.assertTrue(ctx.endswith("…\n■ 舰队注册表：commit abc1234"))
+
+
 if __name__ == "__main__":
     unittest.main()
