@@ -6,6 +6,7 @@ and the policy layer discards the result. No fallback to "acceptable" default.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import os
@@ -178,6 +179,13 @@ class Evaluator:
         self.api_url = (api_url or os.environ.get("MIMIR_EVALUATOR_API_URL") or DEFAULT_API_URL).rstrip("/")
         self.model = model or os.environ.get("MIMIR_EVALUATOR_MODEL") or DEFAULT_MODEL
         self.api_key = api_key or os.environ.get("MIMIR_EVALUATOR_API_KEY") or ""
+        # 1.9.6: ordered fallback chain, tried when the primary returns nothing
+        # (timeout / 429 / empty). Falls back to the governance chain so one
+        # env file serves both workers, as router_config() already does.
+        chain = (os.environ.get("MIMIR_EVALUATOR_FALLBACK_MODELS")
+                 or os.environ.get("MIMIR_GOVERNANCE_FALLBACK_MODELS") or "")
+        self.fallback_models = [m.strip() for m in chain.split(",")
+                                if m.strip() and m.strip() != self.model]
         self._key_explicitly_empty = api_key is not None and api_key == ""
         self.salience_drop = salience_drop
         self.salience_fast_track = salience_fast_track
@@ -209,7 +217,17 @@ class Evaluator:
 
         prompt = self._build_prompt(content)
         raw = self._call_llm(prompt)
-        return self._parse_response(raw, content)
+        model_used = self.model
+        for fb_model in self.fallback_models:
+            if raw:
+                break
+            logger.warning("evaluator falling back to %s", fb_model)
+            raw = self._call_llm(prompt, model=fb_model)
+            model_used = fb_model
+        result = self._parse_response(raw, content)
+        if model_used != self.model:  # EvaluationResult is frozen
+            result = dataclasses.replace(result, model_used=model_used)
+        return result
 
     def _quarantine_log(self, layer: str, content: str, pattern: str) -> None:
         """Append a quarantine record (layer 3) so detected injections are auditable."""
@@ -312,7 +330,7 @@ class Evaluator:
             {"role": "user", "content": f"请评估以下内容：\n\n{content}"},
         ]
 
-    def _call_llm(self, messages: list[dict]) -> str | None:
+    def _call_llm(self, messages: list[dict], model: str | None = None) -> str | None:
         # 1.9.0: reasoning-capable flash models spend ~300 tokens thinking
         # before the JSON; 512 truncated them. Both knobs are env-tunable.
         try:
@@ -324,7 +342,7 @@ class Evaluator:
         except ValueError:
             timeout_s = 45
         body = json.dumps({
-            "model": self.model,
+            "model": model or self.model,
             "messages": messages,
             "temperature": 0.1,
             "max_tokens": max_tokens,
