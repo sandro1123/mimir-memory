@@ -2296,9 +2296,15 @@ class CanonicalStore:
             ).fetchone()
             if not fact:
                 return False
-            from .auth import PRINCIPAL_ALIASES, TEAM_READ_SHARE
+            from .auth import ISOLATED_PRINCIPALS, PRINCIPAL_ALIASES, TEAM_READ_SHARE
             aliases = PRINCIPAL_ALIASES.get(principal_id, frozenset({principal_id}))
             owner_matches = (fact["owner_principal"] == principal_id) or (fact["owner_principal"] in aliases)
+            # Isolated tenant boundary: reader or owner is isolated and they are
+            # not the same principal -> only an explicit principal grant counts.
+            crosses_isolation = (not owner_matches) and (
+                principal_id in ISOLATED_PRINCIPALS
+                or fact["owner_principal"] in ISOLATED_PRINCIPALS
+            )
             # Read-only team share: visibility only, never write/delete/review.
             team_readable = (
                 permission == "read"
@@ -2333,9 +2339,13 @@ class CanonicalStore:
             if row["subject_type"] == "principal" and row["subject_id"] == principal_id:
                 matched.append(row["effect"])
             elif row["subject_type"] == "role" and row["subject_id"] in roles:
+                if crosses_isolation and row["effect"] == "allow":
+                    continue  # role allows never cross the isolation boundary
                 matched.append(row["effect"])
         if "deny" in matched:
             return False
+        if crosses_isolation:
+            return "allow" in matched
         owner_default = owner_matches and permission in {"read", "write", "delete"}
         return owner_default or team_readable or domain_sharable or ("allow" in matched)
 

@@ -30,8 +30,9 @@ except ImportError:  # clean checkout / CI → structural stand-in
         def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str: ...
 
 from .tools import (
-    ADMIN_TOKEN_FILE,
     MIMIR_API,
+    resolve_owner,
+    token_dir,
     mimir_feedback,
     mimir_recent,
     mimir_reflect,
@@ -170,21 +171,33 @@ class MimirMemoryProvider(MemoryProvider):
         self._session_id = ""
         self._platform = ""
         self._agent_identity = ""
+        self._owner_principal: Optional[str] = None
 
     @property
     def name(self) -> str:
         return "mimir"
 
     def is_available(self) -> bool:
-        return ADMIN_TOKEN_FILE.exists()
+        # Identity is only known after initialize(); here we only check that
+        # the per-principal token directory exists. Requests still fail closed
+        # per call when this profile has no mapped principal or token.
+        return token_dir().is_dir()
 
     def initialize(self, session_id: str, **kwargs) -> None:
         self._session_id = session_id or ""
         self._platform = str(kwargs.get("platform") or "")
         self._agent_identity = str(kwargs.get("agent_identity") or "")
+        self._owner_principal = resolve_owner(self._agent_identity)
+        if self._owner_principal is None:
+            logger.warning(
+                "Mímir memory provider: profile %r has no Mímir principal — "
+                "recall and tools disabled (fail closed)", self._agent_identity,
+            )
         logger.info(
-            "Mímir memory provider initialized (api=%s session=%s platform=%s)",
+            "Mímir memory provider initialized (api=%s session=%s platform=%s "
+            "profile=%s principal=%s)",
             MIMIR_API, self._session_id, self._platform,
+            self._agent_identity, self._owner_principal,
         )
 
     def system_prompt_block(self) -> str:
@@ -200,7 +213,10 @@ class MimirMemoryProvider(MemoryProvider):
         if not query or not query.strip():
             return ""
         try:
-            results = mimir_search(query, limit=MAX_PREFETCH_RESULTS)
+            if not self._owner_principal:
+                return ""
+            results = mimir_search(query, limit=MAX_PREFETCH_RESULTS,
+                                   owner=self._owner_principal)
         except Exception as exc:  # fail closed — never break the agent loop
             logger.debug("mimir prefetch failed: %s", exc)
             return ""
@@ -211,10 +227,12 @@ class MimirMemoryProvider(MemoryProvider):
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         owner = self._owner()
+        if not owner:
+            return json.dumps({"error": "mimir: no identity for this profile (fail closed)"})
         try:
             if tool_name == "mimir_search":
                 out = mimir_search(str(args.get("query", "")),
-                                   limit=int(args.get("limit", 5)))
+                                   limit=int(args.get("limit", 5)), owner=owner)
             elif tool_name == "mimir_remember":
                 out = mimir_remember(
                     str(args.get("content", "")),
@@ -223,14 +241,15 @@ class MimirMemoryProvider(MemoryProvider):
                     fact_type=str(args.get("fact_type", "user_pref")),
                 )
             elif tool_name == "mimir_recent":
-                out = mimir_recent(limit=int(args.get("limit", 10)))
+                out = mimir_recent(limit=int(args.get("limit", 10)), owner=owner)
             elif tool_name == "mimir_reflect":
-                out = mimir_reflect(topic=str(args.get("topic", "")))
+                out = mimir_reflect(topic=str(args.get("topic", "")), owner=owner)
             elif tool_name == "mimir_feedback":
                 out = mimir_feedback(
                     query=str(args.get("query", "")),
                     fact_id=str(args.get("fact_id", "")),
                     signal=str(args.get("signal", "")),
+                    owner=owner,
                 )
             else:
                 return json.dumps({"error": f"unknown tool {tool_name}"})
@@ -239,8 +258,8 @@ class MimirMemoryProvider(MemoryProvider):
             return json.dumps({"error": str(exc)})
         return json.dumps(out if out is not None else {}, ensure_ascii=False)
 
-    def _owner(self) -> str:
-        return os.environ.get("MIMIR_PLUGIN_OWNER", "") or self._agent_identity or "mentor"
+    def _owner(self) -> Optional[str]:
+        return self._owner_principal
 
     def backup_paths(self) -> List[str]:
         return []

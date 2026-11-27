@@ -901,7 +901,10 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
         try:
             context.store.write_audit(
                 identity.principal_id, "query", body.text[:120],
-                payload={"hits": int(result.get("total", 0) or 0),
+                # search() returns no "total" key, so this used to log 0
+                # for every query; count what was actually returned.
+                payload={"hits": len(result.get("results") or []),
+                         "candidates": int(result.get("candidate_count", 0) or 0),
                          "limit": body.limit},
             )
         except Exception:
