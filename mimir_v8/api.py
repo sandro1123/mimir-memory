@@ -59,6 +59,7 @@ from .store import (
     CanonicalStore,
     ConflictError,
     NotFoundError,
+    SchemaVersionError,
     load_sources_yaml,
     sha256_text,
     utc_now,
@@ -707,6 +708,13 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
     async def not_found_error(request: Request, exc: NotFoundError):
         return JSONResponse(error_payload(request, "not_found", str(exc)), status_code=404)
 
+    # 1.9.4: the database is behind the runtime (e.g. the #44 status CHECK
+    # was never widened). The request is valid; the store is not ready for it.
+    @app.exception_handler(SchemaVersionError)
+    async def migration_required(request: Request, exc: SchemaVersionError):
+        return JSONResponse(
+            error_payload(request, "migration_required", str(exc)), status_code=503)
+
     @app.exception_handler(CandidatePolicyError)
     @app.exception_handler(CoreMemoryPolicyError)
     @app.exception_handler(BlackboardError)
@@ -760,6 +768,7 @@ def create_app(context: ServiceContext, *, lifespan=None) -> FastAPI:
             "service": "mimir-api",
             "version": MIMIR_VERSION,
             "schema_version": SCHEMA_VERSION,
+            "fact_status_widened": context.store.fact_status_widened(),
         }
 
     def projector_status() -> list[dict]:
