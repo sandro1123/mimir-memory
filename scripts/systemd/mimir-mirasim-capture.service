@@ -1,0 +1,25 @@
+# Template: replace @MIMIR_HOME@ and @USER@ before installing to /etc/systemd/system/.
+# Pulls new Mirasim chat messages from X1E over LAN SSH (read-only there) and
+# ingests them as connector mirasim-x1e. The cursor only advances after the API
+# accepts a batch, so a missed run (X1E asleep) is caught up next time.
+[Unit]
+Description=Mímir Mirasim capture - pull X1E chat logs into conversation ingestion
+After=mimir.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@USER@
+Group=@USER@
+UMask=0077
+WorkingDirectory=@MIMIR_HOME@/releases/current
+Environment=PYTHONPATH=@MIMIR_HOME@/releases/current
+# API base URL: collector default is the local loopback API (override with MIMIR_V8_URL).
+Environment=MIRASIM_TOKEN_FILE=@MIMIR_HOME@/secrets/clients/mirasim.token
+Environment=MIRASIM_STATE=@MIMIR_HOME@/state/mirasim_cursor.json
+ExecStart=@MIMIR_HOME@/venvs/current/bin/python3 @MIMIR_HOME@/releases/current/adapters/mirasim/collector.py
+TimeoutStartSec=5min
+NoNewPrivileges=true
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mimir-mirasim-capture

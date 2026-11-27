@@ -25,6 +25,7 @@ from .trust import TrustManager
 from .store import CanonicalStore, new_id, sha256_text, utc_now
 from .evolve import EvolveMemService
 from .review_backlog import add_review_backlog_parser
+from .source_purge import add_source_purge_parser
 
 logger = logging.getLogger("mimir_v8.worker")
 
@@ -138,6 +139,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # 1.9.1 review backlog triage: list is read-only; apply is a dry run unless --execute
     add_review_backlog_parser(sub)
+    add_source_purge_parser(sub)
 
     # ── loop closure: scheduled conflict detection ─────────────────────
     conflict = sub.add_parser("conflict-detect")
@@ -712,7 +714,7 @@ def review_reminder(store: CanonicalStore, owner: str | None = None) -> dict:
 #: 1.9.0 捕获断流告警（2026-11-24）：这些 connector 超过阈值小时数没有新
 #: source 即视为断流。Odin 用量低，阈值放宽。MIMIR_CAPTURE_WATCH 可整体覆盖。
 CAPTURE_WATCH_DEFAULT = {"thor-bridge": 24.0, "odin-bridge": 72.0, "hermes-jarvis-profile": 24.0,
-                         "brokkr-bridge": 72.0}
+                         "brokkr-bridge": 72.0, "mirasim-x1e": 24.0}
 
 
 def _parse_capture_watch(spec: str) -> dict[str, float]:
@@ -1360,6 +1362,9 @@ def main(argv=None) -> int:
     elif args.command == "review-backlog":
         from .review_backlog import run_review_backlog
         return run_review_backlog(store, args)
+    elif args.command == "source-purge":
+        from .source_purge import run_source_purge
+        return run_source_purge(store, args)
     elif args.command == "reflect":
         # ③-5 默认关闭：未显式设 MIMIR_REFLECT_ENABLED=1 时直接空转，
         # 绝不因为「装了定时器」就开始烧 LLM 调用。
