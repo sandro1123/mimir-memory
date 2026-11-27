@@ -8,7 +8,7 @@
 | 角色 | principal | 采集方式 | scopes | 备注 |
 |---|---|---|---|---|
 | Heimdallr | heimdallr | Hermes 全局 CDC | read / write / delete | — |
-| Jarvis | jarvis | Hermes profile CDC + 插件召回（profile `jarvis`） | read / write / delete | **隔离租户（1.9.5）**：与机群双向不共享 |
+| Jarvis | jarvis | Hermes profile CDC + 插件召回（profile `jarvis`） | read / write | **隔离租户（1.9.5）**：与机群双向不共享 |
 | QuantMaster | quantmaster | Hermes profile CDC | read / write / delete | — |
 | Mentor | mentor | 历史 CDC；RSS 与 Vault 采集也记在它名下 | read / write / delete / ingest / review | 采集器仍借用人格身份，待拆 `service:collector` |
 | Thor（飞书 aiduCAT 桥 + n100 本机 Claude Code） | `thor` | `~/.claude/hooks/mimir_auto_capture.py`（SessionStart / Stop / SessionEnd） | ingest / read / write / review | token：`secrets/clients/thor.token`；review 仅用于执行用户已批准的审核（1.9.2） |
